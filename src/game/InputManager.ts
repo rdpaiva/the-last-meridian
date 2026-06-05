@@ -15,6 +15,8 @@ export class InputManager {
     reverse: false,
     rotateLeft: false,
     rotateRight: false,
+    strafeLeft: false,
+    strafeRight: false,
     fire: false,
   };
 
@@ -35,6 +37,8 @@ export class InputManager {
     this.state.reverse = this.held.has("KeyS") || this.held.has("ArrowDown");
     this.state.rotateLeft = this.held.has("KeyA") || this.held.has("ArrowLeft");
     this.state.rotateRight = this.held.has("KeyD") || this.held.has("ArrowRight");
+    this.state.strafeLeft = this.held.has("KeyQ");
+    this.state.strafeRight = this.held.has("KeyE");
     this.state.fire = this.held.has("Space");
   }
 
@@ -62,6 +66,8 @@ export class InputManager {
       case "KeyA":
       case "KeyS":
       case "KeyD":
+      case "KeyQ":
+      case "KeyE":
       case "ArrowUp":
       case "ArrowDown":
       case "ArrowLeft":

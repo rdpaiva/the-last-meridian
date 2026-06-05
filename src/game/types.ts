@@ -9,6 +9,8 @@ export type InputState = {
   reverse: boolean;
   rotateLeft: boolean;
   rotateRight: boolean;
+  strafeLeft: boolean;
+  strafeRight: boolean;
   fire: boolean;
 };
 

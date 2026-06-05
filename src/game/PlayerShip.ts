@@ -34,6 +34,7 @@ export class PlayerShip implements DamageTarget {
 
   private fireCooldownRemainingMs = 0;
   private readonly forwardScratch = new Vector3();
+  private readonly rightScratch = new Vector3();
 
   /**
    * Index of the next muzzle to fire from when GameConfig.player.fireMode
@@ -96,6 +97,18 @@ export class PlayerShip implements DamageTarget {
     return this.forwardScratch;
   }
 
+  /**
+   * World-space right (starboard) direction on the X/Z plane — forward
+   * rotated +90° clockwise from above, matching the local +X axis used by
+   * worldFromLocal. Returns a shared scratch Vector3 (no allocation).
+   */
+  right(): Vector3 {
+    this.rightScratch.x = Math.cos(this.rotationY);
+    this.rightScratch.y = 0;
+    this.rightScratch.z = -Math.sin(this.rotationY);
+    return this.rightScratch;
+  }
+
   update(
     deltaSeconds: number,
     input: InputState,
@@ -122,6 +135,15 @@ export class PlayerShip implements DamageTarget {
       // doesn't feel like a get-out-of-trouble jet.
       this.velocity.x -= fwd.x * cfg.reverseThrust * deltaSeconds;
       this.velocity.z -= fwd.z * cfg.reverseThrust * deltaSeconds;
+    }
+
+    // --- Strafe (lateral thrust; heading unchanged) ---
+    if (input.strafeLeft || input.strafeRight) {
+      const right = this.right();
+      // +1 toward starboard (right), -1 toward port (left).
+      const dir = (input.strafeRight ? 1 : 0) - (input.strafeLeft ? 1 : 0);
+      this.velocity.x += right.x * dir * cfg.strafeThrust * deltaSeconds;
+      this.velocity.z += right.z * dir * cfg.strafeThrust * deltaSeconds;
     }
 
     // --- Drag (frame-rate independent exponential decay) ---

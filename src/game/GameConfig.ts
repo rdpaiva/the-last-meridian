@@ -12,6 +12,13 @@ export const GameConfig = {
     thrust: 48,
     /** Reverse acceleration (units / sec^2) while reverse is held. */
     reverseThrust: 18,
+    /**
+     * Lateral (sideways) acceleration (units / sec^2) while strafe is held.
+     * Strafe pushes perpendicular to facing without changing heading, so the
+     * pilot can sidestep while keeping the nose — and guns — on the enemy.
+     * Tuned below forward thrust so strafing reads as a dodge, not a sprint.
+     */
+    strafeThrust: 34,
     /** Cap on velocity magnitude (units / sec). */
     maxSpeed: 35,
     /**

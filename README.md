@@ -35,6 +35,8 @@ Node 20.19+ or Node 22 LTS is recommended.
 | `S` / `↓` | Reverse thrust |
 | `A` / `←` | Rotate left |
 | `D` / `→` | Rotate right |
+| `Q` | Strafe left |
+| `E` | Strafe right |
 | `Space` | Fire lasers |
 
 The first keypress also unlocks the WebAudio context (browsers block
