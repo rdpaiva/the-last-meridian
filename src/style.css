@@ -1,0 +1,39 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  color: #cdd6f4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+#renderCanvas {
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  outline: none;
+  touch-action: none;
+}
+
+#hud {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  padding: 10px 14px;
+  background: rgba(11, 13, 22, 0.6);
+  border: 1px solid rgba(120, 140, 200, 0.18);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.55;
+  pointer-events: none;
+  user-select: none;
+  letter-spacing: 0.02em;
+  color: #cdd6f4;
+}
+
+#hud .label {
+  color: #7f8aa6;
+  margin-right: 6px;
+}

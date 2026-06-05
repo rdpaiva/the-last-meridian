@@ -1,0 +1,281 @@
+/**
+ * Central tuning constants. Adjust to tune feel.
+ *
+ * IMPORTANT: rates are expressed per second (not per frame), so behavior is
+ * identical at 60 Hz, 144 Hz, or any other refresh rate. Anything that ends
+ * in `Rate` should be fed into the helpers in `math.ts` (exponentialDecay /
+ * exponentialMultiplier), never multiplied raw per frame.
+ */
+export const GameConfig = {
+  player: {
+    /** Forward acceleration (units / sec^2) while thrust is held. */
+    thrust: 48,
+    /** Reverse acceleration (units / sec^2) while reverse is held. */
+    reverseThrust: 18,
+    /** Cap on velocity magnitude (units / sec). */
+    maxSpeed: 35,
+    /**
+     * Exponential drag rate (1/sec). With dragRate = 1.5, velocity decays
+     * to ~22% of its value after 1 second of no input.
+     */
+    dragRate: 1.5,
+    /** Angular speed (radians / sec). */
+    rotationSpeed: 4.5,
+    /** Minimum time between consecutive laser shots. */
+    fireCooldownMs: 120,
+
+    /**
+     * Where laser bolts spawn, in SHIP-LOCAL coordinates.
+     *   +Z = forward (toward the nose)
+     *   +X = right (starboard)
+     *   +Y = up (vertical — usually 0 since we're top-down)
+     *
+     * Add as many entries as you want; fireMode below decides whether
+     * each shot fires from all of them at once or alternates through
+     * the list. Easy weapon archetypes to try:
+     *
+     *   Single nose cannon:   [{ x: 0,     y: 0, z: 1.2 }]
+     *   Dual wing blasters:   [{ x: -0.85, y: 0, z: 0.1 },
+     *                          { x:  0.85, y: 0, z: 0.1 }]   (current default)
+     *   Triple-spread mount:  [{ x: 0,     y: 0, z: 1.2 },
+     *                          { x: -0.6,  y: 0, z: 0.5 },
+     *                          { x:  0.6,  y: 0, z: 0.5 }]
+     *
+     * The fallback ship's wings sit at x≈±0.55 with body width 0.7, so
+     * dual muzzles at ±0.85 are just outside the wing tips. Tune to taste.
+     */
+    muzzles: [
+      { x: -0.85, y: 0, z: 0.1 },
+      { x: 0.85, y: 0, z: 0.1 },
+    ],
+
+    /**
+     * "alternate"  — round-robin one muzzle per shot. Visual dual-fire,
+     *                same DPS as a single muzzle (fireCooldownMs governs
+     *                total fire rate). Classic X-wing feel.
+     * "salvo"      — every muzzle fires on the same tryFire(). Doubles
+     *                DPS at 2 muzzles, triples at 3, etc. If you switch
+     *                to "salvo" you'll want to bump fireCooldownMs to
+     *                rebalance the duel.
+     */
+    fireMode: "alternate" as "alternate" | "salvo",
+
+    /**
+     * Which procedural fallback ship to build (used when no
+     * /models/fighter.glb is present).
+     *   "classic" — sleek dart: tapered body, flat wings, blue cockpit dome,
+     *               canted wingtip fins.
+     *   "viper"   — Colonial-Viper silhouette: long nose, triple-engine
+     *               cluster, short swept wings with winglets, red stripes.
+     * Flip this value to switch between the two designs.
+     */
+    shipDesign: "viper" as "classic" | "viper",
+  },
+
+  laser: {
+    /** Travel speed in world units / sec. */
+    speed: 75,
+    /** Time before laser is despawned. */
+    lifetimeMs: 1200,
+    /** Visual length along the bolt's forward axis. */
+    length: 1.8,
+    /** Visual half-thickness in X and Y. */
+    radius: 0.08,
+    /** Offset from ship origin where the laser spawns (along ship forward). */
+    spawnOffset: 1.2,
+  },
+
+  arena: {
+    halfWidth: 60,
+    halfDepth: 40,
+  },
+
+  camera: {
+    /** World-space Y offset above the gameplay plane. */
+    offsetY: 35,
+    /**
+     * World-space Z offset behind the player. Camera does NOT rotate with
+     * the ship — this is a fixed world-space offset, not a chase-cam length.
+     */
+    offsetZ: 28,
+    /**
+     * Smoothing rate (1/sec). With rate = 8, camera covers ~63% of remaining
+     * distance every 1/8 sec. Higher = stiffer, lower = floatier.
+     */
+    smoothingRate: 8,
+    /**
+     * Seconds of look-ahead based on velocity. At velocityLead=0.25 and
+     * maxSpeed=35, the camera leads the ship by up to ~8.75 units in the
+     * direction it's moving. Subtle — gives a feel of forward momentum
+     * without sliding the ship around the frame.
+     */
+    velocityLead: 0.25,
+  },
+
+  starfield: {
+    /** Number of bright "near" stars. */
+    nearCount: 900,
+    /** Number of dim "far" stars (deeper parallax layer). */
+    farCount: 600,
+    /** Y level of the near star layer (below the play plane). */
+    nearY: -8,
+    /** Y level of the far star layer. */
+    farY: -18,
+  },
+
+  scenery: {
+    capitalShips: {
+      /** Number of background capital ships. */
+      count: 3,
+      /** Approximate Y level (each ship varies slightly). */
+      yLevel: -26,
+      /** Hull length range (world units). Each ship picks one in this band. */
+      lengthMin: 26,
+      lengthMax: 38,
+    },
+    nebulas: {
+      /** Number of nebula cloud patches. */
+      count: 4,
+      /** Y level — sits below everything else for backdrop depth. */
+      yLevel: -32,
+      /**
+       * Base opacity. Per-pixel opacity is modulated by the noise texture
+       * (cloud edges fade), so this is the cap, not the average.
+       */
+      alpha: 0.25,
+      /** Visual size of each nebula plane. */
+      size: 70,
+    },
+  },
+
+  engineGlow: {
+    /** Trail tube diameter. */
+    trailDiameter: 0.3,
+    /** Number of trail segments — longer = smoother but more vertices. */
+    trailLength: 40,
+    /** How fast the glow intensity catches up to the target thrust state. */
+    responseRate: 12,
+  },
+
+  glow: {
+    /** Overall bloom strength. 0.5 = subtle, 1.0 = vivid, 1.5+ = neon. */
+    intensity: 0.75,
+    /** Bloom blur radius. Bigger = softer/wider haloes. */
+    blurKernelSize: 32,
+    /** GlowLayer internal texture scale. 0.5 = half-res = faster. */
+    mainTextureRatio: 0.5,
+  },
+
+  combat: {
+    /** Hit radius for ship vs. laser tests (units). */
+    shipHitRadius: 1.2,
+    /** Damage dealt per laser hit. Both factions share the same damage. */
+    laserDamage: 20,
+
+    playerMaxHp: 100,
+    enemyMaxHp: 60,
+
+    /** Delay before a dead player ship comes back. */
+    playerRespawnDelayMs: 1500,
+    /** Delay before a dead enemy ship comes back. */
+    enemyRespawnDelayMs: 3000,
+  },
+
+  enemy: {
+    /** Forward acceleration (units / sec^2). Lower than the player. */
+    thrust: 18,
+    /** Velocity cap. */
+    maxSpeed: 22,
+    /** Drag rate as in player. */
+    dragRate: 1.4,
+    /** Angular speed (rad / sec). */
+    rotationSpeed: 2.0,
+
+    /** Range at which the enemy stops wandering and turns toward the player. */
+    engagementRange: 35,
+    /** Range below which the enemy will fire when its cone is on target. */
+    fireRange: 26,
+    /** Half-angle of the fire cone (rad). 0.22 ≈ 12.6°. */
+    fireConeAngle: 0.22,
+    /** Minimum time between shots. Slower than the player's 180ms. */
+    fireCooldownMs: 700,
+
+    /** How often the wander heading gets nudged (seconds). */
+    wanderRetargetSec: 1.4,
+    /** Magnitude of a wander nudge (radians). */
+    wanderJitter: 0.9,
+    /** Bias strength pulling the wander heading back toward arena center. */
+    centerBias: 0.35,
+  },
+
+  explosion: {
+    /** Pieces of debris per explosion. */
+    debrisCount: 8,
+    /** Total time before the explosion is disposed. */
+    durationMs: 700,
+    /** Outward speed of debris pieces (units / sec). */
+    debrisSpeedMin: 6,
+    debrisSpeedMax: 14,
+    /** Initial size of each debris piece (cube edge). */
+    debrisSize: 0.45,
+    /** Initial radius of the bright central flash sphere. */
+    flashRadius: 0.7,
+    /** Peak scale multiplier of the flash. */
+    flashPeakScale: 5.0,
+  },
+
+  shake: {
+    /**
+     * Trauma-based screen shake (Squirrel Eiserloh's pattern).
+     *   Each impact adds to trauma (capped at 1.0).
+     *   Trauma decays exponentially at decayRate per second.
+     *   Shake offset = max_offset × trauma² × sine-noise.
+     *
+     * Squaring trauma gives nice falloff feel: big events feel huge,
+     * small events feel subtle, and the tail of a shake feels graceful.
+     */
+    decayRate: 1.3,
+    /** Max horizontal shake at trauma = 1.0 (world units). */
+    maxOffsetXZ: 2.4,
+    /** Max vertical shake at trauma = 1.0 (world units). */
+    maxOffsetY: 0.7,
+
+    /** Trauma added by each kind of impact (cap is 1.0). */
+    traumaEnemyLaserHit: 0.2, // player laser landed on enemy
+    traumaPlayerLaserHit: 0.35, // enemy laser landed on player
+    traumaEnemyExplosion: 0.55,
+    traumaPlayerExplosion: 0.75,
+  },
+
+  hitstop: {
+    /**
+     * Pause-frame durations on impact (ms). The simulation freezes for
+     * this long while rendering continues — gives every hit a tiny moment
+     * of "weight" before the action resumes.
+     */
+    enemyLaserHitMs: 25,
+    playerLaserHitMs: 50,
+    enemyExplosionMs: 70,
+    playerExplosionMs: 90,
+    /** Hard cap on accumulated hitstop so chained hits can't freeze indefinitely. */
+    maxStackedMs: 140,
+  },
+
+  damageFlash: {
+    /** Total duration of the red flash on the player ship (ms). */
+    durationMs: 220,
+    /** Peak alpha at the start of the flash. */
+    peakAlpha: 0.9,
+    /** Diameter of the flash sphere — should encompass the player ship. */
+    diameter: 2.4,
+  },
+
+  scene: {
+    clearColor: { r: 0.02, g: 0.03, b: 0.06 },
+    /**
+     * Cap on per-frame delta time. Prevents teleporting ships and
+     * laser-through-wall bugs when the tab refocuses after being backgrounded.
+     */
+    maxDeltaSeconds: 1 / 30,
+  },
+};

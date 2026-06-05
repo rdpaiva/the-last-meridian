@@ -1,0 +1,395 @@
+import type { Scene } from "@babylonjs/core/scene";
+import { Color3 } from "@babylonjs/core/Maths/math.color";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
+import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
+import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
+import { GameConfig } from "./GameConfig";
+
+// Side-effect imports.
+//   glTF      — registers the .glb / .gltf loader plugin (handles both).
+//   builders  — registers MeshBuilder.CreateBox / CreateCylinder /
+//               CreateSphere. Without these the fallback ship throws at
+//               runtime (sphere is the cockpit canopy).
+import "@babylonjs/loaders/glTF";
+import "@babylonjs/core/Meshes/Builders/boxBuilder";
+import "@babylonjs/core/Meshes/Builders/cylinderBuilder";
+import "@babylonjs/core/Meshes/Builders/sphereBuilder";
+
+/**
+ * Fixed orientation + scale applied to an imported model so its nose
+ * points along the ship's local +Z. All values in radians.
+ *
+ * HOW TO TUNE WHEN YOUR MODEL LOOKS WRONG:
+ *
+ *   1. Open the dev server with `npm run dev`.
+ *   2. Press `I` in the browser to open the Babylon Inspector.
+ *   3. In the scene tree, expand `playerShipRoot` → `playerShipModel`
+ *      (NOT the outer playerShipRoot — gameplay drives its Y rotation,
+ *      so any edits there get overwritten each frame).
+ *   4. Adjust rotation X/Y/Z in the right panel until the booster is
+ *      at the back of the ship and the nose points "north" in the
+ *      arena. Tweak scaling if the ship is too big or too small.
+ *   5. Copy the values you see in the Inspector into the constants
+ *      below (note: Inspector shows DEGREES; the constants use RADIANS
+ *      — multiply by π/180).
+ *
+ * Common rotation tries — start here before opening the Inspector:
+ *   - Ship facing backwards:   ROTATION_Y = Math.PI
+ *   - Booster on right side:   ROTATION_Y = Math.PI / 2
+ *   - Booster on left side:    ROTATION_Y = -Math.PI / 2
+ *   - Lying on its back:       ROTATION_X = -Math.PI / 2
+ *   - Lying on its belly:      ROTATION_X =  Math.PI / 2
+ *   - Rolled 90° sideways:     ROTATION_Z = ±Math.PI / 2
+ */
+const MODEL_ROTATION_X = 0;
+const MODEL_ROTATION_Y = 0;
+const MODEL_ROTATION_Z = 0;
+const MODEL_SCALE = 1;
+
+export type LoadedShip = {
+  /**
+   * TransformNode that gameplay code (PlayerShip) writes to each frame.
+   * Its `rotation.y` becomes the ship's facing; never write static model
+   * corrections here, they'll be overwritten.
+   */
+  root: TransformNode;
+  /**
+   * Inner node holding the static orientation + scale correction. Edit
+   * THIS in the Inspector when tuning a new model.
+   */
+  modelRoot: TransformNode;
+  usingFallback: boolean;
+};
+
+export class AssetLoader {
+  constructor(private readonly scene: Scene) {}
+
+  /**
+   * Attempts to load /models/fighter.glb (or .gltf — same loader). On any
+   * failure, builds a fallback ship from primitives so the game still
+   * runs. Always resolves; never rejects.
+   *
+   * Returns a TWO-LEVEL node hierarchy:
+   *
+   *   playerShipRoot   ← outer, gameplay-driven (rotation.y = ship facing)
+   *     └ playerShipModel  ← inner, holds fixed alignment corrections
+   *         └ [GLB content OR fallback primitives]
+   *
+   * This separation matters: PlayerShip.update() writes to the outer
+   * root's rotation.y every frame, which would clobber any alignment
+   * fix if both lived on the same node.
+   */
+  async loadPlayerShip(): Promise<LoadedShip> {
+    const root = new TransformNode("playerShipRoot", this.scene);
+    const modelRoot = new TransformNode("playerShipModel", this.scene);
+    modelRoot.parent = root;
+
+    try {
+      // NOTE: trailing slash on rootUrl is required for SceneLoader.
+      const result = await SceneLoader.ImportMeshAsync(
+        "",
+        "/models/",
+        "fighter.glb",
+        this.scene,
+      );
+
+      // The glTF loader inserts a "__root__" TransformNode at the top to
+      // handle right-handed → left-handed conversion. Re-parent it (or any
+      // unparented meshes as a fallback) under our model root.
+      const gltfRoot = result.transformNodes.find(
+        (n) => n.name === "__root__",
+      );
+      if (gltfRoot) {
+        gltfRoot.parent = modelRoot;
+      } else {
+        for (const mesh of result.meshes) {
+          if (mesh.parent === null) {
+            mesh.parent = modelRoot;
+          }
+        }
+      }
+
+      this.applyOrientationCorrection(modelRoot);
+      return { root, modelRoot, usingFallback: false };
+    } catch (err) {
+      console.warn(
+        "[AssetLoader] Failed to load /models/fighter.glb — using fallback ship.",
+        err,
+      );
+      this.buildFallbackShip(modelRoot);
+      // Fallback ship is already oriented +Z forward by construction, so
+      // we don't apply the user correction here — leave modelRoot at
+      // identity rotation/scale.
+      return { root, modelRoot, usingFallback: true };
+    }
+  }
+
+  private applyOrientationCorrection(modelRoot: TransformNode): void {
+    modelRoot.rotation.x = MODEL_ROTATION_X;
+    modelRoot.rotation.y = MODEL_ROTATION_Y;
+    modelRoot.rotation.z = MODEL_ROTATION_Z;
+    modelRoot.scaling.setAll(MODEL_SCALE);
+  }
+
+  /**
+   * Dispatches to one of the procedural ship builders based on
+   * `GameConfig.player.shipDesign`. Both builders parent their meshes to
+   * `modelRoot` and orient the ship nose along the local +Z axis.
+   */
+  private buildFallbackShip(modelRoot: TransformNode): void {
+    if (GameConfig.player.shipDesign === "classic") {
+      this.buildClassicShip(modelRoot);
+    } else {
+      this.buildViperShip(modelRoot);
+    }
+  }
+
+  /**
+   * "classic" — a sleek dart: tapered conical body, two flat wings, a blue
+   * glass cockpit dome, and canted wingtip fins. Nose points along +Z.
+   *
+   * Critical detail: Babylon's CreateCylinder with diameterTop=0 produces a
+   * cone with its tip at local +Y; rotating +π/2 around X points it along +Z.
+   */
+  private buildClassicShip(modelRoot: TransformNode): void {
+    const scene = this.scene;
+
+    const body = MeshBuilder.CreateCylinder(
+      "fallback_body",
+      { height: 1.6, diameterTop: 0, diameterBottom: 0.7, tessellation: 12 },
+      scene,
+    );
+    body.rotation.x = Math.PI / 2; // tip: +Y → +Z
+    body.parent = modelRoot;
+
+    const bodyMat = new StandardMaterial("fallback_body_mat", scene);
+    bodyMat.diffuseColor = new Color3(0.7, 0.78, 0.92);
+    bodyMat.specularColor = new Color3(0.2, 0.2, 0.3);
+    body.material = bodyMat;
+
+    // Wings — two flat slabs flanking the body.
+    const wingSpec = { width: 0.7, height: 0.08, depth: 0.6 };
+    const wingL = MeshBuilder.CreateBox("fallback_wingL", wingSpec, scene);
+    wingL.position = new Vector3(-0.55, 0, -0.1);
+    wingL.parent = modelRoot;
+
+    const wingR = MeshBuilder.CreateBox("fallback_wingR", wingSpec, scene);
+    wingR.position = new Vector3(0.55, 0, -0.1);
+    wingR.parent = modelRoot;
+
+    const wingMat = new StandardMaterial("fallback_wing_mat", scene);
+    wingMat.diffuseColor = new Color3(0.45, 0.5, 0.65);
+    wingMat.specularColor = new Color3(0.1, 0.1, 0.15);
+    wingL.material = wingMat;
+    wingR.material = wingMat;
+
+    // Engine — small emissive block at the tail (-Z).
+    const engine = MeshBuilder.CreateBox(
+      "fallback_engine",
+      { width: 0.4, height: 0.25, depth: 0.35 },
+      scene,
+    );
+    engine.position = new Vector3(0, 0, -0.7);
+    engine.parent = modelRoot;
+
+    const engineMat = new StandardMaterial("fallback_engine_mat", scene);
+    engineMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
+    engineMat.emissiveColor = new Color3(0.95, 0.55, 0.25);
+    engineMat.specularColor = new Color3(0, 0, 0);
+    engine.material = engineMat;
+
+    // Cockpit canopy — a low-poly glass dome riding on top of the body,
+    // set forward toward the nose. Flattened (low scaling.y) and stretched
+    // along +Z so it reads as a fighter canopy rather than a ball. Low
+    // segment count keeps the faceted look consistent with the hull.
+    const cockpit = MeshBuilder.CreateSphere(
+      "fallback_cockpit",
+      { diameter: 0.42, segments: 6 },
+      scene,
+    );
+    cockpit.scaling = new Vector3(1, 0.55, 1.4);
+    cockpit.position = new Vector3(0, 0.16, 0.15);
+    cockpit.parent = modelRoot;
+
+    const cockpitMat = new StandardMaterial("fallback_cockpit_mat", scene);
+    cockpitMat.diffuseColor = new Color3(0.05, 0.12, 0.35);
+    cockpitMat.emissiveColor = new Color3(0.1, 0.35, 0.85);
+    cockpitMat.specularColor = new Color3(0.6, 0.7, 1.0);
+    cockpit.material = cockpitMat;
+
+    // Wingtips — small swept fins canting up-and-outward at the leading
+    // outer corner of each wing. Wings span to x = ±0.9, so the tips sit
+    // there. A slight outward roll (rotation.z) gives them a winglet flair.
+    const tipSpec = { width: 0.08, height: 0.32, depth: 0.42 };
+    const tipCant = Math.PI / 7;
+
+    const tipL = MeshBuilder.CreateBox("fallback_wingtipL", tipSpec, scene);
+    tipL.position = new Vector3(-0.9, 0.12, -0.05);
+    tipL.rotation.z = tipCant; // top leans outward (−X)
+    tipL.parent = modelRoot;
+
+    const tipR = MeshBuilder.CreateBox("fallback_wingtipR", tipSpec, scene);
+    tipR.position = new Vector3(0.9, 0.12, -0.05);
+    tipR.rotation.z = -tipCant; // top leans outward (+X)
+    tipR.parent = modelRoot;
+
+    const tipMat = new StandardMaterial("fallback_wingtip_mat", scene);
+    tipMat.diffuseColor = new Color3(0.08, 0.18, 0.45);
+    tipMat.emissiveColor = new Color3(0.06, 0.22, 0.6);
+    tipMat.specularColor = new Color3(0.3, 0.4, 0.7);
+    tipL.material = tipMat;
+    tipR.material = tipMat;
+  }
+
+  /**
+   * "viper" — a Colonial-Viper-style interceptor: a long tapered nose, a
+   * triple-engine cluster at the tail, short swept-back wings with vertical
+   * winglets, and a red dorsal stripe. Everything stays low-poly (small
+   * tessellation / sphere segments) to match the rest of the scene.
+   *
+   * Critical detail: Babylon's CreateCylinder with diameterTop=0 produces
+   * a cone with its tip at local +Y. To point the tip along +Z we rotate
+   * the primitive by +π/2 around the X axis. Plain cylinders (the engine
+   * nacelles) get the same +π/2 so their axis runs nose-to-tail.
+   */
+  private buildViperShip(modelRoot: TransformNode): void {
+    const scene = this.scene;
+
+    // Shared materials.
+    const hullMat = new StandardMaterial("fallback_hull_mat", scene);
+    hullMat.diffuseColor = new Color3(0.72, 0.75, 0.8);
+    hullMat.specularColor = new Color3(0.25, 0.25, 0.3);
+
+    const panelMat = new StandardMaterial("fallback_panel_mat", scene);
+    panelMat.diffuseColor = new Color3(0.5, 0.53, 0.58);
+    panelMat.specularColor = new Color3(0.15, 0.15, 0.2);
+
+    const redMat = new StandardMaterial("fallback_red_mat", scene);
+    redMat.diffuseColor = new Color3(0.85, 0.15, 0.1);
+    redMat.emissiveColor = new Color3(0.3, 0.03, 0.02);
+    redMat.specularColor = new Color3(0.2, 0.1, 0.1);
+
+    const exhaustMat = new StandardMaterial("fallback_exhaust_mat", scene);
+    exhaustMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
+    exhaustMat.emissiveColor = new Color3(0.95, 0.5, 0.2);
+    exhaustMat.specularColor = new Color3(0, 0, 0);
+
+    // Fuselage — one long faceted cone tapering to a sharp nose at +Z.
+    // Hexagonal cross-section (tessellation 6) reads as low-poly; widest
+    // at the tail where the engines mount. Shifted +Z so the point reaches
+    // well ahead of the wings (the "longer nose").
+    const body = MeshBuilder.CreateCylinder(
+      "fallback_body",
+      { height: 2.7, diameterTop: 0, diameterBottom: 0.78, tessellation: 6 },
+      scene,
+    );
+    body.rotation.x = Math.PI / 2; // tip: +Y → +Z
+    body.position = new Vector3(0, 0, 0.35);
+    body.material = hullMat;
+    body.parent = modelRoot;
+
+    // Engine cluster — three nacelles at the tail (-Z), each capped with a
+    // hot emissive exhaust disk at the very back.
+    const nacelleXs = [-0.46, 0, 0.46];
+    const nacelleZ = -1.05;
+    for (let i = 0; i < nacelleXs.length; i++) {
+      const x = nacelleXs[i];
+
+      const nacelle = MeshBuilder.CreateCylinder(
+        `fallback_nacelle${i}`,
+        { height: 0.85, diameter: 0.46, tessellation: 8 },
+        scene,
+      );
+      nacelle.rotation.x = Math.PI / 2; // axis: +Y → +Z (nose-to-tail)
+      nacelle.position = new Vector3(x, -0.02, nacelleZ);
+      nacelle.material = panelMat;
+      nacelle.parent = modelRoot;
+
+      const exhaust = MeshBuilder.CreateCylinder(
+        `fallback_exhaust${i}`,
+        { height: 0.08, diameter: 0.4, tessellation: 8 },
+        scene,
+      );
+      exhaust.rotation.x = Math.PI / 2;
+      exhaust.position = new Vector3(x, -0.02, nacelleZ - 0.46);
+      exhaust.material = exhaustMat;
+      exhaust.parent = modelRoot;
+    }
+
+    // Cockpit canopy — a low-poly tinted-glass diamond set forward on the
+    // spine. segments:4 gives a faceted octahedral look; flattened on Y and
+    // stretched along Z so it reads as a canopy, not a ball.
+    const cockpit = MeshBuilder.CreateSphere(
+      "fallback_cockpit",
+      { diameter: 0.42, segments: 4 },
+      scene,
+    );
+    cockpit.scaling = new Vector3(0.95, 0.55, 1.7);
+    cockpit.position = new Vector3(0, 0.2, 0.45);
+    cockpit.material = (() => {
+      const m = new StandardMaterial("fallback_cockpit_mat", scene);
+      m.diffuseColor = new Color3(0.05, 0.12, 0.32);
+      m.emissiveColor = new Color3(0.1, 0.32, 0.75);
+      m.specularColor = new Color3(0.6, 0.7, 1.0);
+      return m;
+    })();
+    cockpit.parent = modelRoot;
+
+    // Dorsal stripe — thin red box running down the spine. The fuselage is
+    // a cone that tapers to a point, so the stripe is kept short and set
+    // back over the fatter mid-body (not out to the thin nose, where it
+    // would float) and tilted nose-down to hug the cone's upper slope.
+    const stripe = MeshBuilder.CreateBox(
+      "fallback_stripe",
+      { width: 0.09, height: 0.05, depth: 1.0 },
+      scene,
+    );
+    stripe.position = new Vector3(0, 0.17, 0.2);
+    stripe.rotation.x = 0.14; // nose end dips to follow the taper
+    stripe.material = redMat;
+    stripe.parent = modelRoot;
+
+    // Wings + winglets — short, swept-back slabs near the tail, each tipped
+    // with a vertical fin carrying a red stripe. Built per side via a sign
+    // factor (-1 = left, +1 = right). Sweep is a Y-rotation that pulls each
+    // outboard tip rearward; per CLAUDE.md, +rotationY turns a local +X axis
+    // toward -Z, so the right wing sweeps with +angle and the left with -.
+    const sweep = 0.5;
+    for (const side of [-1, 1] as const) {
+      const tag = side < 0 ? "L" : "R";
+
+      const wing = MeshBuilder.CreateBox(
+        `fallback_wing${tag}`,
+        { width: 0.6, height: 0.07, depth: 0.66 },
+        scene,
+      );
+      wing.position = new Vector3(side * 0.52, -0.08, -0.45);
+      wing.rotation.y = side * sweep;
+      wing.material = panelMat;
+      wing.parent = modelRoot;
+
+      // Winglet rises from the outboard edge (local ∓X) of the wing, canted
+      // slightly outward. Parented to the wing so it inherits the sweep.
+      const winglet = MeshBuilder.CreateBox(
+        `fallback_winglet${tag}`,
+        { width: 0.06, height: 0.36, depth: 0.34 },
+        scene,
+      );
+      winglet.position = new Vector3(side * 0.27, 0.18, -0.04);
+      winglet.rotation.z = side * 0.18; // top leans outward
+      winglet.material = hullMat;
+      winglet.parent = wing;
+
+      const wingletStripe = MeshBuilder.CreateBox(
+        `fallback_winglet_stripe${tag}`,
+        { width: 0.015, height: 0.3, depth: 0.08 },
+        scene,
+      );
+      wingletStripe.position = new Vector3(side * 0.035, 0.0, 0.1);
+      wingletStripe.material = redMat;
+      wingletStripe.parent = winglet;
+    }
+  }
+}
