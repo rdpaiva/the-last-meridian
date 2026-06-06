@@ -127,6 +127,17 @@ export const GameConfig = {
     lockRange: 400,
     /** Half-angle of the frontal lock cone (rad). 0.5 ≈ 28.6°. */
     lockConeAngle: 0.5,
+    /**
+     * Mid-flight re-acquisition — applies ONLY to missiles launched without a
+     * lock (a locked missile stays on its original target). A ballistic missile
+     * homes onto the nearest live enemy within `seekRange` and inside
+     * `seekConeAngle` of its heading, i.e. one that crosses its path ahead.
+     * Kept tighter than the launch lock so stray shots don't vacuum up the
+     * whole arena.
+     */
+    seekRange: 60,
+    /** Half-angle of the in-flight seeker cone (rad). 0.6 ≈ 34.4°. */
+    seekConeAngle: 0.6,
     /** Exhaust TrailMesh tube diameter. Kept ≲ the body so it reads as a
      * thin exhaust, not a tube fatter than the missile. */
     trailDiameter: 0.1,

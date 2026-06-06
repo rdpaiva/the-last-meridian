@@ -20,6 +20,15 @@ export class Missile {
   ageMs = 0;
   private readonly velocity = new Vector3();
 
+  /**
+   * Whether this missile may acquire a target mid-flight. True only when it
+   * launched WITHOUT a lock — a ballistic missile seeks a nearby target along
+   * its path (MissileSystem does the scan and calls `acquire`). A missile that
+   * launched WITH a lock stays committed to its original target and never
+   * re-targets, even after that target dies.
+   */
+  readonly canReacquire: boolean;
+
   constructor(
     /** Root node of the composite missile mesh (body + nose + fins). */
     readonly mesh: TransformNode,
@@ -36,7 +45,23 @@ export class Missile {
     readonly lifetimeMs: number,
   ) {
     mesh.rotation.y = rotationY;
+    this.canReacquire = target === null;
     this.setVelocityFromHeading();
+  }
+
+  /** Heading (radians) the missile is currently flying along. */
+  get heading(): number {
+    return this.rotationY;
+  }
+
+  /** True while the missile has a live target it is homing on. */
+  get hasTarget(): boolean {
+    return this.target !== null;
+  }
+
+  /** Lock onto a target found mid-flight (only used for `canReacquire` missiles). */
+  acquire(target: DamageTarget): void {
+    this.target = target;
   }
 
   private setVelocityFromHeading(): void {

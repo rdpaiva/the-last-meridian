@@ -10,6 +10,7 @@ import "@babylonjs/core/Meshes/Builders/cylinderBuilder";
 import "@babylonjs/core/Meshes/Builders/boxBuilder";
 
 import { GameConfig } from "./GameConfig";
+import { wrapAngle } from "./math";
 import { Missile } from "./Missile";
 import type { DamageTarget } from "./types";
 
@@ -212,6 +213,14 @@ export class MissileSystem {
       missile.update(deltaSeconds, deltaMs);
       if (missile.isExpired) continue;
 
+      // Mid-flight re-acquisition: a missile launched without a lock seeks the
+      // nearest live enemy ahead of it (within seekRange + seekConeAngle) and
+      // homes once it finds one. Missiles launched WITH a lock never do this.
+      if (missile.canReacquire && !missile.hasTarget) {
+        const found = this.findSeekerTarget(missile);
+        if (found) missile.acquire(found);
+      }
+
       // Collision: X/Z distance vs. each live target (Y ignored — single
       // plane). First overlap detonates the missile.
       for (const target of targets) {
@@ -235,6 +244,35 @@ export class MissileSystem {
         this.missiles.splice(i, 1);
       }
     }
+  }
+
+  /**
+   * Nearest live target ahead of `missile` within the seeker range + cone, or
+   * null. "Ahead" = inside `seekConeAngle` of the missile's current heading, so
+   * a ballistic missile only locks onto enemies along its path, not behind it.
+   */
+  private findSeekerTarget(missile: Missile): DamageTarget | null {
+    const cfg = GameConfig.missile;
+    const mx = missile.mesh.position.x;
+    const mz = missile.mesh.position.z;
+    const heading = missile.heading;
+
+    let best: DamageTarget | null = null;
+    let bestDist = Infinity;
+    for (const target of this.targets) {
+      if (!target.isAlive) continue;
+      const dx = target.position.x - mx;
+      const dz = target.position.z - mz;
+      const dist = Math.hypot(dx, dz);
+      if (dist > cfg.seekRange || dist >= bestDist) continue;
+      const angleToTarget = Math.atan2(dx, dz);
+      if (Math.abs(wrapAngle(angleToTarget - heading)) > cfg.seekConeAngle) {
+        continue;
+      }
+      best = target;
+      bestDist = dist;
+    }
+    return best;
   }
 
   /** Uniform integer roll in [minDamage, maxDamage]. */

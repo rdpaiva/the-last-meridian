@@ -135,6 +135,13 @@ implemented yet. Roughly ordered by gameplay value.
   the respawn moment isn't a free kill.
 - **Tighter player feel pass** — bump thrust, reduce rotation latency,
   sharpen laser fire response.
+- **Shootable missiles (interceptable, both sides)** — lasers can destroy an
+  in-flight missile before it lands. Make `Missile` damageable (implement
+  `DamageTarget` or a lighter "interceptable" hook) and register live missiles
+  as laser targets; a shot-down missile pops a small explosion and deals no
+  damage. Pairs with giving `EnemyShip` its own missiles (player-only today),
+  so each side can launch AND intercept the other's missiles. Watch friendly
+  fire: a faction's lasers shouldn't detonate its own missiles.
 - **Multiple enemy types** — strafer, charger, dropper. Different AI
   states + meshes; share the `DamageTarget` interface.
 - **Power-ups** — drop from killed enemies. Temporary muzzle config swaps
