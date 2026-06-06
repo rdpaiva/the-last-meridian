@@ -276,17 +276,25 @@ export class AssetLoader {
     exhaustMat.emissiveColor = new Color3(0.95, 0.5, 0.2);
     exhaustMat.specularColor = new Color3(0, 0, 0);
 
-    // Fuselage — one long faceted cone tapering to a sharp nose at +Z.
-    // Hexagonal cross-section (tessellation 6) reads as low-poly; widest
-    // at the tail where the engines mount. Shifted +Z so the point reaches
-    // well ahead of the wings (the "longer nose").
+    // Fuselage — one long faceted hull that tapers from a wide tail to a
+    // small BLUNT tip at the nose (+Z). The reference Viper noses out to a
+    // slender chisel, not a needle and not a bulb: diameterTop 0.14 leaves a
+    // tiny flat hex face at the very front (reads as a chamfered chisel from
+    // the top-down camera) while the long height keeps the snout long and
+    // sleek. Flattened vertically (scaling on the post-rotation Y axis) so
+    // the cross-section is a wide wedge, like the real hull, rather than a
+    // round tube. Hexagonal cross-section (tessellation 6) keeps the low-poly
+    // read; widest at the tail where the engines mount.
     const body = MeshBuilder.CreateCylinder(
       "fallback_body",
-      { height: 2.7, diameterTop: 0, diameterBottom: 0.78, tessellation: 6 },
+      { height: 2.7, diameterTop: 0.14, diameterBottom: 0.82, tessellation: 6 },
       scene,
     );
-    body.rotation.x = Math.PI / 2; // tip: +Y → +Z
-    body.position = new Vector3(0, 0, 0.35);
+    body.rotation.x = Math.PI / 2; // axis: +Y → +Z (nose-to-tail)
+    // Local Z maps to world Y after the X rotation, so scaling.z flattens the
+    // hull vertically into a wedge; scaling.x narrows it a touch.
+    body.scaling = new Vector3(0.92, 1, 0.66);
+    body.position = new Vector3(0, -0.03, 0.4);
     body.material = hullMat;
     body.parent = modelRoot;
 
@@ -337,17 +345,20 @@ export class AssetLoader {
     })();
     cockpit.parent = modelRoot;
 
-    // Dorsal stripe — thin red box running down the spine. The fuselage is
-    // a cone that tapers to a point, so the stripe is kept short and set
-    // back over the fatter mid-body (not out to the thin nose, where it
-    // would float) and tilted nose-down to hug the cone's upper slope.
+    // Dorsal stripe — a flat red centerline PAINTED onto the spine, running
+    // from the cockpit out along the nose (as on the reference Viper). Kept
+    // razor-thin in height (0.015) and seated flush with the hull's top
+    // surface — half-embedded — so it reads as a painted stripe, not a raised
+    // fin. The flattened cone's top slopes down toward the chisel tip, so the
+    // box is positioned/tilted to follow that slope: its top face sits at
+    // ~y 0.16 over the mid-body and ~y 0.04 near the nose.
     const stripe = MeshBuilder.CreateBox(
       "fallback_stripe",
-      { width: 0.09, height: 0.05, depth: 1.0 },
+      { width: 0.1, height: 0.015, depth: 1.2 },
       scene,
     );
-    stripe.position = new Vector3(0, 0.17, 0.2);
-    stripe.rotation.x = 0.14; // nose end dips to follow the taper
+    stripe.position = new Vector3(0, 0.1, 0.75);
+    stripe.rotation.x = 0.083; // matches the hull's nose-down top slope
     stripe.material = redMat;
     stripe.parent = modelRoot;
 
