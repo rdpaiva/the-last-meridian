@@ -18,6 +18,7 @@ import { Starfield } from "./Starfield";
 import { EngineGlow } from "./EngineGlow";
 import { CapitalShips } from "./CapitalShips";
 import { Nebulas } from "./Nebulas";
+import { Backdrop } from "./Backdrop";
 import { EnemyShip } from "./EnemyShip";
 import { ExplosionSystem } from "./ExplosionSystem";
 import { SoundSystem } from "./SoundSystem";
@@ -86,6 +87,9 @@ export class Game {
     this.engine.setHardwareScalingLevel(1 / window.devicePixelRatio);
 
     this.scene = new Scene(this.engine);
+    // Exposed for the Babylon Inspector recipe in CLAUDE.md and ad-hoc debugging.
+    (window as unknown as { __BABYLON_SCENE__: Scene }).__BABYLON_SCENE__ =
+      this.scene;
     this.scene.skipPointerMovePicking = true;
     const c = GameConfig.scene.clearColor;
     this.scene.clearColor = new Color4(c.r, c.g, c.b, 1);
@@ -119,6 +123,7 @@ export class Game {
     this.input.attach();
 
     this.arena = new Arena(this.scene);
+    new Backdrop(this.scene);
     new Nebulas(this.scene, this.arena.halfWidth, this.arena.halfDepth);
     new Starfield(this.scene, this.arena.halfWidth);
     new CapitalShips(

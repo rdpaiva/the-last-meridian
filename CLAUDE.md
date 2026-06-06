@@ -91,7 +91,7 @@ walls. Keep the clamp.
 Game (top-level coordinator)
 ├── Engine + Scene + GlowLayer
 ├── Lights (HemisphericLight + DirectionalLight)
-├── Scenery (Nebulas, Starfield, CapitalShips — fire-and-forget)
+├── Scenery (Backdrop, Nebulas, Starfield, CapitalShips — fire-and-forget)
 ├── Arena (wireframe grid + arena bounds)
 ├── PlayerShip + EngineGlow + DamageFlash
 ├── EnemyShip (single instance; AI in EnemyShip.update())
@@ -162,12 +162,14 @@ src/
     ExplosionSystem.ts     spawns/updates/disposes explosions
     SoundSystem.ts         5 CC0 SFX + engine hum loop + audio unlock
     Starfield.ts           2 parallax layers of thin-instanced spheres
-    Nebulas.ts             4 alpha-blended purple noise quads
+    Nebulas.ts             alpha-blended cloud quads from PNG textures (count via GameConfig)
+    Backdrop.ts            full-screen deep-space background Layer (2D blit)
     CapitalShips.ts        3 procedural destroyer composites in deep background
     Hud.ts                 plain DOM HUD with HP color cue
 public/
   models/                  drop fighter.glb here if you want a real ship
   sounds/                  5 CC0 MP3s + SOURCES.md attribution
+  textures/                nebula cloud PNGs + space-backdrop.jpg (+ SOURCES.md)
 ```
 
 ---
@@ -234,6 +236,25 @@ commit; don't sprinkle magic numbers across files.**
 8. **Don't run subagents/jobs to write the audio assets or model.**
    Audio files in `public/sounds/` are committed CC0 MP3s with
    `SOURCES.md` attribution — preserve both.
+
+9. **Image textures render through the emissive channel as luminance,
+   not color.** A pale/photographic texture on `emissiveTexture` with a
+   white `emissiveColor`, plus the GlowLayer, blows out to white. For
+   tinted scenery (nebulas) drive color from `emissiveColor` and let the
+   texture carry shape/detail. For a faithful full-screen background image
+   use a Babylon background `Layer` (2D blit, immune to lighting/glow), NOT
+   a large emissive plane. See `Nebulas.ts` / `Backdrop.ts`.
+
+10. **Transparent PNGs need premultiplied edges or they fringe.** The
+    nebula PNGs were authored with a transparency background; their
+    antialiased edges kept a light/checkerboard color that shows as a halo
+    when alpha-blended. Fix is to premultiply RGB by alpha so edge color
+    fades to black with the alpha. If you drop in new cloud art and see an
+    edge halo/checker, that's the cause.
+
+11. **`window.__BABYLON_SCENE__` is exposed from `Game.ts`** for the
+    Inspector recipe below and live DevTools debugging
+    (`window.__BABYLON_SCENE__.getMeshByName(...)`). Don't remove it.
 
 ---
 
@@ -342,10 +363,18 @@ Symmetric flow for enemy lasers hitting the player, with an extra
 - Opts into GlowLayer; emissive `(2.5, 0.2, 0.2)` blooms hot red.
 
 ### Scenery
-- **Nebulas** (deepest, Y ≈ -32): 4 large alpha-blended quads with
-  `NoiseProceduralTexture` driving both emissive and per-pixel opacity.
-  Unique `time` offset per nebula samples a different region of the
-  underlying 3D Perlin field. Muted purple palette.
+- **Backdrop** (deepest, behind everything): the `space-backdrop.jpg`
+  deep-space image rendered as a Babylon background `Layer` — a 2D blit,
+  NOT a 3D plane. A large emissive plane gets multiplied by emissive +
+  amplified by the GlowLayer and washes to white; a Layer is immune to
+  lighting/glow and shows the whole image. See gotcha #9 and `Backdrop.ts`.
+- **Nebulas** (Y per `GameConfig.scenery.nebulas.yLevel`): alpha-blended
+  quads textured from the `nebula-*.png` files. Count, depth, size, and
+  opacity are all in GameConfig. The PNGs come through the emissive channel
+  as **luminance/detail only** — COLOR is supplied per-nebula via
+  `emissiveColor` (the `COLORS` array in `Nebulas.ts`), NOT read from the
+  texture (white tint would blow the pale art out). `TEXTURE_FILES`,
+  `COLORS`, and `POSITIONS` are priority-ordered; `count` takes the first N.
 - **Starfield** (Y -8 and -18): two parallax layers, thin-instanced
   spheres. ~1500 stars total in 2 draw calls.
 - **CapitalShips** (Y ≈ -26): 3 procedural destroyers built from boxes

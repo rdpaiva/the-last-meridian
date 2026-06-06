@@ -40,6 +40,9 @@ export class Arena {
     gridMat.specularColor = new Color3(0, 0, 0);
     gridMat.disableLighting = true;
     grid.material = gridMat;
+    // Toggle off via GameConfig while the textured backdrop carries the
+    // visuals. Flip arena.showGrid back on to restore the reference grid.
+    grid.setEnabled(GameConfig.arena.showGrid);
   }
 
   /** Clamps an X/Z position to stay inside the arena. Y is untouched. */

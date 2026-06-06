@@ -95,6 +95,8 @@ export const GameConfig = {
   arena: {
     halfWidth: 60,
     halfDepth: 40,
+    /** Show the wireframe reference grid floor. Off for now. */
+    showGrid: false,
   },
 
   camera: {
@@ -141,17 +143,36 @@ export const GameConfig = {
       lengthMax: 38,
     },
     nebulas: {
-      /** Number of nebula cloud patches. */
-      count: 4,
-      /** Y level — sits below everything else for backdrop depth. */
-      yLevel: -32,
       /**
-       * Base opacity. Per-pixel opacity is modulated by the noise texture
-       * (cloud edges fade), so this is the cap, not the average.
+       * Number of nebula cloud patches. Pulls the first N entries from the
+       * texture/color/position lists in Nebulas.ts (so the unused ones are
+       * just parked at the end — bump this to bring them back).
        */
-      alpha: 0.25,
+      count: 2,
+      /** Y level — pushed deep so the clouds read as distant background. */
+      yLevel: -182,
+      /**
+       * Base opacity. Per-pixel opacity is modulated by the image's own
+       * alpha channel (soft feathered edges), so this is the cap, not the
+       * average.
+       */
+      alpha: 0.85,
       /** Visual size of each nebula plane. */
-      size: 70,
+      size: 120,
+    },
+    /**
+     * Deep-space image rendered as a full-screen background Layer (a 2D blit
+     * behind the whole scene), not a 3D plane — see Backdrop.ts for why.
+     */
+    backdrop: {
+      /** Master toggle for the backdrop image. */
+      enabled: true,
+      /**
+       * Brightness multiplier (0..1) applied to the backdrop blit. Lower =
+       * dimmer, so the deep-space image sits behind the gameplay rather than
+       * competing with it.
+       */
+      tint: 0.7,
     },
   },
 
