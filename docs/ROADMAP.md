@@ -40,6 +40,19 @@ and explicitly skipped. Update this when you finish or start work.
 - Faction-colored materials with emissive > 1.0 for hot bloom
 - `onHit` callback on each system (used to wire SFX + juice)
 
+### Missiles (player secondary weapon)
+- `MissileSystem` + `Missile` — homing projectiles fired with `R`, limited
+  ammo (`GameConfig.missile.maxAmmo`, refilled on respawn)
+- Per-missile homing: steers toward a live target at capped `turnRate`;
+  flies ballistic with no lock or once its target dies — still detonates on
+  contact with any enemy
+- Frontal-cone + range lock (`Game.computeLockTarget`, once per tick), driving
+  the HUD `LOCK` indicator and the launched missile's target
+- Randomized damage per hit (`[minDamage, maxDamage]`); detonation pops an
+  explosion + heavier trauma/hitstop than a laser
+- Composite mesh (gray body + nose cone + red fins) with an orange `TrailMesh`
+  exhaust; HUD shows ammo count + lock state
+
 ### Explosions
 - `ExplosionSystem` with shared materials (flash + debris)
 - Per-explosion: 1 flash sphere (scales up then collapses) + 8 debris cubes
@@ -122,9 +135,6 @@ implemented yet. Roughly ordered by gameplay value.
   the respawn moment isn't a free kill.
 - **Tighter player feel pass** — bump thrust, reduce rotation latency,
   sharpen laser fire response.
-- **Heat-seeking missiles** — second weapon system. Limited turn rate,
-  longer cooldown, more damage. Launcher positions mirror the muzzle
-  config pattern.
 - **Multiple enemy types** — strafer, charger, dropper. Different AI
   states + meshes; share the `DamageTarget` interface.
 - **Power-ups** — drop from killed enemies. Temporary muzzle config swaps

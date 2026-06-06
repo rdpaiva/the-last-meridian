@@ -6,15 +6,35 @@
 
 ---
 
-## Adding a new weapon (e.g. heat-seeking missiles)
+## Adding a new weapon
 
-1. Add a new `MissileSystem.ts` following the `LaserSystem` pattern.
-   Per-instance turn-rate tracking, target acquisition each frame.
-2. Define missile config: `GameConfig.missile = { speed, turnRate, damage, lifetimeMs, ... }`.
-3. Add launcher positions to `GameConfig.player.missileLaunchers` (mirroring `muzzles`).
-4. Add a key to `InputManager` and a `fireMissile` bool to `InputState`.
-5. Add the new system to `Game.ts`: construct, target-wire, update in tick.
-6. Add a missile SFX to `SoundSystem` and call from `onMissileLaunch`.
+The heat-seeking missile (`Missile.ts` + `MissileSystem.ts`) is the worked
+example of a second weapon — read it as the reference. How it's wired, and the
+pattern to copy for another secondary weapon:
+
+1. **System + entity**, mirroring `LaserSystem`/`Laser`: `MissileSystem` owns a
+   pool, shared materials, a `targets` list, and an `onHit` callback; `Missile`
+   owns its mesh and per-frame behavior (homing steer toward a target at a
+   capped `turnRate`, else ballistic). Collision is the same X/Z sphere test.
+2. **Config** under its own `GameConfig.missile` section (speed, lifetime,
+   damage range, turnRate, lock range/cone, ammo, mesh dims). No magic numbers
+   in the system.
+3. **Ammo + cooldown live on `PlayerShip`** (`missileAmmo`, reset in
+   `respawn()`); `tryFireMissile()` returns the nose spawn point or `null`.
+4. **Input**: a `fireMissile` bool in `InputState`, mapped to a key in
+   `InputManager` (`R`) and whitelisted in `isGameKey()`.
+5. **Game wiring**: construct the system, `addTarget()` each enemy, compute the
+   lock once per tick (`computeLockTarget`), fire in the player block, and
+   `update()` it in the sim step. The `onHit(pos)` carries the impact point so
+   `Game` can pop an explosion + juice there.
+6. **HUD**: pass ammo + lock state into `Hud.update()`.
+
+Gotchas worth copying: a homing projectile's mesh is built the spawn frame, so
+call `computeWorldMatrix(true)` before attaching a `TrailMesh`; and a
+`TrailMesh` must be `stop()`-ped before `dispose()` or it leaks a per-frame
+observer (see `Missile.dispose` / `SUBSYSTEMS.md`). No dedicated missile SFX
+yet — launch reuses `playPlayerLaser`, impact reuses `playExplosion`; add CC0
+assets + `SoundSystem` methods if you want distinct audio.
 
 ## Adding a new enemy type
 

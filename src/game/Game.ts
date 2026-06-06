@@ -12,6 +12,8 @@ import { Arena } from "./Arena";
 import { AssetLoader } from "./AssetLoader";
 import { PlayerShip } from "./PlayerShip";
 import { LaserSystem } from "./LaserSystem";
+import { MissileSystem } from "./MissileSystem";
+import { wrapAngle } from "./math";
 import { CameraRig } from "./CameraRig";
 import { Hud } from "./Hud";
 import { Starfield } from "./Starfield";
@@ -52,6 +54,7 @@ export class Game {
   private readonly arena: Arena;
   private readonly playerLasers: LaserSystem;
   private readonly enemyLasers: LaserSystem;
+  private readonly playerMissiles: MissileSystem;
   private readonly explosions: ExplosionSystem;
   private readonly sound: SoundSystem;
   private readonly cameraRig: CameraRig;
@@ -161,6 +164,23 @@ export class Game {
       },
     });
 
+    // Player heat-seeking missiles. Heavier hit than a laser: pops an
+    // explosion at the impact point plus bigger trauma/hitstop.
+    this.playerMissiles = new MissileSystem(this.scene, {
+      minDamage: GameConfig.missile.minDamage,
+      maxDamage: GameConfig.missile.maxDamage,
+      bodyColor: new Color3(0.62, 0.66, 0.7), // gray hull
+      finColor: new Color3(0.78, 0.16, 0.16), // red fins
+      trailEmissive: new Color3(2.2, 0.7, 0.1), // orange exhaust
+      materialName: "player_missile_mat",
+      onHit: (pos) => {
+        this.explosions.spawn(pos);
+        this.sound.playExplosion();
+        this.cameraRig.addTrauma(GameConfig.shake.traumaMissileHit);
+        this.applyHitstop(GameConfig.hitstop.missileHitMs);
+      },
+    });
+
     this.explosions = new ExplosionSystem(this.scene, this.glowLayer);
 
     for (let i = 0; i < GameConfig.enemy.count; i++) {
@@ -191,6 +211,7 @@ export class Game {
 
     for (const enemy of this.enemies) {
       this.playerLasers.addTarget(enemy);
+      this.playerMissiles.addTarget(enemy);
     }
     this.enemyLasers.setTarget(this.player);
 
@@ -221,6 +242,37 @@ export class Game {
     );
   }
 
+  /**
+   * Returns the enemy a missile would lock onto right now, or null if no lock
+   * is available: the nearest live enemy that is both within lockRange and
+   * inside the frontal lock cone (same idea as the enemy's own fire cone).
+   * Used both to choose a launched missile's homing target and to drive the
+   * HUD lock indicator, so it's computed once per tick.
+   */
+  private computeLockTarget(): EnemyShip | null {
+    if (!this.player || !this.player.isAlive) return null;
+    const cfg = GameConfig.missile;
+    const px = this.player.position.x;
+    const pz = this.player.position.z;
+
+    let best: EnemyShip | null = null;
+    let bestDist = Infinity;
+    for (const enemy of this.enemies) {
+      if (!enemy.isAlive) continue;
+      const dx = enemy.position.x - px;
+      const dz = enemy.position.z - pz;
+      const dist = Math.hypot(dx, dz);
+      if (dist > cfg.lockRange || dist >= bestDist) continue;
+      const angleToEnemy = Math.atan2(dx, dz);
+      if (Math.abs(wrapAngle(angleToEnemy - this.player.rotationY)) > cfg.lockConeAngle) {
+        continue;
+      }
+      best = enemy;
+      bestDist = dist;
+    }
+    return best;
+  }
+
   private readonly tick = (): void => {
     try {
       const deltaMsRaw = this.engine.getDeltaTime();
@@ -242,6 +294,10 @@ export class Game {
         this.input.state.fire;
       if (anyInputHeld) this.sound.unlock();
 
+      // Lock target for this frame — drives both the missile launch (below)
+      // and the HUD lock indicator, so compute it once.
+      const lockTarget = this.computeLockTarget();
+
       // --- Simulation (skipped during hitstop) ---
       if (!inHitstop) {
         // Player movement / firing
@@ -259,6 +315,21 @@ export class Game {
               this.playerLasers.spawn(pos, this.player.rotationY);
             }
             if (spawnPositions.length > 0) {
+              this.sound.playPlayerLaser();
+            }
+          }
+
+          // Missile launch. Always fires when ammo/cooldown allow; homes onto
+          // the locked enemy if there is one, otherwise flies ballistic (null).
+          if (this.player.isAlive && this.input.state.fireMissile) {
+            const missilePos = this.player.tryFireMissile();
+            if (missilePos) {
+              this.playerMissiles.spawn(
+                missilePos,
+                this.player.rotationY,
+                lockTarget,
+              );
+              // Reuse the laser SFX for launch (no dedicated missile asset yet).
               this.sound.playPlayerLaser();
             }
           }
@@ -315,6 +386,7 @@ export class Game {
 
         this.playerLasers.update(deltaSeconds, deltaMs);
         this.enemyLasers.update(deltaSeconds, deltaMs);
+        this.playerMissiles.update(deltaSeconds, deltaMs);
         this.explosions.update(deltaSeconds, deltaMs);
       }
 
@@ -355,7 +427,12 @@ export class Game {
       this.sound.updateEngine(deltaSeconds, engineIntensity);
 
       if (this.player) {
-        this.hud.update(this.player, this.playerLasers, nowMs);
+        this.hud.update(
+          this.player,
+          this.playerLasers,
+          nowMs,
+          lockTarget !== null,
+        );
       }
 
       this.scene.render();

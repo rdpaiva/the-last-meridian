@@ -10,16 +10,9 @@ import "@babylonjs/core/Meshes/Builders/cylinderBuilder";
 import "@babylonjs/core/Meshes/Builders/sphereBuilder";
 
 import { GameConfig } from "./GameConfig";
-import { clamp, exponentialMultiplier } from "./math";
+import { clamp, exponentialMultiplier, wrapAngle } from "./math";
 import type { DamageTarget } from "./types";
 import type { PlayerShip } from "./PlayerShip";
-
-/** Wraps an angle into the (-π, π] range. */
-function wrapAngle(a: number): number {
-  while (a > Math.PI) a -= 2 * Math.PI;
-  while (a <= -Math.PI) a += 2 * Math.PI;
-  return a;
-}
 
 /**
  * Enemy fighter with a simple wander/engage AI.

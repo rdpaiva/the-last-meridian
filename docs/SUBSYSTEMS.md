@@ -45,6 +45,50 @@
   `onHit` on impact.
 - `Laser.kill()` marks a bolt expired (it'll be swept on the next pass).
 
+## MissileSystem
+- Player-only scarce weapon (key **R**), parallel to `LaserSystem` but each
+  projectile homes and carries its own exhaust trail. One instance, registers
+  every enemy as a target.
+- **Ammo + cooldown live on `PlayerShip`**, not the system: `missileAmmo`
+  (starts at `GameConfig.missile.maxAmmo`, refilled in `respawn()`) and a
+  `fireCooldownMs` gate so a held key can't dump the pool in one frame.
+  `PlayerShip.tryFireMissile()` returns the nose spawn point or `null`.
+- **Lock is computed in `Game.computeLockTarget()`** (once per tick, shared by
+  the launch and the HUD): nearest live enemy within `missile.lockRange` AND
+  inside the frontal `lockConeAngle` (same idea as the enemy fire cone). The
+  HUD shows green `LOCK` only when a lock exists AND ammo > 0.
+- `spawn(origin, rotationY, target)` — pass the locked enemy to home, or `null`
+  to fire ballistic. **A no-lock missile still flies and still detonates** on
+  any enemy it contacts (collision tests all targets, same X/Z sphere check as
+  lasers).
+- **Homing** (`Missile.update`): while it has a live target it steers
+  `rotationY` toward the bearing to that target, capped at `turnRate`/sec (the
+  same `wrapAngle` + `turnStep` math as the enemy AI). If the target dies it
+  drops to `null` and coasts straight from there.
+- **Damage is rolled per hit** in `[minDamage, maxDamage]`. `onHit(position)`
+  carries the impact point (unlike `LaserSystem`'s parameterless `onHit`) so
+  `Game` pops an `explosions.spawn(pos)` plus heavier trauma/hitstop than a
+  laser.
+- **Mesh** is a small composite (root `TransformNode` named `missile`): gray
+  cylinder body + tapered nose cone + four red `+`-cross tail fins, oriented
+  along local +Z, built in `buildMissileMesh()`. Kept ~0.7 long so it reads as
+  a sub-munition next to the ~1.6-unit ship. Body/fins are lit (faint emissive
+  so they read in the dark) and are NOT in the GlowLayer — only the exhaust
+  blooms. Disposing the root recurses into the children; shared materials
+  survive.
+- **Trail = a per-missile `TrailMesh`** generated from the root, with its own
+  orange emissive (`trailEmissive`, picked up by GlowLayer). Three gotchas:
+  (1) it's NOT parented to its generator (gotcha #4), so `Missile.dispose()`
+  disposes it explicitly or it lingers after detonation; (2) the root is built
+  this frame, so `spawn()` calls `computeWorldMatrix(true)` before constructing
+  the trail — otherwise the trail seeds at the world origin and the first frame
+  draws a stray streak from (0,0,0) to the spawn point; (3) **`Missile.dispose()`
+  must call `trail.stop()` BEFORE `trail.dispose()`** — `TrailMesh` registers a
+  per-frame `onBeforeRenderObservable` callback in `start()`/autoStart and has
+  no `dispose()` override to remove it (it inherits `Mesh.dispose`). Only
+  `stop()` unhooks the observer; skip it and every fired missile leaks a
+  permanent per-frame callback, piling up into progressive slowdown.
+
 ## ExplosionSystem
 - Spawns short-lived explosions: 1 flash sphere + 8 debris cubes.
 - Shared materials (one flash mat, one debris mat) reused across every

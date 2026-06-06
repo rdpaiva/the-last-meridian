@@ -18,6 +18,7 @@ export class InputManager {
     strafeLeft: false,
     strafeRight: false,
     fire: false,
+    fireMissile: false,
     zoomIn: false,
     zoomOut: false,
   };
@@ -42,6 +43,7 @@ export class InputManager {
     this.state.strafeLeft = this.held.has("KeyQ");
     this.state.strafeRight = this.held.has("KeyE");
     this.state.fire = this.held.has("Space");
+    this.state.fireMissile = this.held.has("KeyR");
     // "+" is Shift+Equal on most layouts, so the Equal key doubles as zoom-in.
     this.state.zoomIn = this.held.has("Equal") || this.held.has("NumpadAdd");
     this.state.zoomOut =
@@ -74,6 +76,7 @@ export class InputManager {
       case "KeyD":
       case "KeyQ":
       case "KeyE":
+      case "KeyR":
       case "ArrowUp":
       case "ArrowDown":
       case "ArrowLeft":

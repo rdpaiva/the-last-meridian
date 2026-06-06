@@ -92,6 +92,48 @@ export const GameConfig = {
     spawnOffset: 1.2,
   },
 
+  missile: {
+    /** Missiles the player starts with; refills to this on respawn. */
+    maxAmmo: 30,
+    /** Travel speed (world units / sec). Constant — no acceleration. */
+    speed: 35,
+    /** Time before an in-flight missile self-destructs. */
+    lifetimeMs: 4000,
+    /**
+     * Body-tube length (world units). Kept well under the ~1.6-unit player
+     * ship so the missile reads as a small sub-munition. Total mesh (nose +
+     * body) is ~1.36× this.
+     */
+    length: 0.5,
+    /** Body-tube radius (half its diameter). Slim hull. */
+    radius: 0.06,
+    /** Offset from ship origin where the missile spawns (along ship forward). */
+    spawnOffset: 1.2,
+    /**
+     * Minimum time between launches (ms). Gates the held key so the whole
+     * ammo pool can't dump in a single frame; tuned slow to read as a
+     * deliberate, weighty shot vs. the laser's rapid fire.
+     */
+    fireCooldownMs: 600,
+    /**
+     * Homing turn limit (radians / sec). Below the player's rotationSpeed
+     * (4.5) so a missile can be out-maneuvered if the target jukes hard.
+     */
+    turnRate: 3.2,
+    /** Damage is rolled uniformly in [minDamage, maxDamage] per hit. */
+    minDamage: 30,
+    maxDamage: 50,
+    /** Distance within which a lock can be acquired (world units). */
+    lockRange: 400,
+    /** Half-angle of the frontal lock cone (rad). 0.5 ≈ 28.6°. */
+    lockConeAngle: 0.5,
+    /** Exhaust TrailMesh tube diameter. Kept ≲ the body so it reads as a
+     * thin exhaust, not a tube fatter than the missile. */
+    trailDiameter: 0.1,
+    /** Exhaust TrailMesh segment count — longer = lengthier streak. */
+    trailLength: 28,
+  },
+
   arena: {
     halfWidth: 600,
     halfDepth: 400,
@@ -312,7 +354,7 @@ export const GameConfig = {
 
   enemy: {
     /** How many enemy fighters share the arena at once. */
-    count: 0,
+    count: 10,
     /** Forward acceleration (units / sec^2). Lower than the player. */
     thrust: 18,
     /** Velocity cap. */
@@ -376,6 +418,8 @@ export const GameConfig = {
     traumaPlayerLaserHit: 0.35, // enemy laser landed on player
     traumaEnemyExplosion: 0.55,
     traumaPlayerExplosion: 0.75,
+    /** Player missile detonated on an enemy — heavier than a laser hit. */
+    traumaMissileHit: 0.5,
   },
 
   hitstop: {
@@ -388,6 +432,8 @@ export const GameConfig = {
     playerLaserHitMs: 50,
     enemyExplosionMs: 70,
     playerExplosionMs: 90,
+    /** Player missile detonation — a beefier freeze than a laser hit. */
+    missileHitMs: 70,
     /** Hard cap on accumulated hitstop so chained hits can't freeze indefinitely. */
     maxStackedMs: 140,
   },

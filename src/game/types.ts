@@ -12,6 +12,7 @@ export type InputState = {
   strafeLeft: boolean;
   strafeRight: boolean;
   fire: boolean;
+  fireMissile: boolean;
   zoomIn: boolean;
   zoomOut: boolean;
 };

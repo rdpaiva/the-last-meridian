@@ -26,6 +26,10 @@ export class PlayerShip implements DamageTarget {
   readonly maxHp: number = GameConfig.combat.playerMaxHp;
   readonly hitRadius: number = GameConfig.combat.shipHitRadius;
 
+  /** Remaining heat-seeking missiles. Refills to maxAmmo on respawn. */
+  missileAmmo: number = GameConfig.missile.maxAmmo;
+  private missileCooldownRemainingMs = 0;
+
   /**
    * Wall-clock timestamp of death, or null while alive. Game.ts polls
    * `shouldRespawn(nowMs)` and calls `respawn()` when the delay elapses.
@@ -80,6 +84,8 @@ export class PlayerShip implements DamageTarget {
     this.hp = this.maxHp;
     this.deathTimeMs = null;
     this.fireCooldownRemainingMs = 0;
+    this.missileCooldownRemainingMs = 0;
+    this.missileAmmo = GameConfig.missile.maxAmmo;
     this.nextMuzzleIdx = 0;
     this.root.position.copyFrom(this.position);
     this.root.rotation.y = this.rotationY;
@@ -171,9 +177,12 @@ export class PlayerShip implements DamageTarget {
     this.root.position.copyFrom(this.position);
     this.root.rotation.y = this.rotationY;
 
-    // --- Fire cooldown ---
+    // --- Fire cooldowns ---
     if (this.fireCooldownRemainingMs > 0) {
       this.fireCooldownRemainingMs -= deltaSeconds * 1000;
+    }
+    if (this.missileCooldownRemainingMs > 0) {
+      this.missileCooldownRemainingMs -= deltaSeconds * 1000;
     }
   }
 
@@ -204,6 +213,28 @@ export class PlayerShip implements DamageTarget {
       positions.push(this.worldFromLocal(m.x, m.y, m.z, new Vector3()));
     }
     return positions;
+  }
+
+  /**
+   * Attempts to launch a heat-seeking missile. Returns the world-space spawn
+   * position (along the ship's nose), or null when on cooldown or out of ammo.
+   * The caller decides whether the missile homes (based on a current lock) —
+   * this only gates ammo + cooldown and reports where it leaves the ship.
+   */
+  tryFireMissile(): Vector3 | null {
+    if (this.missileCooldownRemainingMs > 0 || this.missileAmmo <= 0) {
+      return null;
+    }
+    this.missileCooldownRemainingMs = GameConfig.missile.fireCooldownMs;
+    this.missileAmmo--;
+
+    const fwd = this.forward();
+    const off = GameConfig.missile.spawnOffset;
+    return new Vector3(
+      this.position.x + fwd.x * off,
+      this.position.y,
+      this.position.z + fwd.z * off,
+    );
   }
 
   /**

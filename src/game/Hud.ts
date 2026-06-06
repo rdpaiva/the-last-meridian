@@ -17,6 +17,8 @@ export class Hud {
   private readonly posEl: Element | null;
   private readonly velEl: Element | null;
   private readonly lasersEl: Element | null;
+  private readonly missilesEl: HTMLElement | null;
+  private readonly lockEl: HTMLElement | null;
   private readonly modelEl: Element | null;
 
   private lastTextUpdateMs = 0;
@@ -27,12 +29,16 @@ export class Hud {
       <div><span class="label">pos</span><span id="hud-pos">0.0, 0.0</span></div>
       <div><span class="label">vel</span><span id="hud-vel">0.0</span> u/s</div>
       <div><span class="label">lasers</span><span id="hud-lasers">0</span></div>
+      <div><span class="label">missiles</span><span id="hud-missiles">0</span></div>
+      <div><span class="label">lock</span><span id="hud-lock">---</span></div>
       <div><span class="label">model</span><span id="hud-model">-</span></div>
     `;
     this.hpEl = root.querySelector<HTMLElement>("#hud-hp");
     this.posEl = root.querySelector("#hud-pos");
     this.velEl = root.querySelector("#hud-vel");
     this.lasersEl = root.querySelector("#hud-lasers");
+    this.missilesEl = root.querySelector<HTMLElement>("#hud-missiles");
+    this.lockEl = root.querySelector<HTMLElement>("#hud-lock");
     this.modelEl = root.querySelector("#hud-model");
   }
 
@@ -40,7 +46,12 @@ export class Hud {
     if (this.modelEl) this.modelEl.textContent = label;
   }
 
-  update(player: PlayerShip, lasers: LaserSystem, nowMs: number): void {
+  update(
+    player: PlayerShip,
+    lasers: LaserSystem,
+    nowMs: number,
+    lockAvailable: boolean,
+  ): void {
     if (nowMs - this.lastTextUpdateMs < 100) return;
     this.lastTextUpdateMs = nowMs;
 
@@ -61,5 +72,20 @@ export class Hud {
     }
     if (this.velEl) this.velEl.textContent = player.speed.toFixed(1);
     if (this.lasersEl) this.lasersEl.textContent = String(lasers.count);
+
+    // Missile ammo — dim once empty.
+    if (this.missilesEl) {
+      this.missilesEl.textContent = String(player.missileAmmo);
+      this.missilesEl.style.color =
+        player.missileAmmo > 0 ? "#f9e2af" : "#6c7086";
+    }
+
+    // Lock cue: green LOCK only when a lock is available AND we have a missile
+    // to use it; otherwise a dim placeholder.
+    if (this.lockEl) {
+      const canLock = lockAvailable && player.missileAmmo > 0;
+      this.lockEl.textContent = canLock ? "LOCK" : "---";
+      this.lockEl.style.color = canLock ? "#a6e3a1" : "#6c7086";
+    }
   }
 }

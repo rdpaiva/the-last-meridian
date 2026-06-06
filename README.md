@@ -38,6 +38,7 @@ Node 20.19+ or Node 22 LTS is recommended.
 | `Q` | Strafe left |
 | `E` | Strafe right |
 | `Space` | Fire lasers |
+| `R` | Launch heat-seeking missile (limited ammo; homes when locked) |
 | `+` / `-` | Zoom camera in / out |
 
 The first keypress also unlocks the WebAudio context (browsers block
@@ -59,6 +60,9 @@ audio until a user gesture).
 - **HP system** with respawn after death.
 - **Faction-colored lasers** (pink = player, green = enemy) with bloom and
   per-faction collision targeting (no friendly fire).
+- **Heat-seeking missiles** — limited-ammo secondary (`R`) that homes onto a
+  locked target and flies ballistic without one. HUD shows ammo + a `LOCK`
+  indicator; gray-and-red missile with an orange exhaust trail.
 - **Arcade juice**: trauma-based camera shake, hitstop on every impact,
   damage flash on the player ship.
 - **Sound**: 5 CC0 effects (laser fire × 2, hit, explosion, engine hum)

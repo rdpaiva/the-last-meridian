@@ -1,0 +1,249 @@
+import type { Scene } from "@babylonjs/core/scene";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Color3 } from "@babylonjs/core/Maths/math.color";
+import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
+import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
+import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import { TrailMesh } from "@babylonjs/core/Meshes/trailMesh";
+// Registers MeshBuilder.CreateCylinder (body + nose cone) and CreateBox (fins).
+import "@babylonjs/core/Meshes/Builders/cylinderBuilder";
+import "@babylonjs/core/Meshes/Builders/boxBuilder";
+
+import { GameConfig } from "./GameConfig";
+import { Missile } from "./Missile";
+import type { DamageTarget } from "./types";
+
+/**
+ * Collection of player heat-seeking missiles. Parallels LaserSystem, but each
+ * projectile homes (see Missile) and carries its own exhaust trail.
+ *
+ * Collision reuses the laser pattern: a simple X/Z distance test against every
+ * registered target each frame (so a ballistic or off-target missile still
+ * detonates on contact). On a hit, damage is rolled uniformly in
+ * [minDamage, maxDamage], the missile is killed, and onHit fires with the
+ * impact position so the caller can pop an explosion there.
+ */
+export type MissileSystemOptions = {
+  /** Inclusive damage roll bounds applied per hit. */
+  minDamage: number;
+  maxDamage: number;
+  /** Diffuse color of the missile body + nose cone (the gray hull). */
+  bodyColor: Color3;
+  /** Diffuse color of the tail fins (the red accent). */
+  finColor: Color3;
+  /** Emissive RGB of the exhaust trail (components > 1.0 bloom harder). */
+  trailEmissive: Color3;
+  /** Optional material name prefix — handy when debugging in the inspector. */
+  materialName?: string;
+  /** Called once per missile that detonates, with the world-space impact point. */
+  onHit?: (position: Vector3) => void;
+};
+
+export class MissileSystem {
+  private readonly missiles: Missile[] = [];
+  private readonly bodyMaterial: StandardMaterial;
+  private readonly finMaterial: StandardMaterial;
+  private readonly trailMaterial: StandardMaterial;
+  private readonly minDamage: number;
+  private readonly maxDamage: number;
+  private readonly onHit: ((position: Vector3) => void) | null;
+  /** Targets every missile tests against each frame (all enemies). */
+  private readonly targets: DamageTarget[] = [];
+
+  constructor(
+    private readonly scene: Scene,
+    options: MissileSystemOptions,
+  ) {
+    this.minDamage = options.minDamage;
+    this.maxDamage = options.maxDamage;
+    this.onHit = options.onHit ?? null;
+
+    const name = options.materialName ?? "missile_mat";
+
+    // Body: a lit gray hull with a faint self-emissive so it still reads as a
+    // solid object against the dark backdrop (not added to the GlowLayer — the
+    // hull shouldn't bloom; only the exhaust does).
+    const body = new StandardMaterial(`${name}_body`, scene);
+    body.diffuseColor = options.bodyColor;
+    body.emissiveColor = options.bodyColor.scale(0.25);
+    body.specularColor = new Color3(0.2, 0.2, 0.22);
+    this.bodyMaterial = body;
+
+    // Fins: red accent, same lit-with-faint-emissive treatment.
+    const fin = new StandardMaterial(`${name}_fin`, scene);
+    fin.diffuseColor = options.finColor;
+    fin.emissiveColor = options.finColor.scale(0.3);
+    fin.specularColor = new Color3(0.1, 0.1, 0.1);
+    this.finMaterial = fin;
+
+    // Trail emissive blooms via the GlowLayer into a hot streak. Semi-
+    // transparent so it reads as exhaust, not a solid tube.
+    const trail = new StandardMaterial(`${name}_trail`, scene);
+    trail.diffuseColor = new Color3(0, 0, 0);
+    trail.specularColor = new Color3(0, 0, 0);
+    trail.emissiveColor = options.trailEmissive;
+    trail.disableLighting = true;
+    trail.alpha = 0.7;
+    this.trailMaterial = trail;
+  }
+
+  /** Add a DamageTarget to the list missiles test against. */
+  addTarget(target: DamageTarget): void {
+    this.targets.push(target);
+  }
+
+  /**
+   * Spawn a missile at `origin` heading along `rotationY`. Pass the locked
+   * enemy as `target` to home on it, or `null` to fire ballistic.
+   */
+  spawn(origin: Vector3, rotationY: number, target: DamageTarget | null): void {
+    const cfg = GameConfig.missile;
+
+    const mesh = this.buildMissileMesh();
+    mesh.position.copyFrom(origin);
+    mesh.rotation.y = rotationY;
+
+    // Bake the world matrix NOW. The root was created this frame, so its world
+    // matrix is still identity until the next render — and TrailMesh seeds all
+    // its segments from the generator's world position at construction. Without
+    // this, every trail starts as a stray streak from the world origin (0,0,0)
+    // to the spawn point on the first frame.
+    mesh.computeWorldMatrix(true);
+
+    // Trail generator = the missile root; autoStart records immediately.
+    const trail = new TrailMesh(
+      "missile_trail",
+      mesh,
+      this.scene,
+      cfg.trailDiameter,
+      cfg.trailLength,
+      true,
+    );
+    trail.material = this.trailMaterial;
+    trail.isPickable = false;
+
+    this.missiles.push(
+      new Missile(
+        mesh,
+        trail,
+        rotationY,
+        target,
+        cfg.speed,
+        cfg.turnRate,
+        cfg.lifetimeMs,
+      ),
+    );
+  }
+
+  /**
+   * Builds one missile as a small composite parented to a root TransformNode:
+   * a gray cylindrical body, a tapered nose cone, and four red tail fins in a
+   * `+` cross — oriented along local +Z (forward), tip toward +Z.
+   *
+   * Kept deliberately small (~0.7 long) so it reads as a sub-munition next to
+   * the ~1.6-unit player ship. Disposing the root recurses into the children
+   * (shared materials survive — disposeMaterialAndTextures defaults to false).
+   */
+  private buildMissileMesh(): TransformNode {
+    const cfg = GameConfig.missile;
+    const scene = this.scene;
+    const root = new TransformNode("missile", scene);
+
+    const bodyDia = cfg.radius * 2;
+    const bodyLen = cfg.length;
+    const noseLen = cfg.length * 0.36;
+
+    // Body tube — cylinder's height axis (Y) rotated onto +Z.
+    const body = MeshBuilder.CreateCylinder(
+      "missile_body",
+      { height: bodyLen, diameter: bodyDia, tessellation: 10 },
+      scene,
+    );
+    body.rotation.x = Math.PI / 2;
+    body.material = this.bodyMaterial;
+    body.isPickable = false;
+    body.parent = root;
+
+    // Nose cone — slightly blunt tip, seated on the body's front face.
+    const nose = MeshBuilder.CreateCylinder(
+      "missile_nose",
+      {
+        height: noseLen,
+        diameterTop: bodyDia * 0.12,
+        diameterBottom: bodyDia,
+        tessellation: 10,
+      },
+      scene,
+    );
+    nose.rotation.x = Math.PI / 2;
+    nose.position.z = bodyLen / 2 + noseLen / 2;
+    nose.material = this.bodyMaterial;
+    nose.isPickable = false;
+    nose.parent = root;
+
+    // Four fins around the aft body. Rotating each box about +Z puts its width
+    // along the radial direction; depth stays along the body (chord).
+    const finSpan = bodyDia;
+    const finChord = bodyLen * 0.4;
+    const finThick = bodyDia * 0.18;
+    const off = bodyDia / 2 + finSpan / 2;
+    const tailZ = -bodyLen / 2 + finChord / 2;
+    for (let i = 0; i < 4; i++) {
+      const a = (i * Math.PI) / 2;
+      const fin = MeshBuilder.CreateBox(
+        "missile_fin",
+        { width: finSpan, height: finThick, depth: finChord },
+        scene,
+      );
+      fin.position.set(Math.cos(a) * off, Math.sin(a) * off, tailZ);
+      fin.rotation.z = a;
+      fin.material = this.finMaterial;
+      fin.isPickable = false;
+      fin.parent = root;
+    }
+
+    return root;
+  }
+
+  update(deltaSeconds: number, deltaMs: number): void {
+    const targets = this.targets;
+
+    for (const missile of this.missiles) {
+      missile.update(deltaSeconds, deltaMs);
+      if (missile.isExpired) continue;
+
+      // Collision: X/Z distance vs. each live target (Y ignored — single
+      // plane). First overlap detonates the missile.
+      for (const target of targets) {
+        if (!target.isAlive) continue;
+        const dx = missile.mesh.position.x - target.position.x;
+        const dz = missile.mesh.position.z - target.position.z;
+        const radiusSq = target.hitRadius * target.hitRadius;
+        if (dx * dx + dz * dz <= radiusSq) {
+          target.takeDamage(this.rollDamage());
+          this.onHit?.(missile.mesh.position);
+          missile.kill();
+          break;
+        }
+      }
+    }
+
+    // Sweep expired entries last-to-first so splice doesn't shift the cursor.
+    for (let i = this.missiles.length - 1; i >= 0; i--) {
+      if (this.missiles[i].isExpired) {
+        this.missiles[i].dispose();
+        this.missiles.splice(i, 1);
+      }
+    }
+  }
+
+  /** Uniform integer roll in [minDamage, maxDamage]. */
+  private rollDamage(): number {
+    const span = this.maxDamage - this.minDamage;
+    return this.minDamage + Math.round(Math.random() * span);
+  }
+
+  get count(): number {
+    return this.missiles.length;
+  }
+}

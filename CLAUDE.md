@@ -96,6 +96,7 @@ Game (top-level coordinator)
 ├── PlayerShip + EngineGlow + DamageFlash
 ├── EnemyShip (single instance; AI in EnemyShip.update())
 ├── LaserSystem × 2 (player faction + enemy faction)
+├── MissileSystem (player heat-seeking secondary; homing + limited ammo)
 ├── ExplosionSystem
 ├── SoundSystem
 ├── CameraRig
@@ -155,6 +156,8 @@ src/
     EnemyShip.ts           enemy sim + wander/engage AI + procedural red mesh
     Laser.ts               single bolt entity (position, age, kill flag)
     LaserSystem.ts         per-faction bolt collection + collision + onHit
+    Missile.ts             single homing missile (composite mesh + trail; steers to target)
+    MissileSystem.ts       player missile pool: lock-fed homing, ammo, collision, onHit
     CameraRig.ts           top-down camera, velocity lead, trauma-based shake
     EngineGlow.ts          core sphere + TrailMesh behind player, thrust-driven
     DamageFlash.ts         red emissive sphere pulses around player on damage
@@ -183,6 +186,7 @@ The whole game's tuning lives in `src/game/GameConfig.ts`. Major sections:
 | `player` | Thrust, drag, rotation, fire cooldown, muzzles, fireMode, shipDesign |
 | `enemy` | AI ranges, fire cone, wander parameters |
 | `laser` | Bolt speed/lifetime/visuals (shared across both factions) |
+| `missile` | Homing secondary: ammo, speed, turnRate, damage range, lock range/cone, mesh + trail dims |
 | `arena` | Half-width, half-depth |
 | `camera` | Offset, smoothing rate, velocity lead, zoom range/rate |
 | `combat` | HP for both ships, laser damage, respawn delays |

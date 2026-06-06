@@ -7,6 +7,16 @@ export function lerp(a: number, b: number, t: number): number {
 }
 
 /**
+ * Wraps an angle into the (-π, π] range so heading differences take the
+ * shortest path. Used by both the enemy AI's steering and missile homing.
+ */
+export function wrapAngle(a: number): number {
+  while (a > Math.PI) a -= 2 * Math.PI;
+  while (a <= -Math.PI) a += 2 * Math.PI;
+  return a;
+}
+
+/**
  * Returns the lerp factor for exponential smoothing over a time step.
  * Use as: value = lerp(value, target, exponentialDecay(rate, dt));
  *
