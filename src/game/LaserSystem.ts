@@ -40,7 +40,13 @@ export class LaserSystem {
   private readonly material: Material;
   private readonly damage: number;
   private readonly onHit: (() => void) | null;
-  private target: DamageTarget | null = null;
+  /**
+   * Targets this system's bolts test against each frame. The player system
+   * registers every enemy (multi-target); the enemy system registers just
+   * the player (a one-element list). A bolt hits the first target it overlaps
+   * and is then consumed, so it can't pass through one ship to strike another.
+   */
+  private readonly targets: DamageTarget[] = [];
 
   constructor(
     private readonly scene: Scene,
@@ -66,9 +72,15 @@ export class LaserSystem {
     this.material = mat;
   }
 
-  /** Register the DamageTarget this system tests bolts against. */
+  /** Replace the target list with a single DamageTarget. */
   setTarget(target: DamageTarget): void {
-    this.target = target;
+    this.targets.length = 0;
+    this.targets.push(target);
+  }
+
+  /** Add a DamageTarget to the list this system tests bolts against. */
+  addTarget(target: DamageTarget): void {
+    this.targets.push(target);
   }
 
   /**
@@ -100,22 +112,24 @@ export class LaserSystem {
   }
 
   update(deltaSeconds: number, deltaMs: number): void {
-    const target = this.target;
-    const radiusSq =
-      target && target.isAlive ? target.hitRadius * target.hitRadius : 0;
+    const targets = this.targets;
 
     for (const laser of this.lasers) {
       laser.update(deltaSeconds, deltaMs);
+      if (laser.isExpired) continue;
 
-      // Collision: simple X/Z sphere test against the registered target.
-      // Y axis is ignored — gameplay is on one plane.
-      if (target && target.isAlive && !laser.isExpired) {
+      // Collision: simple X/Z sphere test against each live target. Y axis is
+      // ignored — gameplay is on one plane. First overlap consumes the bolt.
+      for (const target of targets) {
+        if (!target.isAlive) continue;
         const dx = laser.mesh.position.x - target.position.x;
         const dz = laser.mesh.position.z - target.position.z;
+        const radiusSq = target.hitRadius * target.hitRadius;
         if (dx * dx + dz * dz <= radiusSq) {
           target.takeDamage(this.damage);
           laser.kill();
           this.onHit?.();
+          break;
         }
       }
     }

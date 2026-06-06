@@ -49,6 +49,14 @@ export class EnemyShip implements DamageTarget {
 
   private deathTimeMs: number | null = null;
   private fireCooldownMs = 0;
+
+  /**
+   * Set by Game once it has fired the death explosion/FX for this ship, so
+   * the per-frame death check doesn't re-fire every frame until respawn.
+   * Lives here (rather than in a parallel array) so each enemy carries its
+   * own flag. Reset in respawn().
+   */
+  explosionFired = false;
   private wanderTargetHeading = 0;
   private wanderTimerSec = 0;
   private readonly forwardScratch = new Vector3();
@@ -95,6 +103,7 @@ export class EnemyShip implements DamageTarget {
     this.rotationY = rotationY;
     this.hp = this.maxHp;
     this.deathTimeMs = null;
+    this.explosionFired = false;
     this.fireCooldownMs = 0;
     this.wanderTargetHeading = rotationY;
     this.wanderTimerSec = 0;

@@ -59,12 +59,11 @@ export class Game {
   private player: PlayerShip | null = null;
   private engineGlow: EngineGlow | null = null;
   private playerDamageFlash: DamageFlash | null = null;
-  private readonly enemy: EnemyShip;
+  private readonly enemies: EnemyShip[] = [];
   private started = false;
   private readonly enemyLaserSpawnPos = new Vector3();
 
   private playerExplosionFired = false;
-  private enemyExplosionFired = false;
 
   /**
    * Wall-clock timestamp until which the simulation is paused. While
@@ -158,7 +157,9 @@ export class Game {
 
     this.explosions = new ExplosionSystem(this.scene, this.glowLayer);
 
-    this.enemy = new EnemyShip(this.scene, this.glowLayer);
+    for (let i = 0; i < GameConfig.enemy.count; i++) {
+      this.enemies.push(new EnemyShip(this.scene, this.glowLayer));
+    }
 
     this.cameraRig = new CameraRig(this.scene);
     this.hud = new Hud(hudRoot);
@@ -179,15 +180,19 @@ export class Game {
     );
     this.hud.setModelLabel(loaded.usingFallback ? "fallback" : "fighter.glb");
 
-    this.playerLasers.setTarget(this.enemy);
+    for (const enemy of this.enemies) {
+      this.playerLasers.addTarget(enemy);
+    }
     this.enemyLasers.setTarget(this.player);
 
-    const spawn = EnemyShip.randomSpawnPosition(
-      this.arena.halfWidth,
-      this.arena.halfDepth,
-      this.player.position,
-    );
-    this.enemy.respawn(spawn.x, spawn.z);
+    for (const enemy of this.enemies) {
+      const spawn = EnemyShip.randomSpawnPosition(
+        this.arena.halfWidth,
+        this.arena.halfDepth,
+        this.player.position,
+      );
+      enemy.respawn(spawn.x, spawn.z);
+    }
 
     this.engine.runRenderLoop(this.tick);
   }
@@ -263,38 +268,39 @@ export class Game {
           }
         }
 
-        // Enemy AI / firing
+        // Enemy AI / firing — each enemy ticks independently.
         if (this.player) {
-          const ai = this.enemy.update(
-            deltaSeconds,
-            deltaMs,
-            this.player,
-            this.arena.halfWidth,
-            this.arena.halfDepth,
-          );
-          if (ai.wantsFire) {
-            this.enemyLasers.spawn(
-              this.enemy.getLaserSpawnPosition(this.enemyLaserSpawnPos),
-              this.enemy.rotationY,
-            );
-            this.sound.playEnemyLaser();
-          }
-
-          if (!this.enemy.isAlive && !this.enemyExplosionFired) {
-            this.explosions.spawn(this.enemy.position);
-            this.sound.playExplosion();
-            this.cameraRig.addTrauma(GameConfig.shake.traumaEnemyExplosion);
-            this.applyHitstop(GameConfig.hitstop.enemyExplosionMs);
-            this.enemyExplosionFired = true;
-          }
-          if (this.enemy.shouldRespawn(nowMs)) {
-            const spawn = EnemyShip.randomSpawnPosition(
+          for (const enemy of this.enemies) {
+            const ai = enemy.update(
+              deltaSeconds,
+              deltaMs,
+              this.player,
               this.arena.halfWidth,
               this.arena.halfDepth,
-              this.player.position,
             );
-            this.enemy.respawn(spawn.x, spawn.z);
-            this.enemyExplosionFired = false;
+            if (ai.wantsFire) {
+              this.enemyLasers.spawn(
+                enemy.getLaserSpawnPosition(this.enemyLaserSpawnPos),
+                enemy.rotationY,
+              );
+              this.sound.playEnemyLaser();
+            }
+
+            if (!enemy.isAlive && !enemy.explosionFired) {
+              this.explosions.spawn(enemy.position);
+              this.sound.playExplosion();
+              this.cameraRig.addTrauma(GameConfig.shake.traumaEnemyExplosion);
+              this.applyHitstop(GameConfig.hitstop.enemyExplosionMs);
+              enemy.explosionFired = true;
+            }
+            if (enemy.shouldRespawn(nowMs)) {
+              const spawn = EnemyShip.randomSpawnPosition(
+                this.arena.halfWidth,
+                this.arena.halfDepth,
+                this.player.position,
+              );
+              enemy.respawn(spawn.x, spawn.z);
+            }
           }
         }
 

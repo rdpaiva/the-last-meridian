@@ -189,6 +189,8 @@ export const GameConfig = {
   },
 
   enemy: {
+    /** How many enemy fighters share the arena at once. */
+    count: 3,
     /** Forward acceleration (units / sec^2). Lower than the player. */
     thrust: 18,
     /** Velocity cap. */
