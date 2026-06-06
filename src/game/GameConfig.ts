@@ -25,7 +25,7 @@ export const GameConfig = {
      * Exponential drag rate (1/sec). With dragRate = 1.5, velocity decays
      * to ~22% of its value after 1 second of no input.
      */
-    dragRate: 1.5,
+    dragRate: 0,
     /** Angular speed (radians / sec). */
     rotationSpeed: 4.5,
     /** Minimum time between consecutive laser shots. */
@@ -81,11 +81,11 @@ export const GameConfig = {
 
   laser: {
     /** Travel speed in world units / sec. */
-    speed: 75,
+    speed: 95,
     /** Time before laser is despawned. */
     lifetimeMs: 1200,
     /** Visual length along the bolt's forward axis. */
-    length: 1.8,
+    length: 1.2,
     /** Visual half-thickness in X and Y. */
     radius: 0.08,
     /** Offset from ship origin where the laser spawns (along ship forward). */
