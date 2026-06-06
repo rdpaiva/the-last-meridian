@@ -92,6 +92,15 @@
   NOT a 3D plane. A large emissive plane gets multiplied by emissive +
   amplified by the GlowLayer and washes to white; a Layer is immune to
   lighting/glow and shows the whole image. See gotcha #9 and `Backdrop.ts`.
+  **Subtle parallax:** `Backdrop.update(cameraFocus)` (called each frame from
+  `Game.tick`, right after `Starfield.update()`) drifts the image a hair
+  against the camera so it reads as impossibly distant — the slowest-moving
+  layer, behind even the far stars. It pans the TEXTURE's `uOffset/vOffset`,
+  NOT `layer.offset` (that moves the on-screen quad and exposes a black edge —
+  the shader applies `offset` to `gl_Position`). The texture is zoomed in by
+  `GameConfig.scenery.backdrop.parallaxZoom` to leave pan headroom, and the pan
+  is clamped to that margin so the image edge never slides into view (no black
+  bar, no seam, no wrapping). `parallaxFactor: 0` disables it entirely.
 - **Nebulas** (Y per `GameConfig.scenery.nebulas.yLevel`): alpha-blended
   quads textured from the `nebula-*.png` files. Count, depth, size, and
   opacity are all in GameConfig. The PNGs come through the emissive channel

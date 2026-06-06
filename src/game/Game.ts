@@ -56,6 +56,7 @@ export class Game {
   private readonly sound: SoundSystem;
   private readonly cameraRig: CameraRig;
   private readonly starfield: Starfield;
+  private readonly backdrop: Backdrop;
   private readonly hud: Hud;
 
   private player: PlayerShip | null = null;
@@ -124,7 +125,7 @@ export class Game {
     this.input.attach();
 
     this.arena = new Arena(this.scene);
-    new Backdrop(this.scene);
+    this.backdrop = new Backdrop(this.scene);
     new Nebulas(this.scene, this.arena.halfWidth, this.arena.halfDepth);
     new CapitalShips(
       this.scene,
@@ -330,8 +331,10 @@ export class Game {
           this.player.velocity,
           zoomInput,
         );
-        // Re-anchor the wrapping starfield on the (now-updated) camera focus.
+        // Re-anchor the wrapping starfield on the (now-updated) camera focus,
+        // and drift the deep-space backdrop a hair against that same focus.
         this.starfield.update();
+        this.backdrop.update(this.cameraRig.camera.getTarget());
         if (!inHitstop) {
           // Engine glow tracks per-frame thrust input — pausing during
           // hitstop avoids the brief frozen "stuck in mid-burn" look.

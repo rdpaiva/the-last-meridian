@@ -229,6 +229,35 @@ export const GameConfig = {
        * competing with it.
        */
       tint: 0.7,
+      /**
+       * Subtle parallax for the deep-space backdrop. The backdrop is a 2D
+       * Layer with no world position, so it can't move on its own. We pan it
+       * by shifting the TEXTURE's uOffset/vOffset by `cameraFocus × factor`
+       * each frame (NOT layer.offset — that moves the whole on-screen quad and
+       * exposes black behind it). That makes the image drift opposite the
+       * ship's motion like an impossibly distant layer — the SLOWEST drift in
+       * the scene, behind even the far stars.
+       *
+       * To have something to pan INTO, the texture is zoomed in by
+       * `parallaxZoom` (see below), leaving a margin of off-screen image on
+       * every side. The pan is clamped to that margin so the texture edge is
+       * never reached — no black bar, no seam, no wrapping logic needed.
+       *
+       * Keep `parallaxFactor` TINY: too large and the backdrop "sticks" to the
+       * ship and reads as a painted dome rotating with you. Set it to 0 for a
+       * fully static, un-zoomed backdrop (the original behavior).
+       */
+      parallaxFactor: 0.0001,
+      /**
+       * How far the backdrop texture is zoomed in (fraction) to create pan
+       * headroom — also the hard cap on total pan travel, so the image edge
+       * can never slide into view. 0.12 = zoom in 12%, giving ±6% of pan room
+       * each axis. With `parallaxFactor = 0.0001` the pan hits this cap right
+       * at the arena edge (halfWidth 600 × 0.0001 = 0.06 = parallaxZoom/2), so
+       * the full image breadth is used across the arena. Ignored when
+       * `parallaxFactor` is 0.
+       */
+      parallaxZoom: 0.12,
     },
   },
 
