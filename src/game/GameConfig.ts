@@ -242,7 +242,7 @@ export const GameConfig = {
        * ship and reads as a painted dome rotating with you. Set it to 0 for a
        * fully static backdrop (the original behavior).
        */
-      parallaxFactor: 0.0001,
+      parallaxFactor: 0.0011,
       /**
        * How the pan is bounded so the texture edge never becomes visible:
        *
@@ -257,7 +257,7 @@ export const GameConfig = {
        *             seamless/tileable image or the repeat shows a hard seam.
        *             `parallaxZoom` is ignored in this mode.
        */
-      parallaxMode: "clamp" as "clamp" | "wrap",
+      parallaxMode: "wrap" as "clamp" | "wrap",
       /**
        * "clamp" mode only: how far the backdrop texture is zoomed in (fraction)
        * to create pan headroom — also the hard cap on total pan travel, so the
