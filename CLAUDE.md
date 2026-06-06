@@ -161,7 +161,7 @@ src/
     Explosion.ts           short-lived explosion (flash sphere + N debris)
     ExplosionSystem.ts     spawns/updates/disposes explosions
     SoundSystem.ts         5 CC0 SFX + engine hum loop + audio unlock
-    Starfield.ts           2 parallax layers of thin-instanced spheres
+    Starfield.ts           camera-locked wrapping parallax field (thin-instanced; count independent of arena size)
     Nebulas.ts             alpha-blended cloud quads from PNG textures (count via GameConfig)
     Backdrop.ts            full-screen deep-space background Layer (2D blit)
     CapitalShips.ts        3 procedural destroyer composites in deep background
@@ -376,7 +376,16 @@ Symmetric flow for enemy lasers hitting the player, with an extra
   texture (white tint would blow the pale art out). `TEXTURE_FILES`,
   `COLORS`, and `POSITIONS` are priority-ordered; `count` takes the first N.
 - **Starfield** (Y -8 and -18): two parallax layers, thin-instanced
-  spheres. ~1500 stars total in 2 draw calls.
+  spheres, 2 draw calls. **Camera-locked wrapping field** — NOT scattered
+  across the arena. Each layer holds a periodic lattice of stars sized to the
+  camera footprint; `Starfield.update()` (called each frame from `Game.tick`
+  after the camera updates) re-anchors every star to the lattice image nearest
+  the camera, so stars wrap off one screen edge onto the other. Star cost is
+  therefore independent of arena size (multiplayer-safe). The active count is
+  density × visible-area, capped at `GameConfig.starfield.maxNearCount/maxFarCount`
+  via `thinInstanceCount` over a max-sized buffer, so zooming out keeps density
+  constant up to a hard ceiling. Needs the camera, so it's constructed after
+  `CameraRig`.
 - **CapitalShips** (Y ≈ -26): 3 procedural destroyers built from boxes
   (hull + spine + tower + engine + 6 running lights). Engines and
   lights are emissive and opt into GlowLayer.

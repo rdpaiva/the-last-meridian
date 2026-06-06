@@ -55,6 +55,7 @@ export class Game {
   private readonly explosions: ExplosionSystem;
   private readonly sound: SoundSystem;
   private readonly cameraRig: CameraRig;
+  private readonly starfield: Starfield;
   private readonly hud: Hud;
 
   private player: PlayerShip | null = null;
@@ -125,7 +126,6 @@ export class Game {
     this.arena = new Arena(this.scene);
     new Backdrop(this.scene);
     new Nebulas(this.scene, this.arena.halfWidth, this.arena.halfDepth);
-    new Starfield(this.scene, this.arena.halfWidth);
     new CapitalShips(
       this.scene,
       this.arena.halfWidth,
@@ -167,6 +167,9 @@ export class Game {
     }
 
     this.cameraRig = new CameraRig(this.scene);
+    // Starfield is camera-locked (wraps around the view), so it needs the
+    // camera, not the arena size — its cost is independent of arena size.
+    this.starfield = new Starfield(this.scene, this.cameraRig.camera);
     this.hud = new Hud(hudRoot);
   }
 
@@ -323,6 +326,8 @@ export class Game {
           this.player.position,
           this.player.velocity,
         );
+        // Re-anchor the wrapping starfield on the (now-updated) camera focus.
+        this.starfield.update();
         if (!inHitstop) {
           // Engine glow tracks per-frame thrust input — pausing during
           // hitstop avoids the brief frozen "stuck in mid-burn" look.

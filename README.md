@@ -62,8 +62,9 @@ audio until a user gesture).
   damage flash on the player ship.
 - **Sound**: 5 CC0 effects (laser fire × 2, hit, explosion, engine hum)
   with thrust-modulated engine volume.
-- **Scenery**: starfield (~1500 stars in 2 parallax layers), purple
-  nebula clouds, 3 background capital-ship silhouettes.
+- **Scenery**: starfield (2 parallax layers, a camera-locked wrapping field
+  whose star count is independent of arena size), purple nebula clouds, 3
+  background capital-ship silhouettes.
 - **GlowLayer bloom** on every emissive surface.
 
 ---

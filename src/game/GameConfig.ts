@@ -93,8 +93,8 @@ export const GameConfig = {
   },
 
   arena: {
-    halfWidth: 60,
-    halfDepth: 40,
+    halfWidth: 600,
+    halfDepth: 400,
     /** Show the wireframe reference grid floor. Off for now. */
     showGrid: false,
   },
@@ -122,10 +122,38 @@ export const GameConfig = {
   },
 
   starfield: {
-    /** Number of bright "near" stars. */
-    nearCount: 900,
-    /** Number of dim "far" stars (deeper parallax layer). */
-    farCount: 600,
+    /**
+     * The starfield is a CAMERA-LOCKED WRAPPING field. Instead of scattering
+     * stars across the whole arena (which would force the count — and GPU
+     * cost — to grow with arena area), it fills only what the camera can see:
+     * stars that cross a screen edge wrap around to the opposite side, so the
+     * field reads as infinite. Star cost is therefore decoupled from world
+     * size — it's the multiplayer-safe design.
+     *
+     * Count is DENSITY-DRIVEN and CAPPED. The active star count is
+     * `density × visible-area`, so the on-screen density stays constant even
+     * if the camera zooms out (e.g. at high speed) — but it's clamped to
+     * `maxCount`, giving a hard GPU ceiling no matter how far we zoom. A
+     * buffer of `maxCount` stars is allocated once; we just render the active
+     * slice via thinInstanceCount.
+     *
+     * Densities are stars per 10,000 world-units² of the (margin-padded)
+     * field, tuned to reproduce the original on-screen look.
+     */
+    nearDensity: 39,
+    /** Density of dim "far" stars (deeper parallax layer). */
+    farDensity: 11.6,
+    /** Hard ceiling on rendered "near" stars — the perf budget for zoom-out. */
+    maxNearCount: 4000,
+    /** Hard ceiling on rendered "far" stars. */
+    maxFarCount: 3000,
+    /**
+     * Tile size multiplier over the visible footprint. The field wraps over a
+     * square `viewMargin ×` the on-screen footprint, so the wrap boundary sits
+     * safely off-screen and stars never visibly pop in/out. 1.0 = exactly the
+     * footprint (risky near edges); 1.25 leaves a comfortable margin.
+     */
+    viewMargin: 1.25,
     /** Y level of the near star layer (below the play plane). */
     nearY: -8,
     /** Y level of the far star layer. */
@@ -211,7 +239,7 @@ export const GameConfig = {
 
   enemy: {
     /** How many enemy fighters share the arena at once. */
-    count: 3,
+    count: 0,
     /** Forward acceleration (units / sec^2). Lower than the player. */
     thrust: 18,
     /** Velocity cap. */

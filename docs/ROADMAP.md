@@ -54,7 +54,8 @@ and explicitly skipped. Update this when you finish or start work.
 
 ### Visuals / FX
 - `GlowLayer` for global bloom on emissive surfaces
-- `Starfield`: 2 parallax layers of thin-instanced spheres (~1500 stars)
+- `Starfield`: 2 parallax layers of thin-instanced spheres, camera-locked
+  wrapping field (count independent of arena size; density-driven + capped)
 - `Nebulas`: 4 alpha-blended `NoiseProceduralTexture` quads, muted purples
 - `CapitalShips`: 3 procedural box-built destroyers in deep background
 - `EngineGlow`: core sphere + TrailMesh, thrust-modulated emissive intensity
