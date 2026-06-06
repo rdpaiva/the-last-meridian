@@ -256,6 +256,18 @@ commit; don't sprinkle magic numbers across files.**
     Inspector recipe below and live DevTools debugging
     (`window.__BABYLON_SCENE__.getMeshByName(...)`). Don't remove it.
 
+12. **Blank scene but HUD still shows? Check `GameConfig.camera.nearClip`
+    / `farClip` first.** `CameraRig` reads them straight into
+    `camera.minZ` / `camera.maxZ`. If either field is missing from the
+    config, the value becomes `undefined`, the frustum collapses, and the
+    ENTIRE 3D scene renders blank — while the DOM HUD keeps showing, which
+    makes it look like a render bug rather than a config one. This has
+    bitten more than once during camera-config edits (the fields sit at the
+    end of the `camera` section and are easy to drop when editing nearby
+    zoom values). Symptom → suspect missing clip planes. They're marked
+    REQUIRED in `GameConfig.ts`; `npm run typecheck` also catches it
+    (`Property 'nearClip' does not exist`), so run it after config edits.
+
 ---
 
 ## Combat flow

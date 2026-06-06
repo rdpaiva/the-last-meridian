@@ -131,18 +131,19 @@ export const GameConfig = {
      *              zoom key is held (multiplicative units / sec).
      */
     minZoom: 0.45,
-    maxZoom: 4.5,
+    maxZoom: 2.5,
     zoomRate: 1.2,
 
     /**
-     * Camera clip planes (world units). The far plane must comfortably
+     * Camera clip planes (world units). REQUIRED — CameraRig reads these into
+     * camera.minZ / camera.maxZ. If either is missing, the value becomes
+     * `undefined`, the frustum collapses, and the ENTIRE 3D scene renders
+     * blank (HUD survives since it's DOM). The far plane must comfortably
      * contain the deepest/farthest scenery (nebulas sit at yLevel ≈ -182 and
      * are flung ~765 units off-axis), or their far edges get sliced off by a
-     * hard rectangular frustum cut — most visible when zoomed out, since the
-     * camera climbs higher and the diagonal distance to a nebula corner can
-     * exceed ~1400 units. Keep nearClip well above 0 so the near:far depth
-     * ratio stays tight enough to avoid z-fighting on the gameplay plane
-     * (nearest object is ~20 units away even at max zoom-in).
+     * hard rectangular frustum cut — most visible when zoomed out. Keep
+     * nearClip well above 0 so the near:far depth ratio stays tight enough to
+     * avoid z-fighting on the gameplay plane (nearest object ~20 units away).
      */
     nearClip: 1,
     farClip: 2000,
