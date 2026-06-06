@@ -77,7 +77,12 @@
 ## EngineGlow
 - Core sphere + TrailMesh parented to an anchor at the ship's tail.
 - Materials use emissive components > 1.0 for hot bloom.
-- `intensity` smooths toward target = `thrusting ? 1 : speed/maxSpeed * 0.4`.
+- `intensity` (core sphere brightness/scale + audio) smooths toward
+  `thrusting ? 1 : speed/maxSpeed * 0.4`, so the core keeps a soft coast glow.
+- The **trail** ("thruster line") is gated separately on `trailIntensity`,
+  which targets thrust input ONLY (never speed). Its alpha fades with that
+  value and the mesh is `setEnabled(false)` once it's ~invisible, so the
+  exhaust streak appears only while actively burning and not while coasting.
 - Exposed via `currentIntensity` getter so SoundSystem can match the audio.
 
 ## DamageFlash

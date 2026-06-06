@@ -27,9 +27,15 @@ export class EngineGlow {
   private readonly coreMat: StandardMaterial;
   private readonly trailMat: StandardMaterial;
   private readonly core;
+  private readonly trail: TrailMesh;
 
   /** 0 = idle, 1 = full thrust. Smoothed each frame. */
   private intensity = 0;
+
+  /** Separate smoothing for the trail "thruster line". Unlike `intensity`,
+   * this targets thrust input ONLY (never speed) so the streak appears only
+   * while the player is actively burning, then fades out as they coast. */
+  private trailIntensity = 0;
 
   /** Read-only view of the smoothed thrust intensity (0..1) — used by
    * SoundSystem to keep the engine hum's audio level in sync with the
@@ -88,6 +94,9 @@ export class EngineGlow {
     this.trailMat.alpha = 0.6;
     trail.material = this.trailMat;
     trail.isPickable = false;
+    this.trail = trail;
+    // Start hidden — the trail only appears once the player burns.
+    this.trail.setEnabled(false);
 
     // Opt the core into glow explicitly. The trail glows automatically
     // because emissive materials are picked up by GlowLayer by default;
@@ -109,6 +118,16 @@ export class EngineGlow {
 
     const t = 1 - Math.exp(-cfg.responseRate * deltaSeconds);
     this.intensity += (target - this.intensity) * t;
+
+    // The trail streak is gated on thrust input alone, so coasting at speed
+    // glows the core softly but shows no exhaust line. Fade in fast on burn,
+    // taper out slowly on release, and disable the mesh once it's effectively
+    // invisible.
+    const trailRate = thrusting ? cfg.trailFadeInRate : cfg.trailFadeOutRate;
+    const trailT = 1 - Math.exp(-trailRate * deltaSeconds);
+    this.trailIntensity += ((thrusting ? 1 : 0) - this.trailIntensity) * trailT;
+    this.trailMat.alpha = 0.6 * this.trailIntensity;
+    this.trail.setEnabled(this.trailIntensity > 0.01);
 
     // Lerp idle → hot by intensity, write into shared scratch.
     this.currentColor.r =

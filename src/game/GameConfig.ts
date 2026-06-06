@@ -212,9 +212,9 @@ export const GameConfig = {
        * alpha channel (soft feathered edges), so this is the cap, not the
        * average.
        */
-      alpha: 0.85,
+      alpha: 0.25,
       /** Visual size of each nebula plane. */
-      size: 120,
+      size: 320,
     },
     /**
      * Deep-space image rendered as a full-screen background Layer (a 2D blit
@@ -277,6 +277,13 @@ export const GameConfig = {
     trailLength: 40,
     /** How fast the glow intensity catches up to the target thrust state. */
     responseRate: 12,
+    /** How fast the exhaust trail fades IN when thrust starts. Snappy so the
+     * streak appears promptly on burn. */
+    trailFadeInRate: 14,
+    /** How fast the exhaust trail tapers OUT when thrust is released. Lower
+     * than fade-in so the line lingers and trails off instead of snapping
+     * away. */
+    trailFadeOutRate: 3.5,
   },
 
   glow: {
