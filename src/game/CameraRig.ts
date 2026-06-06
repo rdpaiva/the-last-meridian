@@ -47,8 +47,8 @@ export class CameraRig {
     const startPos = new Vector3(0, 0, 0).addInPlace(this.offset);
     this.camera = new UniversalCamera("playerCam", startPos, scene);
     this.camera.setTarget(Vector3.Zero());
-    this.camera.minZ = 0.1;
-    this.camera.maxZ = 500;
+    this.camera.minZ = cfg.nearClip;
+    this.camera.maxZ = cfg.farClip;
     this.camera.fov = 0.9;
 
     this.camera.inputs.clear();
