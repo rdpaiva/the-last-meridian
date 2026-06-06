@@ -238,24 +238,33 @@ export const GameConfig = {
        * ship's motion like an impossibly distant layer — the SLOWEST drift in
        * the scene, behind even the far stars.
        *
-       * To have something to pan INTO, the texture is zoomed in by
-       * `parallaxZoom` (see below), leaving a margin of off-screen image on
-       * every side. The pan is clamped to that margin so the texture edge is
-       * never reached — no black bar, no seam, no wrapping logic needed.
-       *
        * Keep `parallaxFactor` TINY: too large and the backdrop "sticks" to the
        * ship and reads as a painted dome rotating with you. Set it to 0 for a
-       * fully static, un-zoomed backdrop (the original behavior).
+       * fully static backdrop (the original behavior).
        */
       parallaxFactor: 0.0001,
       /**
-       * How far the backdrop texture is zoomed in (fraction) to create pan
-       * headroom — also the hard cap on total pan travel, so the image edge
-       * can never slide into view. 0.12 = zoom in 12%, giving ±6% of pan room
-       * each axis. With `parallaxFactor = 0.0001` the pan hits this cap right
-       * at the arena edge (halfWidth 600 × 0.0001 = 0.06 = parallaxZoom/2), so
-       * the full image breadth is used across the arena. Ignored when
-       * `parallaxFactor` is 0.
+       * How the pan is bounded so the texture edge never becomes visible:
+       *
+       *   "clamp" — the BOUNDED-ARENA default. The texture is zoomed in by
+       *             `parallaxZoom` to leave an off-screen margin, and the pan
+       *             is clamped to that margin (CLAMP addressing). No seam, no
+       *             wrap, works with ANY image (tileable or not). The cost is a
+       *             slight zoom crop of the image edges.
+       *   "wrap"  — for an UNBOUNDED arena (or just to avoid the zoom crop).
+       *             No zoom; `uOffset/vOffset` grow freely with the camera and
+       *             the texture's WRAP addressing tiles it. REQUIRES a
+       *             seamless/tileable image or the repeat shows a hard seam.
+       *             `parallaxZoom` is ignored in this mode.
+       */
+      parallaxMode: "clamp" as "clamp" | "wrap",
+      /**
+       * "clamp" mode only: how far the backdrop texture is zoomed in (fraction)
+       * to create pan headroom — also the hard cap on total pan travel, so the
+       * image edge can never slide into view. 0.12 = zoom in 12%, giving ±6% of
+       * pan room each axis. With `parallaxFactor = 0.0001` the pan hits this cap
+       * right at the arena edge (halfWidth 600 × 0.0001 = 0.06 = parallaxZoom/2),
+       * so the full image breadth is used across the arena.
        */
       parallaxZoom: 0.12,
     },

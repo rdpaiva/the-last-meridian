@@ -97,10 +97,13 @@
   against the camera so it reads as impossibly distant — the slowest-moving
   layer, behind even the far stars. It pans the TEXTURE's `uOffset/vOffset`,
   NOT `layer.offset` (that moves the on-screen quad and exposes a black edge —
-  the shader applies `offset` to `gl_Position`). The texture is zoomed in by
-  `GameConfig.scenery.backdrop.parallaxZoom` to leave pan headroom, and the pan
-  is clamped to that margin so the image edge never slides into view (no black
-  bar, no seam, no wrapping). `parallaxFactor: 0` disables it entirely.
+  the shader applies `offset` to `gl_Position`). Two modes via
+  `GameConfig.scenery.backdrop.parallaxMode`: `"clamp"` (default, bounded
+  arena) zooms the texture in by `parallaxZoom` and clamps the pan to that
+  margin with CLAMP addressing — works with any image, costs a slight edge
+  crop; `"wrap"` (unbounded arena) lets the offset run free and tiles via WRAP
+  addressing — needs a seamless image. Either way the edge never shows.
+  `parallaxFactor: 0` disables it entirely.
 - **Nebulas** (Y per `GameConfig.scenery.nebulas.yLevel`): alpha-blended
   quads textured from the `nebula-*.png` files. Count, depth, size, and
   opacity are all in GameConfig. The PNGs come through the emissive channel

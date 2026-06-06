@@ -27,17 +27,28 @@ import { clamp } from "./math";
  * the empty clear color behind it (a black bar at the leading edge).
  *
  * Instead we pan the texture's sampling window: the quad stays full-screen and
- * we shift `texture.uOffset/vOffset`. To have image to pan INTO, the texture is
- * zoomed in by `parallaxZoom` (`uScale/vScale < 1`), leaving an off-screen
- * margin on every side; the pan is clamped to half that margin so the texture
- * edge is never reached. Result: an impossibly-distant drift opposite the
- * ship's motion — the slowest layer in the scene — with no black bar, no seam,
- * and no wrapping. Since the arena is bounded the clamp is rarely hit; it's
- * just a guarantee. Set `parallaxFactor` to 0 to disable and pin it static.
+ * we shift `texture.uOffset/vOffset`. Result: an impossibly-distant drift
+ * opposite the ship's motion — the slowest layer in the scene. Two modes keep
+ * the texture edge from ever showing (`GameConfig.scenery.backdrop.parallaxMode`):
+ *
+ *   "clamp" — bounded-arena default. Zoom the texture in by `parallaxZoom`
+ *             (`uScale/vScale < 1`) to leave an off-screen margin, then clamp
+ *             the pan to half that margin with CLAMP addressing. No seam, works
+ *             with any image; costs a slight edge crop.
+ *   "wrap"  — unbounded-arena mode. No zoom; the offset grows freely and WRAP
+ *             addressing tiles the texture. REQUIRES a seamless image. The pan
+ *             can run forever without ever revealing an edge.
+ *
+ * Set `parallaxFactor` to 0 to disable and pin the backdrop static.
  */
 export class Backdrop {
   private readonly texture: Texture | null = null;
-  /** Half the pan headroom (parallaxZoom / 2) — the clamp bound and center. */
+  private readonly factor: number = 0;
+  private readonly wrap: boolean = false;
+  /**
+   * "clamp" mode only: half the pan headroom (parallaxZoom / 2) — both the
+   * clamp bound and the centered base offset. Zero in "wrap" mode.
+   */
   private readonly half: number = 0;
 
   constructor(scene: Scene) {
@@ -53,9 +64,19 @@ export class Backdrop {
     // Layer constructs its image as a Texture (BaseTexture has no uOffset/uScale);
     // the cast unlocks the texture-matrix pan we drive in update().
     const tex = layer.texture as Texture | null;
-    if (cfg.parallaxFactor !== 0 && tex) {
+    if (cfg.parallaxFactor === 0 || !tex) return;
+
+    this.texture = tex;
+    this.factor = cfg.parallaxFactor;
+    this.wrap = cfg.parallaxMode === "wrap";
+
+    if (this.wrap) {
+      // Free-running offset; WRAP tiles the (seamless) image with no edge.
+      tex.wrapU = Texture.WRAP_ADDRESSMODE;
+      tex.wrapV = Texture.WRAP_ADDRESSMODE;
+    } else {
       // Zoom in to leave a pan margin on every side, then center the window.
-      // Clamp addressing so an exactly-on-edge sample can't bleed/wrap.
+      // CLAMP addressing so an exactly-on-edge sample can't bleed/wrap.
       this.half = cfg.parallaxZoom / 2;
       tex.uScale = 1 - cfg.parallaxZoom;
       tex.vScale = 1 - cfg.parallaxZoom;
@@ -63,7 +84,6 @@ export class Backdrop {
       tex.vOffset = this.half;
       tex.wrapU = Texture.CLAMP_ADDRESSMODE;
       tex.wrapV = Texture.CLAMP_ADDRESSMODE;
-      this.texture = tex;
     }
   }
 
@@ -74,14 +94,19 @@ export class Backdrop {
    *
    * uOffset increases → the sampling window slides right → image content
    * shifts LEFT on screen, matching the way fixed-world stars drift left as the
-   * ship moves right. The clamp keeps the window inside [0,1] so no edge shows.
+   * ship moves right. In "clamp" mode the pan is bounded to the zoom margin so
+   * no edge shows; in "wrap" mode it runs free and the texture tiles.
    */
   update(focus: Vector3): void {
     if (!this.texture) return;
-    const factor = GameConfig.scenery.backdrop.parallaxFactor;
-    this.texture.uOffset =
-      this.half + clamp(focus.x * factor, -this.half, this.half);
-    this.texture.vOffset =
-      this.half + clamp(focus.z * factor, -this.half, this.half);
+    if (this.wrap) {
+      this.texture.uOffset = focus.x * this.factor;
+      this.texture.vOffset = focus.z * this.factor;
+    } else {
+      this.texture.uOffset =
+        this.half + clamp(focus.x * this.factor, -this.half, this.half);
+      this.texture.vOffset =
+        this.half + clamp(focus.z * this.factor, -this.half, this.half);
+    }
   }
 }
