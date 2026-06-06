@@ -119,6 +119,20 @@ export const GameConfig = {
      * without sliding the ship around the frame.
      */
     velocityLead: 0.25,
+
+    /**
+     * Player-controlled zoom (+/- keys). The camera's fixed offset (offsetY
+     * and offsetZ) is multiplied by a live zoom factor: 1.0 = the default
+     * framing above, smaller = closer in, larger = further out.
+     *
+     *   minZoom — closest the camera can get (most zoomed in).
+     *   maxZoom — furthest the camera can pull back (most zoomed out).
+     *   zoomRate — how fast the zoom factor changes per second while a
+     *              zoom key is held (multiplicative units / sec).
+     */
+    minZoom: 0.45,
+    maxZoom: 2.5,
+    zoomRate: 1.2,
   },
 
   starfield: {

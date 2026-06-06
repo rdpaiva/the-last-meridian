@@ -12,6 +12,8 @@ export type InputState = {
   strafeLeft: boolean;
   strafeRight: boolean;
   fire: boolean;
+  zoomIn: boolean;
+  zoomOut: boolean;
 };
 
 export type ShipState = {

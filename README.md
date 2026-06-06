@@ -38,6 +38,7 @@ Node 20.19+ or Node 22 LTS is recommended.
 | `Q` | Strafe left |
 | `E` | Strafe right |
 | `Space` | Fire lasers |
+| `+` / `-` | Zoom camera in / out |
 
 The first keypress also unlocks the WebAudio context (browsers block
 audio until a user gesture).

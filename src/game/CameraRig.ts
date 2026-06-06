@@ -3,7 +3,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { UniversalCamera } from "@babylonjs/core/Cameras/universalCamera";
 
 import { GameConfig } from "./GameConfig";
-import { exponentialDecay } from "./math";
+import { clamp, exponentialDecay } from "./math";
 
 /**
  * Angled top-down camera that smoothly follows the player, with a
@@ -34,6 +34,12 @@ export class CameraRig {
   /** Internal clock for the sine-noise. Advances every frame. */
   private shakeTime = 0;
 
+  /**
+   * Live zoom factor multiplying the base offset. 1.0 = default framing;
+   * driven by the +/- keys via update(), clamped to [minZoom, maxZoom].
+   */
+  private zoom = 1;
+
   constructor(scene: Scene) {
     const cfg = GameConfig.camera;
     this.offset = new Vector3(0, cfg.offsetY, -cfg.offsetZ);
@@ -61,10 +67,22 @@ export class CameraRig {
     deltaSeconds: number,
     playerPosition: Vector3,
     playerVelocity: Vector3,
+    zoomInput: number,
   ): void {
     const cfg = GameConfig.camera;
     const shakeCfg = GameConfig.shake;
     const lead = cfg.velocityLead;
+
+    // --- Apply zoom input (+ = closer, - = further) ---
+    // zoomInput is -1 / 0 / +1. Positive zooms IN (shrinks the offset),
+    // negative zooms OUT, scaled by zoomRate so it's frame-rate-independent.
+    if (zoomInput !== 0) {
+      this.zoom = clamp(
+        this.zoom - zoomInput * cfg.zoomRate * deltaSeconds,
+        cfg.minZoom,
+        cfg.maxZoom,
+      );
+    }
 
     // --- Decay trauma ---
     this.trauma = Math.max(
@@ -107,10 +125,14 @@ export class CameraRig {
       intensity *
       Math.sin(tShake * 41.7);
 
-    // --- Final camera position (base + offset + shake) ---
-    this.camera.position.x = this.trackedTarget.x + this.offset.x + shakeX;
-    this.camera.position.y = this.trackedTarget.y + this.offset.y + shakeY;
-    this.camera.position.z = this.trackedTarget.z + this.offset.z + shakeZ;
+    // --- Final camera position (base + zoomed offset + shake) ---
+    // Offset is scaled by the live zoom factor; shake rides on top unscaled.
+    this.camera.position.x =
+      this.trackedTarget.x + this.offset.x * this.zoom + shakeX;
+    this.camera.position.y =
+      this.trackedTarget.y + this.offset.y * this.zoom + shakeY;
+    this.camera.position.z =
+      this.trackedTarget.z + this.offset.z * this.zoom + shakeZ;
 
     // Target stays at the un-shaken trackedTarget so the shake introduces
     // a slight tilt — feels like a camera mount being jolted, not the

@@ -184,7 +184,7 @@ The whole game's tuning lives in `src/game/GameConfig.ts`. Major sections:
 | `enemy` | AI ranges, fire cone, wander parameters |
 | `laser` | Bolt speed/lifetime/visuals (shared across both factions) |
 | `arena` | Half-width, half-depth |
-| `camera` | Offset, smoothing rate, velocity lead |
+| `camera` | Offset, smoothing rate, velocity lead, zoom range/rate |
 | `combat` | HP for both ships, laser damage, respawn delays |
 | `shake` | Trauma per impact type, decay rate, max offsets |
 | `hitstop` | Pause-frame durations per impact type, stack cap |
@@ -344,6 +344,10 @@ Symmetric flow for enemy lasers hitting the player, with an extra
 ### CameraRig
 - Top-down with `(offsetY, -offsetZ)` from player position.
 - Position smooths toward `playerPos + velocity * velocityLead`.
+- **Zoom**: the `+`/`-` keys drive a live `zoom` factor that multiplies the
+  base offset (1.0 = default; clamped to `camera.minZoom..maxZoom`, changed
+  at `camera.zoomRate`/sec). `update()` takes a `zoomInput` of -1/0/+1 from
+  `Game.tick`. Shake rides on top unscaled, no HUD element.
 - **Shake**: trauma 0..1, decays at `decayRate`/sec. Per-frame offset =
   `maxOffset × trauma² × sine-noise`. Position-only shake (target stays
   on `trackedTarget`) gives a slight angular tilt that reads as a

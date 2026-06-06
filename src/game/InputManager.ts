@@ -18,6 +18,8 @@ export class InputManager {
     strafeLeft: false,
     strafeRight: false,
     fire: false,
+    zoomIn: false,
+    zoomOut: false,
   };
 
   attach(): void {
@@ -40,6 +42,10 @@ export class InputManager {
     this.state.strafeLeft = this.held.has("KeyQ");
     this.state.strafeRight = this.held.has("KeyE");
     this.state.fire = this.held.has("Space");
+    // "+" is Shift+Equal on most layouts, so the Equal key doubles as zoom-in.
+    this.state.zoomIn = this.held.has("Equal") || this.held.has("NumpadAdd");
+    this.state.zoomOut =
+      this.held.has("Minus") || this.held.has("NumpadSubtract");
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
@@ -73,6 +79,10 @@ export class InputManager {
       case "ArrowLeft":
       case "ArrowRight":
       case "Space":
+      case "Equal":
+      case "Minus":
+      case "NumpadAdd":
+      case "NumpadSubtract":
         return true;
       default:
         return false;

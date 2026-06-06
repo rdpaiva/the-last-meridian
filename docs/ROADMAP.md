@@ -51,6 +51,7 @@ and explicitly skipped. Update this when you finish or start work.
 - Smooth follow with `playerPos + velocity * velocityLead`
 - World-aligned (does NOT rotate with the ship)
 - Disabled default Babylon camera inputs
+- Player zoom via `+`/`-` keys (scales the offset; range/rate in `GameConfig.camera`)
 
 ### Visuals / FX
 - `GlowLayer` for global bloom on emissive surfaces

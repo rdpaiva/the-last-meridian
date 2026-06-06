@@ -321,10 +321,14 @@ export class Game {
       // Camera shake, damage flash, and rendering all keep running so the
       // freeze-frame still feels alive.
       if (this.player && this.player.isAlive) {
+        const zoomInput =
+          (this.input.state.zoomIn ? 1 : 0) -
+          (this.input.state.zoomOut ? 1 : 0);
         this.cameraRig.update(
           deltaSeconds,
           this.player.position,
           this.player.velocity,
+          zoomInput,
         );
         // Re-anchor the wrapping starfield on the (now-updated) camera focus.
         this.starfield.update();
