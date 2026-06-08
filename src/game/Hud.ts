@@ -20,8 +20,10 @@ export class Hud {
   private readonly missilesEl: HTMLElement | null;
   private readonly lockEl: HTMLElement | null;
   private readonly modelEl: Element | null;
+  private readonly launchOverlayEl: HTMLElement | null;
 
   private lastTextUpdateMs = 0;
+  private lastOverlayText: string | null = null;
 
   constructor(root: HTMLDivElement) {
     root.innerHTML = `
@@ -40,10 +42,32 @@ export class Hud {
     this.missilesEl = root.querySelector<HTMLElement>("#hud-missiles");
     this.lockEl = root.querySelector<HTMLElement>("#hud-lock");
     this.modelEl = root.querySelector("#hud-model");
+
+    // Launch overlay lives outside the debug panel — it's fullscreen-centered.
+    const overlay = document.createElement("div");
+    overlay.id = "launch-overlay";
+    overlay.className = "launch-overlay hidden";
+    document.body.appendChild(overlay);
+    this.launchOverlayEl = overlay;
   }
 
   setModelLabel(label: string): void {
     if (this.modelEl) this.modelEl.textContent = label;
+  }
+
+  /**
+   * Show or hide the centered launch countdown overlay. Pass null to hide.
+   * Skips DOM writes when the text hasn't changed (called every frame).
+   */
+  setLaunchOverlay(text: string | null): void {
+    if (!this.launchOverlayEl || text === this.lastOverlayText) return;
+    this.lastOverlayText = text;
+    if (text === null) {
+      this.launchOverlayEl.classList.add("hidden");
+    } else {
+      this.launchOverlayEl.textContent = text;
+      this.launchOverlayEl.classList.remove("hidden");
+    }
   }
 
   update(

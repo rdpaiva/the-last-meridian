@@ -147,9 +147,52 @@ export const GameConfig = {
 
   arena: {
     halfWidth: 600,
-    halfDepth: 400,
+    /**
+     * Extended to 600 (from 400) so the player's post-launch glide path from
+     * z≈-540 (pod exit) into the combat zone isn't instantly clamped.
+     * Both motherships sit at ±700, safely outside these bounds.
+     */
+    halfDepth: 600,
     /** Show the wireframe reference grid floor. Off for now. */
     showGrid: false,
+  },
+
+  mothership: {
+    /** Z-axis span of the central spine (world units). */
+    hullLength: 280,
+    /** World Z of the player mothership center (south of the arena). */
+    playerZ: -700,
+    /** World Z of the enemy mothership center (north of the arena). */
+    enemyZ: 700,
+    /**
+     * Y offset for the mothership root. Negative = below the gameplay plane,
+     * so the hull's top face (at localY+3) sits flush with y=0 and the player
+     * ship appears to fly off the deck.
+     */
+    yLevel: -3,
+  },
+
+  launch: {
+    /**
+     * Wide-shot hold time before the countdown begins. Camera stays at
+     * introZoom (full mothership visible) for this duration, then smoothly
+     * zooms in to normal framing as the 3-2-1 digits play.
+     */
+    introDuration: 2.0,
+    /**
+     * Camera zoom factor during the wide establishing shot. Must be larger
+     * than camera.maxZoom so the whole mothership fits in frame — this is
+     * a cinematic override, not accessible via the player zoom keys.
+     */
+    introZoom: 6.0,
+    /** Seconds each countdown digit is displayed (3 → 2 → 1). */
+    countdownStepSec: 1.0,
+    /** Extra seconds the "LAUNCH!" banner lingers before the catapult fires. */
+    launchTextSec: 0.5,
+    /** Auto-catapult speed (units/sec). Well above player maxSpeed. */
+    launchSpeed: 90,
+    /** Camera trauma burst at the moment the catapult fires. */
+    launchTrauma: 0.35,
   },
 
   camera: {

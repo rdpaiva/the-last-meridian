@@ -37,3 +37,24 @@ body {
   color: #7f8aa6;
   margin-right: 6px;
 }
+
+.launch-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(64px, 14vw, 160px);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #cdd6f4;
+  text-shadow:
+    0 0 20px rgba(137, 180, 250, 0.9),
+    0 0 60px rgba(137, 180, 250, 0.4);
+  pointer-events: none;
+  user-select: none;
+}
+
+.launch-overlay.hidden {
+  display: none;
+}

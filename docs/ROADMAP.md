@@ -92,10 +92,30 @@ and explicitly skipped. Update this when you finish or start work.
 - DevTools console.info confirmations on unlock + hum start
 - **Critical**: Engine constructed with `audioEngine: true`
 
+### Motherships + Launch sequence (BSG-inspired)
+- `Mothership` — procedural BSG Galactica-style capital ship: twin flight pods,
+  connecting struts, central hull with bridge, amber engine exhausts, faction-tinted
+  running lights (blue-grey for player, red for enemy), glow-layer bloom
+- Two motherships placed as persistent scenery at opposite ends of the arena:
+  player's at z=−700 (bow faces +Z), enemy's at z=+700 (bow faces −Z)
+- `LaunchSequence` state machine: `intro → countdown → launching → complete`
+  - **Intro phase** (2 s): camera zooms out to `introZoom=6` showing the full
+    mothership silhouette as a cinematic establishing shot; no overlay
+  - **Countdown phase** (3 s): "3 / 2 / 1 / LAUNCH!" centered HUD overlay; camera
+    smoothstep-lerps from zoom 6→1 so the view closes in on the launch bay
+  - **Launching phase**: catapult fires at 90 u/s; engine glow forced on;
+    camera trauma burst at fire moment
+  - **Complete**: normal player control resumes at `maxSpeed`
+- `CameraRig.setZoom()` for programmatic zoom override during launch (bypasses
+  `maxZoom` upper clamp so the cinematic wide-shot can exceed the player range)
+- Arena `halfDepth` expanded 400→600 to accommodate the post-launch glide path
+- Launch overlay styled in `style.css` (fullscreen centered, glow text-shadow)
+
 ### HUD
 - Plain DOM HUD throttled to 10 Hz
 - HP readout with color cue (green/yellow/red/dimmed-on-death)
 - Position, velocity, laser count, model label (fallback or fighter.glb)
+- `setLaunchOverlay(text)` — fullscreen countdown overlay during launch sequence
 
 ### Asset pipeline
 - `AssetLoader` with GLB import → procedural fallback ship

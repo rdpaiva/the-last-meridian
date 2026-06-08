@@ -63,6 +63,18 @@ export class CameraRig {
     this.trauma = Math.min(1, this.trauma + amount);
   }
 
+  /**
+   * Directly set the zoom factor. Used by LaunchSequence to animate the
+   * camera from a wide establishing shot (introZoom, above maxZoom) down to
+   * normal framing during the 3-2-1 countdown. Once the sequence completes,
+   * normal zoomInput from the player drives zoom again (clamped to maxZoom).
+   * No upper clamp here — the launch intro intentionally zooms out further
+   * than the player can reach interactively.
+   */
+  setZoom(value: number): void {
+    this.zoom = Math.max(GameConfig.camera.minZoom, value);
+  }
+
   update(
     deltaSeconds: number,
     playerPosition: Vector3,

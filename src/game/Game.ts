@@ -25,6 +25,8 @@ import { EnemyShip } from "./EnemyShip";
 import { ExplosionSystem } from "./ExplosionSystem";
 import { SoundSystem } from "./SoundSystem";
 import { DamageFlash } from "./DamageFlash";
+import { Mothership } from "./Mothership";
+import { LaunchSequence } from "./LaunchSequence";
 
 /**
  * Top-level game coordinator. Owns the engine, scene, and every subsystem;
@@ -68,6 +70,8 @@ export class Game {
   private readonly enemies: EnemyShip[] = [];
   private started = false;
   private readonly enemyLaserSpawnPos = new Vector3();
+  private launchSequence: LaunchSequence | null = null;
+  private playerMothership: Mothership | null = null;
 
   private playerExplosionFired = false;
 
@@ -135,6 +139,24 @@ export class Game {
       this.arena.halfWidth,
       this.arena.halfDepth,
       this.glowLayer,
+    );
+
+    // Two BSG-style motherships — player's at the south end, enemy's at north.
+    // Built in the constructor so they appear immediately (before asset load).
+    const ms = GameConfig.mothership;
+    this.playerMothership = new Mothership(
+      this.scene,
+      this.glowLayer,
+      new Vector3(0, ms.yLevel, ms.playerZ),
+      0,        // bow faces +Z (into the arena)
+      "player",
+    );
+    new Mothership(
+      this.scene,
+      this.glowLayer,
+      new Vector3(0, ms.yLevel, ms.enemyZ),
+      Math.PI,  // bow faces -Z (toward the player)
+      "enemy",
     );
 
     this.sound = new SoundSystem(this.scene);
@@ -214,6 +236,13 @@ export class Game {
       this.playerMissiles.addTarget(enemy);
     }
     this.enemyLasers.setTarget(this.player);
+
+    // Place the player inside the starboard launch tube.
+    if (this.playerMothership) {
+      const launchStart = this.playerMothership.getLaunchStartPosition();
+      this.player.respawn(launchStart.x, launchStart.z, 0); // rotationY=0 → faces +Z
+      this.launchSequence = new LaunchSequence(this.playerMothership.getLaunchExitZ());
+    }
 
     for (const enemy of this.enemies) {
       const spawn = EnemyShip.randomSpawnPosition(
@@ -302,39 +331,57 @@ export class Game {
       if (!inHitstop) {
         // Player movement / firing
         if (this.player) {
-          this.player.update(
-            deltaSeconds,
-            this.input.state,
-            this.arena.halfWidth,
-            this.arena.halfDepth,
-          );
+          const inLaunch = this.launchSequence !== null && !this.launchSequence.isComplete;
 
-          if (this.player.isAlive && this.input.state.fire) {
-            const spawnPositions = this.player.tryFire();
-            for (const pos of spawnPositions) {
-              this.playerLasers.spawn(pos, this.player.rotationY);
+          if (inLaunch) {
+            // Drive the ship automatically; suppress all player input.
+            this.launchSequence!.update(deltaSeconds, this.player);
+
+            // Camera trauma burst at the catapult-fire moment.
+            if (this.launchSequence!.justLaunched) {
+              this.cameraRig.addTrauma(GameConfig.launch.launchTrauma);
             }
-            if (spawnPositions.length > 0) {
-              this.sound.playPlayerLaser();
+
+            // Sequence just completed this frame — discard it.
+            if (this.launchSequence!.isComplete) {
+              this.launchSequence = null;
+            }
+          } else {
+            // Normal player control.
+            this.player.update(
+              deltaSeconds,
+              this.input.state,
+              this.arena.halfWidth,
+              this.arena.halfDepth,
+            );
+
+            if (this.player.isAlive && this.input.state.fire) {
+              const spawnPositions = this.player.tryFire();
+              for (const pos of spawnPositions) {
+                this.playerLasers.spawn(pos, this.player.rotationY);
+              }
+              if (spawnPositions.length > 0) {
+                this.sound.playPlayerLaser();
+              }
+            }
+
+            // Missile launch. Always fires when ammo/cooldown allow; homes onto
+            // the locked enemy if there is one, otherwise flies ballistic (null).
+            if (this.player.isAlive && this.input.state.fireMissile) {
+              const missilePos = this.player.tryFireMissile();
+              if (missilePos) {
+                this.playerMissiles.spawn(
+                  missilePos,
+                  this.player.rotationY,
+                  lockTarget,
+                );
+                // Reuse the laser SFX for launch (no dedicated missile asset yet).
+                this.sound.playPlayerLaser();
+              }
             }
           }
 
-          // Missile launch. Always fires when ammo/cooldown allow; homes onto
-          // the locked enemy if there is one, otherwise flies ballistic (null).
-          if (this.player.isAlive && this.input.state.fireMissile) {
-            const missilePos = this.player.tryFireMissile();
-            if (missilePos) {
-              this.playerMissiles.spawn(
-                missilePos,
-                this.player.rotationY,
-                lockTarget,
-              );
-              // Reuse the laser SFX for launch (no dedicated missile asset yet).
-              this.sound.playPlayerLaser();
-            }
-          }
-
-          // Player death FX + respawn
+          // Player death FX + respawn (runs regardless of launch state).
           if (!this.player.isAlive && !this.playerExplosionFired) {
             this.explosions.spawn(this.player.position);
             this.sound.playExplosion();
@@ -394,6 +441,13 @@ export class Game {
       // Camera shake, damage flash, and rendering all keep running so the
       // freeze-frame still feels alive.
       if (this.player && this.player.isAlive) {
+        // During the launch sequence, override zoom: wide (maxZoom) during
+        // intro to show the full mothership, then smoothly zoom in to normal
+        // framing as the 3-2-1 countdown plays. Once the sequence is null the
+        // player's +/- keys drive zoom normally.
+        if (this.launchSequence) {
+          this.cameraRig.setZoom(this.launchSequence.desiredZoom);
+        }
         const zoomInput =
           (this.input.state.zoomIn ? 1 : 0) -
           (this.input.state.zoomOut ? 1 : 0);
@@ -410,11 +464,15 @@ export class Game {
         if (!inHitstop) {
           // Engine glow tracks per-frame thrust input — pausing during
           // hitstop avoids the brief frozen "stuck in mid-burn" look.
+          // Force glow on during the catapult launch phase.
+          const thrustActive =
+            this.input.state.thrust ||
+            (this.launchSequence?.isLaunching ?? false);
           this.engineGlow?.update(
             deltaSeconds,
             this.player.speed,
             GameConfig.player.maxSpeed,
-            this.input.state.thrust,
+            thrustActive,
           );
         }
       }
@@ -433,6 +491,7 @@ export class Game {
           nowMs,
           lockTarget !== null,
         );
+        this.hud.setLaunchOverlay(this.launchSequence?.overlayText ?? null);
       }
 
       this.scene.render();
