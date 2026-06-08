@@ -56,8 +56,9 @@ class PooledSound {
 }
 
 /**
- * Centralized audio: 4 one-shot sounds (player laser, enemy laser, hit,
- * explosion) plus 1 looping engine hum whose volume is modulated by thrust.
+ * Centralized audio: 5 one-shot sounds (player laser, enemy laser, hit,
+ * explosion, missile launch) plus 1 looping engine hum whose volume is
+ * modulated by thrust.
  *
  * Browser autoplay policy requires a user gesture before audio plays. The
  * Engine has to be constructed with `audioEngine: true` (see Game.ts) so
@@ -68,6 +69,8 @@ class PooledSound {
  */
 export class SoundSystem {
   private readonly playerLaser: PooledSound;
+  private readonly playerGuns: PooledSound;
+  private readonly missileLaunch: PooledSound;
   private readonly enemyLaser: PooledSound;
   private readonly hit: PooledSound;
   private readonly explosion: PooledSound;
@@ -85,6 +88,20 @@ export class SoundSystem {
       scene,
       4,
       { volume: 0.35 },
+    );
+    this.playerGuns = new PooledSound(
+      "sfx_player_guns",
+      `${baseUrl}/guns.wav`,
+      scene,
+      4,
+      { volume: 0.35 },
+    );
+    this.missileLaunch = new PooledSound(
+      "sfx_missile_launch",
+      `${baseUrl}/missile-launch.wav`,
+      scene,
+      2,
+      { volume: 0.5 },
     );
     this.enemyLaser = new PooledSound(
       "sfx_enemy_laser",
@@ -182,6 +199,12 @@ export class SoundSystem {
 
   playPlayerLaser(): void {
     this.playerLaser.play();
+  }
+  playPlayerGuns(): void {
+    this.playerGuns.play();
+  }
+  playMissileLaunch(): void {
+    this.missileLaunch.play();
   }
   playEnemyLaser(): void {
     this.enemyLaser.play();

@@ -361,7 +361,7 @@ export class Game {
                 this.playerLasers.spawn(pos, this.player.rotationY);
               }
               if (spawnPositions.length > 0) {
-                this.sound.playPlayerLaser();
+                this.sound.playPlayerGuns();
               }
             }
 
@@ -375,8 +375,7 @@ export class Game {
                   this.player.rotationY,
                   lockTarget,
                 );
-                // Reuse the laser SFX for launch (no dedicated missile asset yet).
-                this.sound.playPlayerLaser();
+                this.sound.playMissileLaunch();
               }
             }
           }
