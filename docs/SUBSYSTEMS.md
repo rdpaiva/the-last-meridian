@@ -60,6 +60,20 @@ friendly-fire-free without per-bolt faction checks.
   trauma/hitstop) — otherwise sustained fire on the stationary 1500-HP target
   would spam hitstop and crawl the whole game.
 
+## Radar
+- Player-centered, **north-up** circular minimap on its own canvas
+  (bottom-right), redrawn every frame from live ship/mothership refs (read-only).
+- Orientation matches the world camera (which doesn't rotate with the ship):
+  world +Z → screen up, +X → right. `project(dx,dz)` maps a world offset from
+  the player to a radar pixel and **clamps** beyond `GameConfig.radar.rangeWorld`
+  to the rim (clamped contacts drawn dimmer) so you always get a bearing to far
+  things — chiefly the enemy mothership objective.
+- Player = heading triangle at center; fighters = faction dots; motherships =
+  faction diamonds. Blip colors are canvas-friendly (`Radar.BLIP`), NOT the
+  emissive `FACTION_THEME` values (those blow out > 1.0).
+- Canvas backing store is sized at `devicePixelRatio` and the ctx pre-scaled, so
+  draw code works in logical pixels and stays crisp on HiDPI.
+
 ## LaserSystem
 - One instance **per faction** (`humansLasers` pink, `machinesLasers` green),
   each firing that faction's bolts and targeting every opposing-faction ship +

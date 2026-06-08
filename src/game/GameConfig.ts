@@ -204,6 +204,21 @@ export const GameConfig = {
     deathHitstopMs: 140,
   },
 
+  radar: {
+    /** Canvas edge length (px); the dish is a circle inscribed in it. */
+    sizePx: 190,
+    /** World-units radius mapped to the radar rim. Contacts beyond clamp to it. */
+    rangeWorld: 600,
+    /** Gap from the screen corner (px). */
+    marginPx: 16,
+    /** Fighter blip radius (px). */
+    fighterBlip: 3,
+    /** Mothership diamond half-size (px). */
+    mothershipBlip: 6,
+    /** Player heading-triangle size (px). */
+    playerMarker: 6,
+  },
+
   launch: {
     /**
      * Wide-shot hold time before the countdown begins. Camera stays at

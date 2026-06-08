@@ -16,6 +16,7 @@ import { MissileSystem } from "./MissileSystem";
 import { wrapAngle } from "./math";
 import { CameraRig } from "./CameraRig";
 import { Hud } from "./Hud";
+import { Radar } from "./Radar";
 import { Starfield } from "./Starfield";
 import { EngineGlow } from "./EngineGlow";
 import { SecondaryThrusters } from "./SecondaryThrusters";
@@ -71,6 +72,7 @@ export class Game {
   private readonly starfield: Starfield;
   private readonly backdrop: Backdrop;
   private readonly hud: Hud;
+  private readonly radar: Radar;
 
   /** Which side the human pilot flies, and the side they fight. */
   private readonly playerFaction: Faction;
@@ -246,6 +248,7 @@ export class Game {
     this.cameraRig = new CameraRig(this.scene);
     this.starfield = new Starfield(this.scene, this.cameraRig.camera);
     this.hud = new Hud(hudRoot);
+    this.radar = new Radar();
 
     // Each faction's controllers see the OTHER faction as opponents. The
     // opponents arrays are mutated in place each frame, so these views stay
@@ -560,6 +563,9 @@ export class Game {
         this.motherships.humans.hp / this.motherships.humans.maxHp,
         this.motherships.machines.hp / this.motherships.machines.maxHp,
       );
+      if (this.playerShip) {
+        this.radar.update(this.playerShip, this.shipsByFaction, this.motherships);
+      }
       this.hud.setLaunchOverlay(this.launchSequence?.overlayText ?? null);
       this.hud.setEndBanner(
         this.state === "victory" ? "victory" : this.state === "defeat" ? "defeat" : null,

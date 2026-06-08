@@ -102,7 +102,8 @@ Game (top-level coordinator)
 ├── ExplosionSystem
 ├── SoundSystem
 ├── CameraRig
-└── Hud (plain DOM)
+├── Hud (plain DOM)
+└── Radar (canvas minimap)
 ```
 
 ### The render loop (`Game.tick`)
@@ -186,6 +187,7 @@ src/
     Mothership.ts          BSG-style carrier; DamageTarget objective (HP) + launch-tube helpers
     LaunchSequence.ts      catapult state machine (intro→countdown→launching); skipIntro for respawns
     Hud.ts                 DOM HUD: HP cue + mothership objective bars + victory/defeat banner
+    Radar.ts               player-centered north-up canvas minimap (fighters + mothership blips)
 public/
   models/                  drop fighter.glb here if you want a real ship
   sounds/                  5 CC0 MP3s + SOURCES.md attribution

@@ -30,6 +30,9 @@ and explicitly skipped. Update this when you finish or start work.
 - **Respawn-from-launchpad fix**: a dead player relaunches from its mothership
   tube via a streamlined (skip-intro) `LaunchSequence`, not from world origin
 - HUD: two faction mothership HP bars + VICTORY/DEFEAT banner
+- **Radar** (`Radar.ts`): player-centered north-up canvas minimap, bottom-right;
+  faction blips for fighters + both motherships, out-of-range contacts clamped
+  to the rim (bearing to the objective)
 
 ### Player
 - `Ship` simulation (was `PlayerShip`): thrust, reverse thrust, drag, rotation, speed cap
@@ -165,8 +168,6 @@ Things that have come up in conversation as good ideas but haven't been
 implemented yet. Roughly ordered by gameplay value.
 
 **Agreed next phases (battle build, continuing from the faction spine):**
-- **Basic radar/minimap** — corner blip map: own ship centered, opposing ships
-  + both motherships as faction-colored blips. Read-only.
 - **Unbounded arena** — drop the X/Z position clamps in `Ship`; re-leash
   `AIController` toward the combat zone / enemy mothership instead of
   arena-center bias. Match still ends only via mothership destruction.
