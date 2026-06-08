@@ -14,8 +14,25 @@ and explicitly skipped. Update this when you finish or start work.
 - `GameConfig` as the single source of truth for tuning
 - Rate-based exponential decay helpers in `math.ts` (no per-frame multipliers)
 
+### Factions & match flow (multiplayer-ready spine)
+- **`Faction`** model (`humans` vs `machines`) with `FACTION_THEME` colors/labels;
+  player side chosen by a one-line `GameConfig.player.faction` flag (no UI)
+- **Control decoupled from ship**: one `Ship` sim driven by a `ShipController`
+  that emits an `InputState` — `LocalInputController` (keyboard), `AIController`
+  (ported enemy AI), and a future `NetworkController`. The "player" is just the
+  Ship wearing a local controller. (Merged the old `PlayerShip`/`EnemyShip`.)
+- `Ship` takes injected movement/weapon config + faction + missile loadout;
+  `FighterMesh.buildFighterMesh()` builds faction-themed AI fighters
+- **Win/lose loop**: `Mothership` implements `DamageTarget` with HP; destroying
+  the enemy mothership = victory, losing yours = defeat. `GameState`
+  (`launching → playing → victory/defeat`) drives a frozen end screen +
+  mothership death spectacle + Enter-to-restart
+- **Respawn-from-launchpad fix**: a dead player relaunches from its mothership
+  tube via a streamlined (skip-intro) `LaunchSequence`, not from world origin
+- HUD: two faction mothership HP bars + VICTORY/DEFEAT banner
+
 ### Player
-- `PlayerShip` simulation: thrust, reverse thrust, drag, rotation, speed cap
+- `Ship` simulation (was `PlayerShip`): thrust, reverse thrust, drag, rotation, speed cap
 - Forward direction math (sin/cos rotationY)
 - Arena bounds clamping
 - HP system + `DamageTarget` interface impl
@@ -147,6 +164,22 @@ so the next agent (or you, in a future session) doesn't redo work.
 Things that have come up in conversation as good ideas but haven't been
 implemented yet. Roughly ordered by gameplay value.
 
+**Agreed next phases (battle build, continuing from the faction spine):**
+- **Basic radar/minimap** — corner blip map: own ship centered, opposing ships
+  + both motherships as faction-colored blips. Read-only.
+- **Unbounded arena** — drop the X/Z position clamps in `Ship`; re-leash
+  `AIController` toward the combat zone / enemy mothership instead of
+  arena-center bias. Match still ends only via mothership destruction.
+- **Carriers launch fighters** — both motherships spawn fighters from their pods
+  over time (wave cadence + max-alive cap in `GameConfig`); human-side AI
+  wingmen fall out for free.
+- **Mothership defenses** — pod-mounted gun turrets + missile launchers as
+  sub-emitters; optionally per-part hitboxes so pods/turrets can be shot off.
+- **Multiplayer** — now a planned direction (not out of scope). The
+  Ship/`ShipController` spine is built for it: add a `NetworkController`
+  alongside `LocalInputController`/`AIController`; `InputState` is already a
+  boolean wire format.
+
 - **Score + combo multiplier** — kills earn points; quick consecutive
   kills build a multiplier. Persist best score to localStorage.
 - **Wave system** — replace single respawning enemy with escalating
@@ -192,10 +225,8 @@ benefit.
 
 - **React or any UI framework**. HUD is plain DOM. The game doesn't have
   a complex UI layer.
-- **Multiplayer / networking**. Single-player arcade duel.
 - **Physics engine** (cannon, ammo, havok). Motion is hand-rolled in
-  PlayerShip/EnemyShip and that's a feature, not a bug — keeps the
-  control feel tunable.
+  `Ship` and that's a feature, not a bug — keeps the control feel tunable.
 - **ECS framework** (bitecs, etc.). The entity count is too small to
   benefit; the explicit class-per-entity pattern is easier to read.
 - **Mobile / touch controls**. Game is keyboard-only.

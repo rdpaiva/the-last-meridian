@@ -58,3 +58,92 @@ body {
 .launch-overlay.hidden {
   display: none;
 }
+
+/* Mothership objective HP bars — top center. */
+#mothership-bars {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 28px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.ms-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.ms-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #9aa6c8;
+}
+
+.ms-track {
+  width: 220px;
+  height: 9px;
+  background: rgba(11, 13, 22, 0.7);
+  border: 1px solid rgba(120, 140, 200, 0.25);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.ms-fill {
+  height: 100%;
+  width: 100%;
+  transition: width 0.12s linear;
+}
+
+.ms-humans .ms-fill {
+  background: linear-gradient(90deg, #4a7bff, #89b4fa);
+}
+
+.ms-machines .ms-fill {
+  background: linear-gradient(90deg, #ff4d6d, #f38ba8);
+}
+
+/* Victory / defeat banner. */
+.end-banner {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  text-align: center;
+  pointer-events: none;
+  user-select: none;
+  background: rgba(2, 3, 8, 0.55);
+}
+
+.end-banner .end-title {
+  font-size: clamp(56px, 12vw, 140px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.end-banner.victory .end-title {
+  color: #a6e3a1;
+  text-shadow: 0 0 24px rgba(166, 227, 161, 0.8), 0 0 64px rgba(166, 227, 161, 0.4);
+}
+
+.end-banner.defeat .end-title {
+  color: #f38ba8;
+  text-shadow: 0 0 24px rgba(243, 139, 168, 0.8), 0 0 64px rgba(243, 139, 168, 0.4);
+}
+
+.end-banner .end-sub {
+  font-size: clamp(16px, 2.4vw, 26px);
+  color: #cdd6f4;
+  letter-spacing: 0.06em;
+}
+
+.end-banner.hidden {
+  display: none;
+}

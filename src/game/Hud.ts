@@ -1,4 +1,4 @@
-import type { PlayerShip } from "./PlayerShip";
+import type { Ship } from "./Ship";
 import type { LaserSystem } from "./LaserSystem";
 
 /**
@@ -23,9 +23,13 @@ export class Hud {
   private readonly zoomEl: Element | null;
   private readonly sfxEl: HTMLElement | null;
   private readonly launchOverlayEl: HTMLElement | null;
+  private readonly humansFillEl: HTMLElement | null;
+  private readonly machinesFillEl: HTMLElement | null;
+  private readonly endBannerEl: HTMLElement | null;
 
   private lastTextUpdateMs = 0;
   private lastOverlayText: string | null = null;
+  private endShown = false;
 
   constructor(root: HTMLDivElement) {
     root.innerHTML = `
@@ -55,6 +59,69 @@ export class Hud {
     overlay.className = "launch-overlay hidden";
     document.body.appendChild(overlay);
     this.launchOverlayEl = overlay;
+
+    // Mothership objective bars — top center, one per faction.
+    const msBars = document.createElement("div");
+    msBars.id = "mothership-bars";
+    msBars.innerHTML = `
+      <div class="ms-bar ms-humans">
+        <span class="ms-label">HUMANS MOTHERSHIP</span>
+        <div class="ms-track"><div class="ms-fill" id="ms-fill-humans"></div></div>
+      </div>
+      <div class="ms-bar ms-machines">
+        <span class="ms-label">MACHINES MOTHERSHIP</span>
+        <div class="ms-track"><div class="ms-fill" id="ms-fill-machines"></div></div>
+      </div>
+    `;
+    document.body.appendChild(msBars);
+    this.humansFillEl = msBars.querySelector<HTMLElement>("#ms-fill-humans");
+    this.machinesFillEl = msBars.querySelector<HTMLElement>("#ms-fill-machines");
+
+    // Victory / defeat banner — fullscreen, hidden until the match ends.
+    const banner = document.createElement("div");
+    banner.id = "end-banner";
+    banner.className = "end-banner hidden";
+    banner.innerHTML = `<div class="end-title"></div><div class="end-sub"></div>`;
+    document.body.appendChild(banner);
+    this.endBannerEl = banner;
+  }
+
+  /**
+   * Update the two mothership objective bars. Fractions are clamped to [0,1].
+   * Cheap enough (two style writes) to call every frame.
+   */
+  setMothershipHp(
+    humansFrac: number,
+    machinesFrac: number,
+  ): void {
+    if (this.humansFillEl) {
+      this.humansFillEl.style.width = `${Math.max(0, Math.min(1, humansFrac)) * 100}%`;
+    }
+    if (this.machinesFillEl) {
+      this.machinesFillEl.style.width = `${Math.max(0, Math.min(1, machinesFrac)) * 100}%`;
+    }
+  }
+
+  /**
+   * Show the victory/defeat banner (idempotent — only writes the DOM once).
+   * Pass null to hide it (e.g. on restart, though we currently reload).
+   */
+  setEndBanner(outcome: "victory" | "defeat" | null): void {
+    if (!this.endBannerEl) return;
+    if (outcome === null) {
+      if (!this.endShown) return;
+      this.endShown = false;
+      this.endBannerEl.className = "end-banner hidden";
+      return;
+    }
+    if (this.endShown) return;
+    this.endShown = true;
+    const title = outcome === "victory" ? "VICTORY" : "DEFEAT";
+    const titleEl = this.endBannerEl.querySelector<HTMLElement>(".end-title");
+    const subEl = this.endBannerEl.querySelector<HTMLElement>(".end-sub");
+    if (titleEl) titleEl.textContent = title;
+    if (subEl) subEl.textContent = "Press Enter to restart";
+    this.endBannerEl.className = `end-banner ${outcome}`;
   }
 
   setModelLabel(label: string): void {
@@ -83,7 +150,7 @@ export class Hud {
   }
 
   update(
-    player: PlayerShip,
+    player: Ship,
     lasers: LaserSystem,
     nowMs: number,
     lockAvailable: boolean,

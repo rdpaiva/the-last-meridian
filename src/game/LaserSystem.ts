@@ -31,15 +31,20 @@ export type LaserSystemOptions = {
   emissive: Color3;
   /** Optional name for the material — handy when debugging in the inspector. */
   materialName?: string;
-  /** Called once per bolt that lands a hit on the target. Use for SFX. */
-  onHit?: () => void;
+  /**
+   * Called once per bolt that lands a hit, with the target it struck. The
+   * target lets the caller scale feedback by what was hit — e.g. flash + big
+   * hitstop when the player's own ship is hit, but only a light cue when the
+   * (huge, stationary) mothership takes a chip of damage.
+   */
+  onHit?: (target: DamageTarget) => void;
 };
 
 export class LaserSystem {
   private readonly lasers: Laser[] = [];
   private readonly material: Material;
   private readonly damage: number;
-  private readonly onHit: (() => void) | null;
+  private readonly onHit: ((target: DamageTarget) => void) | null;
   /**
    * Targets this system's bolts test against each frame. The player system
    * registers every enemy (multi-target); the enemy system registers just
@@ -128,7 +133,7 @@ export class LaserSystem {
         if (dx * dx + dz * dz <= radiusSq) {
           target.takeDamage(this.damage);
           laser.kill();
-          this.onHit?.();
+          this.onHit?.(target);
           break;
         }
       }
