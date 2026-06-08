@@ -86,6 +86,7 @@ export class InputManager {
       case "Minus":
       case "NumpadAdd":
       case "NumpadSubtract":
+      case "KeyM":
         return true;
       default:
         return false;

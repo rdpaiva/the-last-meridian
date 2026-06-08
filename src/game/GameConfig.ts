@@ -215,6 +215,15 @@ export const GameConfig = {
      * without sliding the ship around the frame.
      */
     velocityLead: 0.25,
+    /**
+     * Smoothing rate (1/sec) for the velocity used in the lead calculation.
+     * Raw velocity is filtered through this before the lead offset is applied,
+     * so rapid direction reversals (e.g. strafing left→right) ease the lead
+     * point across rather than snapping it, which would make the ship appear
+     * to lurch the wrong way in the camera frame. Higher = more reactive
+     * (approaches raw velocity); lower = lazier pan on direction change.
+     */
+    velocityLeadSmoothingRate: 5,
 
     /**
      * Player-controlled zoom (+/- keys). The camera's fixed offset (offsetY
@@ -364,6 +373,40 @@ export const GameConfig = {
        */
       parallaxZoom: 0.12,
     },
+  },
+
+  secondaryThrusters: {
+    // Nozzle positions in ship-local space (outer shipRoot frame, nose = +Z).
+    /** Local Z of the reverse/nose thruster (forward of ship centre). */
+    noseZ: 1.3,
+    /** Absolute local X of the port/starboard strafe thrusters. */
+    sideX: 0.65,
+    /** Local Z of the strafe thruster nozzles (roughly mid-body). */
+    sideZ: -0.2,
+
+    // Mesh dimensions.
+    /** Diameter of each nozzle glow sphere. */
+    coreDiameter: 0.18,
+    /** Length of the jet plume along the ejection axis (world units). */
+    plumeLength: 1.55,
+    /** Width / thickness of the plume ellipsoid (world units). */
+    plumeWidth: 0.13,
+
+    // Animation rates (per-second exponential).
+    /** How fast a nozzle fades IN on input. Snappy — matches button press. */
+    fadeInRate: 18,
+    /** How fast a nozzle tapers OUT after input releases. Slow = lingering gas. */
+    fadeOutRate: 4,
+
+    // Visual.
+    /** Peak trail/sphere opacity. Intentionally dim vs the main engine. */
+    maxAlpha: 0.65,
+    /**
+     * Emissive colour. Cool blue-white (≈ compressed RCS gas) vs the hot
+     * orange of the main engine. Blue component > 1 so the GlowLayer blooms
+     * it into a soft halo without making it feel neon.
+     */
+    color: { r: 0.35, g: 0.58, b: 1.1 },
   },
 
   engineGlow: {

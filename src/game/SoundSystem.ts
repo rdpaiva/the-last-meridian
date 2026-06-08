@@ -80,6 +80,7 @@ export class SoundSystem {
   private readonly engineMaxVolume = 0.45;
   private unlocked = false;
   private engineHumStarted = false;
+  private muted = false;
 
   constructor(scene: Scene, baseUrl = "/sounds") {
     this.playerLaser = new PooledSound(
@@ -195,6 +196,15 @@ export class SoundSystem {
         console.info("[SoundSystem] engine hum started");
       }
     }
+  }
+
+  get isMuted(): boolean {
+    return this.muted;
+  }
+
+  toggleMute(): void {
+    this.muted = !this.muted;
+    AbstractEngine.audioEngine?.setGlobalVolume(this.muted ? 0 : 1);
   }
 
   playPlayerLaser(): void {

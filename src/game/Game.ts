@@ -18,6 +18,7 @@ import { CameraRig } from "./CameraRig";
 import { Hud } from "./Hud";
 import { Starfield } from "./Starfield";
 import { EngineGlow } from "./EngineGlow";
+import { SecondaryThrusters } from "./SecondaryThrusters";
 import { CapitalShips } from "./CapitalShips";
 import { Nebulas } from "./Nebulas";
 import { Backdrop } from "./Backdrop";
@@ -66,6 +67,7 @@ export class Game {
 
   private player: PlayerShip | null = null;
   private engineGlow: EngineGlow | null = null;
+  private secondaryThrusters: SecondaryThrusters | null = null;
   private playerDamageFlash: DamageFlash | null = null;
   private readonly enemies: EnemyShip[] = [];
   private started = false;
@@ -130,6 +132,12 @@ export class Game {
     // --- Subsystems ---
     this.input = new InputManager();
     this.input.attach();
+    window.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.code === "KeyM") {
+        this.sound.toggleMute();
+        this.hud.setMuted(this.sound.isMuted);
+      }
+    });
 
     this.arena = new Arena(this.scene);
     this.backdrop = new Backdrop(this.scene);
@@ -224,6 +232,7 @@ export class Game {
     const loaded = await loader.loadPlayerShip();
     this.player = new PlayerShip(loaded.root);
     this.engineGlow = new EngineGlow(this.scene, loaded.root, this.glowLayer);
+    this.secondaryThrusters = new SecondaryThrusters(this.scene, loaded.root, this.glowLayer);
     this.playerDamageFlash = new DamageFlash(
       this.scene,
       loaded.root,
@@ -473,6 +482,15 @@ export class Game {
             GameConfig.player.maxSpeed,
             thrustActive,
           );
+          // Secondary (RCS) thruster vapour — pass false for all axes when
+          // the player is dead so the nozzle glows fade out gracefully.
+          const alive = this.player?.isAlive ?? false;
+          this.secondaryThrusters?.update(
+            deltaSeconds,
+            alive && this.input.state.reverse,
+            alive && this.input.state.strafeLeft,
+            alive && this.input.state.strafeRight,
+          );
         }
       }
       this.playerDamageFlash?.update();
@@ -489,6 +507,7 @@ export class Game {
           this.playerLasers,
           nowMs,
           lockTarget !== null,
+          this.cameraRig.currentZoom,
         );
         this.hud.setLaunchOverlay(this.launchSequence?.overlayText ?? null);
       }

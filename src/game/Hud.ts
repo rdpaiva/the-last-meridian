@@ -20,6 +20,8 @@ export class Hud {
   private readonly missilesEl: HTMLElement | null;
   private readonly lockEl: HTMLElement | null;
   private readonly modelEl: Element | null;
+  private readonly zoomEl: Element | null;
+  private readonly sfxEl: HTMLElement | null;
   private readonly launchOverlayEl: HTMLElement | null;
 
   private lastTextUpdateMs = 0;
@@ -34,6 +36,8 @@ export class Hud {
       <div><span class="label">missiles</span><span id="hud-missiles">0</span></div>
       <div><span class="label">lock</span><span id="hud-lock">---</span></div>
       <div><span class="label">model</span><span id="hud-model">-</span></div>
+      <div><span class="label">zoom</span><span id="hud-zoom">1.00</span></div>
+      <div><span class="label">sfx</span><span id="hud-sfx">on</span></div>
     `;
     this.hpEl = root.querySelector<HTMLElement>("#hud-hp");
     this.posEl = root.querySelector("#hud-pos");
@@ -42,6 +46,8 @@ export class Hud {
     this.missilesEl = root.querySelector<HTMLElement>("#hud-missiles");
     this.lockEl = root.querySelector<HTMLElement>("#hud-lock");
     this.modelEl = root.querySelector("#hud-model");
+    this.zoomEl = root.querySelector("#hud-zoom");
+    this.sfxEl = root.querySelector<HTMLElement>("#hud-sfx");
 
     // Launch overlay lives outside the debug panel — it's fullscreen-centered.
     const overlay = document.createElement("div");
@@ -70,11 +76,18 @@ export class Hud {
     }
   }
 
+  setMuted(muted: boolean): void {
+    if (!this.sfxEl) return;
+    this.sfxEl.textContent = muted ? "off" : "on";
+    this.sfxEl.style.color = muted ? "#6c7086" : "";
+  }
+
   update(
     player: PlayerShip,
     lasers: LaserSystem,
     nowMs: number,
     lockAvailable: boolean,
+    zoom: number,
   ): void {
     if (nowMs - this.lastTextUpdateMs < 100) return;
     this.lastTextUpdateMs = nowMs;
@@ -103,6 +116,8 @@ export class Hud {
       this.missilesEl.style.color =
         player.missileAmmo > 0 ? "#f9e2af" : "#6c7086";
     }
+
+    if (this.zoomEl) this.zoomEl.textContent = zoom.toFixed(2);
 
     // Lock cue: green LOCK only when a lock is available AND we have a missile
     // to use it; otherwise a dim placeholder.

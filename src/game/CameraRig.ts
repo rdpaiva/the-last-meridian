@@ -28,6 +28,10 @@ export class CameraRig {
   private readonly offset: Vector3;
   private readonly trackedTarget = new Vector3();
   private readonly desiredTarget = new Vector3();
+  /** Velocity filtered through velocityLeadSmoothingRate. Using raw velocity
+   * for the lead offset causes the lead point to snap when the player reverses
+   * direction, making the ship appear to lurch in the camera frame. */
+  private readonly smoothedLeadVelocity = new Vector3();
 
   /** 0..1 — current trauma. Decays at GameConfig.shake.decayRate per second. */
   private trauma = 0;
@@ -59,6 +63,10 @@ export class CameraRig {
    * stack until they cap, then decay together — chained hits don't compound
    * past the cap, which keeps long combos from melting your eyes.
    */
+  get currentZoom(): number {
+    return this.zoom;
+  }
+
   addTrauma(amount: number): void {
     this.trauma = Math.min(1, this.trauma + amount);
   }
@@ -103,10 +111,18 @@ export class CameraRig {
     );
     this.shakeTime += deltaSeconds;
 
-    // --- Base camera tracking (unchanged from before) ---
-    this.desiredTarget.x = playerPosition.x + playerVelocity.x * lead;
+    // --- Base camera tracking ---
+    // Smooth the velocity before applying the lead offset so that reversing
+    // direction (e.g. strafe left→right) eases the lead point across rather
+    // than snapping it, which would make the ship appear to lurch the wrong
+    // way in the camera frame.
+    const leadT = exponentialDecay(cfg.velocityLeadSmoothingRate, deltaSeconds);
+    this.smoothedLeadVelocity.x += (playerVelocity.x - this.smoothedLeadVelocity.x) * leadT;
+    this.smoothedLeadVelocity.z += (playerVelocity.z - this.smoothedLeadVelocity.z) * leadT;
+
+    this.desiredTarget.x = playerPosition.x + this.smoothedLeadVelocity.x * lead;
     this.desiredTarget.y = playerPosition.y;
-    this.desiredTarget.z = playerPosition.z + playerVelocity.z * lead;
+    this.desiredTarget.z = playerPosition.z + this.smoothedLeadVelocity.z * lead;
 
     const t = exponentialDecay(cfg.smoothingRate, deltaSeconds);
     this.trackedTarget.x +=
