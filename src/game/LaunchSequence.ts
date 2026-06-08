@@ -1,5 +1,5 @@
 import { GameConfig } from "./GameConfig";
-import type { PlayerShip } from "./PlayerShip";
+import type { Ship } from "./Ship";
 
 type Phase = "intro" | "countdown" | "launching" | "complete";
 
@@ -18,14 +18,25 @@ type Phase = "intro" | "countdown" | "launching" | "complete";
  *   complete   — ship has cleared the bow; Game.ts re-enables normal control.
  */
 export class LaunchSequence {
-  private phase: Phase = "intro";
+  private phase: Phase;
   private elapsedSec = 0;
   private _justLaunched = false;
+  /** When skipping the intro, fire the catapult kick on the first update. */
+  private kickPending = false;
 
   constructor(
     /** World-space Z the ship must pass to mark the sequence complete. */
     private readonly exitZ: number,
-  ) {}
+    /**
+     * Skip the wide establishing shot + 3-2-1 countdown and catapult
+     * immediately at normal zoom. Used on respawn so the player doesn't sit
+     * through the full cinematic every death (the initial spawn keeps it).
+     */
+    skipIntro = false,
+  ) {
+    this.phase = skipIntro ? "launching" : "intro";
+    this.kickPending = skipIntro;
+  }
 
   // ─── State queries ────────────────────────────────────────────────────────
 
@@ -92,10 +103,17 @@ export class LaunchSequence {
    * Called every simulation frame (skipped during hitstop, same as the rest
    * of the sim). Drives the ship directly while in the launching phase.
    */
-  update(deltaSeconds: number, ship: PlayerShip): void {
+  update(deltaSeconds: number, ship: Ship): void {
     this._justLaunched = false;
 
     if (this.phase === "complete") return;
+
+    // Skip-intro respawn: deliver the catapult kick once, on the first frame.
+    if (this.kickPending) {
+      this.kickPending = false;
+      this._justLaunched = true;
+      ship.velocity.set(0, 0, GameConfig.launch.launchSpeed);
+    }
 
     this.elapsedSec += deltaSeconds;
 

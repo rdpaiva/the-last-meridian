@@ -93,14 +93,17 @@ Game (top-level coordinator)
 ├── Lights (HemisphericLight + DirectionalLight)
 ├── Scenery (Backdrop, Nebulas, Starfield, CapitalShips — fire-and-forget)
 ├── Arena (wireframe grid + arena bounds)
-├── PlayerShip + EngineGlow + DamageFlash
-├── EnemyShip (single instance; AI in EnemyShip.update())
-├── LaserSystem × 2 (player faction + enemy faction)
+├── Motherships × 2 (humans + machines; DamageTarget = the win/lose objective)
+├── Combatants: Ship × N, each driven by a ShipController
+│     ├── player Ship  = LocalInputController (+ EngineGlow + DamageFlash)
+│     └── enemy Ships   = AIController  (mesh from FighterMesh)
+├── LaserSystem × 2 (humans faction + machines faction)
 ├── MissileSystem (player heat-seeking secondary; homing + limited ammo)
 ├── ExplosionSystem
 ├── SoundSystem
 ├── CameraRig
-└── Hud (plain DOM)
+├── Hud (plain DOM)
+└── Radar (canvas minimap)
 ```
 
 ### The render loop (`Game.tick`)
@@ -111,21 +114,30 @@ Single `engine.runRenderLoop(this.tick)`. Each frame:
 2. Check `inHitstop = nowMs < hitstopUntilMs`.
 3. `input.update()` — derives bools from held key set.
 4. Unlock audio on first input frame.
-5. **If not in hitstop:** advance simulation
-   (player → enemy → lasers → explosions, including respawn logic).
+5. **If not in hitstop (and the match hasn't ended):** advance simulation
+   (each combatant's controller → ship → fire → lasers → missiles →
+   explosions → win/lose check, including respawn logic).
 6. **Always:** update camera (shake animates during hitstop), damage
    flash, engine hum, HUD, then `scene.render()`.
 
 ### Key abstractions
 
 **`DamageTarget` (types.ts)** — anything a laser can damage. Has
-`position`, `hitRadius`, `isAlive`, and `takeDamage(amount)`. `PlayerShip`
-and `EnemyShip` both implement it.
+`position`, `hitRadius`, `isAlive`, and `takeDamage(amount)`. `Ship` and
+`Mothership` both implement it.
 
-**`LaserSystem`** — per-faction collection of bolts with one optional
-`DamageTarget`. On hit: damages target, kills the bolt, fires `onHit`
-callback (which Game uses to wire SFX + camera trauma + hitstop +
-damage flash).
+**`Ship` + `ShipController` (the faction spine)** — control is decoupled
+from the ship: one `Ship` sim consumes an `InputState` produced by a
+`ShipController` (`LocalInputController` = keyboard, `AIController` = the
+ported enemy AI, future `NetworkController`). The "player" is just the Ship
+wearing a local controller, so the two factions (`humans`/`machines`, see
+`Faction.ts`) are interchangeable and the design is multiplayer-ready. See
+`docs/SUBSYSTEMS.md` → "Ship + Controllers".
+
+**`LaserSystem`** — per-faction collection of bolts with a list of
+`DamageTarget`s (every opposing ship + their mothership). On hit: damages
+target, kills the bolt, fires `onHit(target)` (Game scales SFX + camera
+trauma + hitstop + damage flash by what was struck).
 
 **`GameConfig`** — single source of truth for every tuning knob in the
 game. Adding a new tunable? Put it here. Reading a value? Always from
@@ -152,8 +164,12 @@ src/
     InputManager.ts        keyboard tracker with blur-safe key clearing
     Arena.ts               wireframe grid plane + position clamping helper
     AssetLoader.ts         GLB importer with procedural fallback (two-tier root); fallback has two designs (classic/viper) via GameConfig.player.shipDesign
-    PlayerShip.ts          player sim + HP + DamageTarget + muzzle/fire system
-    EnemyShip.ts           enemy sim + wander/engage AI + procedural red mesh
+    Faction.ts             humans|machines type + opposing() + FACTION_THEME (colors/labels)
+    Ship.ts                unified ship sim + HP + DamageTarget + muzzle/fire (config-injected; merges old PlayerShip/EnemyShip)
+    ShipController.ts      controller interface + ControllerWorld (emits InputState)
+    LocalInputController.ts  keyboard controller (surfaces InputManager.state) = the player
+    AIController.ts        wander/engage/fire-cone AI, emits InputState (ported from EnemyShip)
+    FighterMesh.ts         faction-themed procedural fighter mesh + randomFighterSpawn helper
     Laser.ts               single bolt entity (position, age, kill flag)
     LaserSystem.ts         per-faction bolt collection + collision + onHit
     Missile.ts             single homing missile (composite mesh + trail; steers to target)
@@ -168,7 +184,10 @@ src/
     Nebulas.ts             alpha-blended cloud quads from PNG textures (count via GameConfig)
     Backdrop.ts            full-screen deep-space background Layer (2D blit)
     CapitalShips.ts        3 procedural destroyer composites in deep background
-    Hud.ts                 plain DOM HUD with HP color cue
+    Mothership.ts          BSG-style carrier; DamageTarget objective (HP) + launch-tube helpers
+    LaunchSequence.ts      catapult state machine (intro→countdown→launching); skipIntro for respawns
+    Hud.ts                 DOM HUD: HP cue + mothership objective bars + victory/defeat banner
+    Radar.ts               player-centered north-up canvas minimap (fighters + mothership blips)
 public/
   models/                  drop fighter.glb here if you want a real ship
   sounds/                  5 CC0 MP3s + SOURCES.md attribution

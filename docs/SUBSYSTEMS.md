@@ -7,42 +7,83 @@
 
 ---
 
-## PlayerShip
-- Self-controlled sim (NOT Babylon physics).
-- Owns position, velocity, rotationY, HP, cooldowns, muzzle index.
-- `update()` reads `InputState`, integrates motion, syncs `root.position`
-  and `root.rotation.y` to its visual root.
-- `tryFire()` returns an array of world-space muzzle positions (0 = on
-  cooldown, 1 = alternate mode, N = salvo mode).
-- `worldFromLocal(lx, ly, lz, out)` transforms ship-local coords (used
-  by tryFire) into world coords using the ship's current rotationY.
-- Implements `DamageTarget`: `hp`, `hitRadius`, `isAlive`, `takeDamage`,
-  `die()`, `respawn()`, `shouldRespawn()`.
+## Ship + Controllers (the faction spine)
 
-## EnemyShip
-- Same control pattern as PlayerShip, but with built-in AI.
-- AI states (implicit, branched in update):
-  - **Wander**: pick a target heading, jitter, bias back to arena center
-    so the enemy doesn't grind into a wall.
-  - **Engage**: when player is alive and within `engagementRange`, point
-    target heading at player.
-- Fire test: distance < `fireRange` AND |angle to player| < `fireConeAngle`
-  AND cooldown ready → fire.
-- Tuned slower than the player (speed/rotation/cooldown) so the duel is
-  beatable.
-- Mesh is always procedural (red crimson body, swept wings, hot-red
-  engine, red "eye" sphere at nose). No GLB path for the enemy.
-- `EnemyShip.randomSpawnPosition()` is a static helper for picking a
-  respawn spot at least `minDistFromPlayer` away from the player.
+> Replaces the old `PlayerShip`/`EnemyShip` split. The key idea:
+> **control is decoupled from the ship.** One `Ship` sim is driven by a
+> `ShipController` that *emits* an `InputState` — keyboard, AI, or (future)
+> network. The "player" is just the Ship wearing a `LocalInputController`.
+> That decoupling is what makes the two factions interchangeable and the
+> game multiplayer-ready.
+
+- **`Faction`** (`Faction.ts`) — `"humans" | "machines"`. `opposing()` flips
+  it; `FACTION_THEME` holds per-side laser color + fighter-mesh colors + label.
+  Humans = blue/pink (old player), machines = crimson/green (old enemy).
+- **`Ship`** (`Ship.ts`) — self-controlled sim (NOT Babylon physics). Owns
+  position, velocity, rotationY, HP, cooldowns, missile ammo, muzzle index, and
+  a `faction`. `update(dt, input, …)` integrates motion from an `InputState`
+  and syncs the visual `root`. `tryFire()` returns world-space muzzle positions
+  (0 = on cooldown, 1 = alternate, N = salvo). Movement/weapon tuning is
+  **injected** via `ShipOptions.movement` (a `ShipMovementConfig`); both
+  `GameConfig.player` and `GameConfig.enemy` satisfy that shape, so the same
+  sim drives the human pilot (rich loadout, missiles) and the AI fighters
+  (single nose cannon, 0 missiles). Implements `DamageTarget`.
+- **`ShipController`** (`ShipController.ts`) — interface: `update(dt, self,
+  world) → InputState`. `ControllerWorld` is a per-faction read-only view
+  (opposing ships + opposing mothership + arena bounds). Implementations must
+  return a **stable** `InputState` (mutate in place — no per-frame allocation).
+- **`LocalInputController`** — surfaces `InputManager.state` (the keyboard).
+- **`AIController`** (`AIController.ts`) — ports the old enemy wander/engage/
+  fire-cone AI but **emits inputs** instead of mutating the ship: steering is
+  left/right button presses from the sign of the heading error (deadband to
+  avoid oscillation); `fire` is held whenever in range + cone (the Ship's own
+  cooldown paces the actual shots, same as the player). Targets the nearest
+  live opponent. Boolean inputs are also exactly what a network controller
+  sends — by design.
+- **`FighterMesh.ts`** — `buildFighterMesh(scene, glow, faction)` is the old
+  `EnemyShip.buildMesh`, themed by faction (used for AI fighters; the human
+  player's own ship still comes from `AssetLoader`). `randomFighterSpawn()` is
+  the spawn-away-from-player helper (was `EnemyShip.randomSpawnPosition`).
+
+Game wires each Ship as a target of the **opposing** faction's `LaserSystem`
+(+ the player's `MissileSystem`), so collisions are faction-correct and
+friendly-fire-free without per-bolt faction checks.
+
+## Mothership (the objective)
+- Implements `DamageTarget`: large `maxHp` + generous single `hitRadius`
+  (`GameConfig.mothership`) covering the central hull. Per-part hitboxes are a
+  later defenses pass.
+- It is registered as a target of the **opposing** faction's lasers/missiles.
+  Destroying the enemy's mothership → **victory**; losing yours → **defeat**
+  (see `Game.checkObjectives` / `endMatch`).
+- `onLaserHit` deliberately gives mothership chips only a light hit cue (no
+  trauma/hitstop) — otherwise sustained fire on the stationary 1500-HP target
+  would spam hitstop and crawl the whole game.
+
+## Radar
+- Player-centered, **north-up** circular minimap on its own canvas
+  (bottom-right), redrawn every frame from live ship/mothership refs (read-only).
+- Orientation matches the world camera (which doesn't rotate with the ship):
+  world +Z → screen up, +X → right. `project(dx,dz)` maps a world offset from
+  the player to a radar pixel and **clamps** beyond `GameConfig.radar.rangeWorld`
+  to the rim (clamped contacts drawn dimmer) so you always get a bearing to far
+  things — chiefly the enemy mothership objective.
+- Player = heading triangle at center; fighters = faction dots; motherships =
+  faction diamonds. Blip colors are canvas-friendly (`Radar.BLIP`), NOT the
+  emissive `FACTION_THEME` values (those blow out > 1.0).
+- Canvas backing store is sized at `devicePixelRatio` and the ctx pre-scaled, so
+  draw code works in logical pixels and stays crisp on HiDPI.
 
 ## LaserSystem
-- Constructed twice: once for the player (pink bolts targeting enemy),
-  once for the enemy (green bolts targeting player).
+- One instance **per faction** (`humansLasers` pink, `machinesLasers` green),
+  each firing that faction's bolts and targeting every opposing-faction ship +
+  the opposing mothership (`addTarget` supports many targets).
 - Shared material per system; one `Laser` instance per bolt with its
   own mesh.
 - `spawn(origin, rotationY)` creates a bolt with velocity along forward.
 - `update()` advances bolts, runs X/Z sphere-vs-target collision, calls
-  `onHit` on impact.
+  `onHit(target)` on impact — the struck target lets Game scale feedback
+  (heavy flash/hitstop for the player's own ship, light cue for a mothership).
 - `Laser.kill()` marks a bolt expired (it'll be swept on the next pass).
 
 ## MissileSystem

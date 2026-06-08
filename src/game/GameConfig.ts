@@ -77,6 +77,14 @@ export const GameConfig = {
      * Flip this value to switch between the two designs.
      */
     shipDesign: "viper" as "classic" | "viper",
+
+    /**
+     * Which faction the human pilot flies for. The player is simply the one
+     * Ship wearing a LocalInputController; this flag decides which side that
+     * is and which mothership is "home". Flip to "machines" to fly the red
+     * side from the north mothership — everything mirrors. No UI (by design).
+     */
+    faction: "humans" as import("./Faction").Faction,
   },
 
   laser: {
@@ -170,6 +178,45 @@ export const GameConfig = {
      * ship appears to fly off the deck.
      */
     yLevel: -3,
+
+    // --- Combat: the mothership is the win/lose objective. ---
+    /**
+     * Hit points. Destroying the enemy mothership wins the match; losing yours
+     * ends it. Sized so a sustained strafing run (lasers ~160 dmg/sec + the
+     * occasional missile) takes several seconds, not instant.
+     */
+    maxHp: 1500,
+    /**
+     * Flat X/Z collision radius for laser/missile tests. Generous (~central
+     * hull footprint) since we use one circle for the whole ship for now;
+     * per-part hitboxes (pods/turrets) come with mothership defenses later.
+     */
+    hitRadius: 90,
+
+    // --- Death spectacle (played once when a mothership is destroyed). ---
+    /** Number of explosions scattered across the hull on death. */
+    deathExplosionCount: 14,
+    /** Half-spread (world units) over which the death explosions scatter. */
+    deathExplosionSpread: 110,
+    /** Camera trauma burst at the moment of destruction. */
+    deathTrauma: 0.9,
+    /** Hitstop (ms) at the moment of destruction. */
+    deathHitstopMs: 140,
+  },
+
+  radar: {
+    /** Canvas edge length (px); the dish is a circle inscribed in it. */
+    sizePx: 190,
+    /** World-units radius mapped to the radar rim. Contacts beyond clamp to it. */
+    rangeWorld: 600,
+    /** Gap from the screen corner (px). */
+    marginPx: 16,
+    /** Fighter blip radius (px). */
+    fighterBlip: 3,
+    /** Mothership diamond half-size (px). */
+    mothershipBlip: 6,
+    /** Player heading-triangle size (px). */
+    playerMarker: 6,
   },
 
   launch: {
@@ -461,6 +508,18 @@ export const GameConfig = {
     /** Angular speed (rad / sec). */
     rotationSpeed: 2.0,
 
+    // --- Movement fields so this block satisfies Ship's movement config.
+    // AI fighters don't strafe or reverse (their controller never sets those
+    // inputs), so these stay 0; they fire a single nose cannon in salvo mode.
+    /** Reverse acceleration — unused by AI (kept for Ship config shape). */
+    reverseThrust: 0,
+    /** Lateral acceleration — unused by AI (kept for Ship config shape). */
+    strafeThrust: 0,
+    /** Single nose muzzle (ship-local; +Z = forward). */
+    muzzles: [{ x: 0, y: 0, z: 0.9 }],
+    /** All muzzles fire at once (only one here). */
+    fireMode: "salvo" as "alternate" | "salvo",
+
     /** Range at which the enemy stops wandering and turns toward the player. */
     engagementRange: 35,
     /** Range below which the enemy will fire when its cone is on target. */
@@ -542,6 +601,21 @@ export const GameConfig = {
     peakAlpha: 0.9,
     /** Diameter of the flash sphere — should encompass the player ship. */
     diameter: 2.4,
+  },
+
+  music: {
+    /**
+     * Tracks played during gameplay, cycled in shuffled order.
+     * Filenames are relative to /music/ — add more to grow the playlist.
+     */
+    gamePlaylist: ["Black Star Charge.mp3", "Black Star Charge 2.mp3", "Black Star Pursuit.mp3", "Black Star Pursuit 2.mp3"],
+    /**
+     * Tracks for the main menu (unused until a menu screen exists).
+     * Empty = silence during any future menu phase.
+     */
+    menuPlaylist: [] as string[],
+    /** Master volume for music (0..1), independent of SFX. */
+    volume: 0.45,
   },
 
   scene: {

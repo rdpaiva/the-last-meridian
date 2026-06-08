@@ -8,6 +8,8 @@ import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import "@babylonjs/core/Meshes/Builders/boxBuilder";
 
 import { GameConfig } from "./GameConfig";
+import type { DamageTarget } from "./types";
+import type { Faction } from "./Faction";
 
 /**
  * Procedural BSG-style carrier/battleship (Galactica silhouette).
@@ -28,9 +30,19 @@ import { GameConfig } from "./GameConfig";
  * At rotationY=π (enemy) the bow faces world -Z.
  *
  * The player fighter launches from the STARBOARD pod (local +X side).
+ *
+ * Implements DamageTarget: it is the match objective. Destroying the opposing
+ * faction's mothership wins; losing yours ends the game. Collision uses a
+ * single generous X/Z radius (GameConfig.mothership.hitRadius) for the whole
+ * ship — per-part hitboxes arrive with the defenses pass.
  */
-export class Mothership {
+export class Mothership implements DamageTarget {
   readonly root: TransformNode;
+  readonly faction: Faction;
+
+  hp: number = GameConfig.mothership.maxHp;
+  readonly maxHp: number = GameConfig.mothership.maxHp;
+  readonly hitRadius: number = GameConfig.mothership.hitRadius;
 
   // Shared geometry constants — used by both build methods and query helpers.
   static readonly HULL_HALF_DEPTH = 140; // half of hull Z length
@@ -42,8 +54,9 @@ export class Mothership {
     glowLayer: GlowLayer,
     worldPosition: Vector3,
     rotationY: number,
-    faction: "player" | "enemy",
+    faction: Faction,
   ) {
+    this.faction = faction;
     this.root = new TransformNode(`mothership_${faction}_root`, scene);
     this.root.position.copyFrom(worldPosition);
     this.root.rotation.y = rotationY;
@@ -57,6 +70,22 @@ export class Mothership {
     this.buildPod(scene, hullMat, accentMat, lightMat, glowLayer, +Mothership.STARBOARD_X, "sb");
     this.buildPod(scene, hullMat, accentMat, lightMat, glowLayer, -Mothership.STARBOARD_X, "pt");
     this.buildNecks(scene, accentMat);
+  }
+
+  // ─── DamageTarget ─────────────────────────────────────────────────────────
+
+  /** World-space position (the root's). Used by laser/missile collision. */
+  get position(): Vector3 {
+    return this.root.position;
+  }
+
+  get isAlive(): boolean {
+    return this.hp > 0;
+  }
+
+  takeDamage(amount: number): void {
+    if (this.hp <= 0) return;
+    this.hp = Math.max(0, this.hp - amount);
   }
 
   // ─── Query helpers ────────────────────────────────────────────────────────
@@ -229,18 +258,18 @@ export class Mothership {
 
   // ─── Materials ────────────────────────────────────────────────────────────
 
-  private makeHullMat(scene: Scene, faction: "player" | "enemy"): StandardMaterial {
+  private makeHullMat(scene: Scene, faction: Faction): StandardMaterial {
     const mat = new StandardMaterial(`ms_${faction}_hull_mat`, scene);
-    mat.diffuseColor = faction === "player"
+    mat.diffuseColor = faction === "humans"
       ? new Color3(0.15, 0.20, 0.34)
       : new Color3(0.28, 0.12, 0.12);
     mat.specularColor = new Color3(0.04, 0.04, 0.08);
     return mat;
   }
 
-  private makeAccentMat(scene: Scene, faction: "player" | "enemy"): StandardMaterial {
+  private makeAccentMat(scene: Scene, faction: Faction): StandardMaterial {
     const mat = new StandardMaterial(`ms_${faction}_accent_mat`, scene);
-    mat.diffuseColor = faction === "player"
+    mat.diffuseColor = faction === "humans"
       ? new Color3(0.22, 0.30, 0.46)
       : new Color3(0.38, 0.18, 0.15);
     mat.specularColor = new Color3(0.06, 0.06, 0.10);
@@ -256,11 +285,11 @@ export class Mothership {
     return mat;
   }
 
-  private makeLightMat(scene: Scene, faction: "player" | "enemy"): StandardMaterial {
+  private makeLightMat(scene: Scene, faction: Faction): StandardMaterial {
     const mat = new StandardMaterial(`ms_${faction}_light_mat`, scene);
     mat.diffuseColor = Color3.Black();
     mat.specularColor = Color3.Black();
-    mat.emissiveColor = faction === "player"
+    mat.emissiveColor = faction === "humans"
       ? new Color3(0.7, 0.85, 1.3)   // cool blue-white
       : new Color3(1.2, 0.35, 0.25); // dull red
     mat.disableLighting = true;
