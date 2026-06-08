@@ -91,14 +91,14 @@ export class SoundSystem {
     );
     this.playerGuns = new PooledSound(
       "sfx_player_guns",
-      `${baseUrl}/guns.wav`,
+      `${baseUrl}/guns.mp3`,
       scene,
       4,
       { volume: 0.35 },
     );
     this.missileLaunch = new PooledSound(
       "sfx_missile_launch",
-      `${baseUrl}/missile-launch.wav`,
+      `${baseUrl}/missile-launch.mp3`,
       scene,
       2,
       { volume: 0.5 },
