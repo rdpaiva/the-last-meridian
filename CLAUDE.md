@@ -95,8 +95,9 @@ Game (top-level coordinator)
 ├── Arena (wireframe grid + arena bounds)
 ├── Motherships × 2 (humans + machines; DamageTarget = the win/lose objective)
 ├── Combatants: Ship × N, each driven by a ShipController
-│     ├── player Ship  = LocalInputController (+ EngineGlow + DamageFlash)
-│     └── enemy Ships   = AIController  (mesh from FighterMesh)
+│     ├── player Ship    = LocalInputController (+ EngineGlow + DamageFlash)
+│     ├── wingman Ships  = AIController (player faction, standing orders) [Phase 5]
+│     └── enemy Ships    = AIController (enemy faction, default "patrol")
 ├── LaserSystem × 2 (humans faction + machines faction)
 ├── MissileSystem (player heat-seeking secondary; homing + limited ammo)
 ├── ExplosionSystem
@@ -166,9 +167,9 @@ src/
     AssetLoader.ts         GLB importer with procedural fallback (two-tier root); fallback has two designs (classic/viper) via GameConfig.player.shipDesign
     Faction.ts             humans|machines type + opposing() + FACTION_THEME (colors/labels)
     Ship.ts                unified ship sim + HP + DamageTarget + muzzle/fire (config-injected; merges old PlayerShip/EnemyShip)
-    ShipController.ts      controller interface + ControllerWorld (emits InputState)
+    ShipController.ts      controller interface + ControllerWorld (opponents/mothership/leader → InputState)
     LocalInputController.ts  keyboard controller (surfaces InputManager.state) = the player
-    AIController.ts        wander/engage/fire-cone AI, emits InputState (ported from EnemyShip)
+    AIController.ts        order-driven AI (patrol/strike/hunt/cover/formation), emits InputState; default "patrol" = enemy behavior
     FighterMesh.ts         faction-themed procedural fighter mesh + randomFighterSpawn helper
     Laser.ts               single bolt entity (position, age, kill flag)
     LaserSystem.ts         per-faction bolt collection + collision + onHit
@@ -184,8 +185,8 @@ src/
     Nebulas.ts             alpha-blended cloud quads from PNG textures (count via GameConfig)
     Backdrop.ts            full-screen deep-space background Layer (2D blit)
     CapitalShips.ts        3 procedural destroyer composites in deep background
-    Mothership.ts          BSG-style carrier; DamageTarget objective (HP) + launch-tube helpers
-    LaunchSequence.ts      catapult state machine (intro→countdown→launching); skipIntro for respawns
+    Mothership.ts          BSG-style carrier; DamageTarget objective (HP) + multi-bay launch helpers (getLaunchStartPosition(bayIndex))
+    LaunchSequence.ts      per-ship catapult (hold→launching→complete); player's hold is the cinematic intro+3-2-1 countdown, others a staggered wait. Both fleets launch from their carrier's two bays at match start (Game.assignInitialLaunches/launchFleet); skipIntro = respawn relaunch
     Hud.ts                 DOM HUD: HP cue + mothership objective bars + victory/defeat banner
     Radar.ts               player-centered north-up canvas minimap (fighters + mothership blips)
 public/
@@ -203,7 +204,9 @@ The whole game's tuning lives in `src/game/GameConfig.ts`. Major sections:
 | Section | What it controls |
 |---|---|
 | `player` | Thrust, drag, rotation, fire cooldown, muzzles, fireMode, shipDesign |
-| `enemy` | AI ranges, fire cone, wander parameters |
+| `enemy` | Enemy fighter movement/weapon profile + count + `strikeCount` (how many attack the player mothership) |
+| `ai` | Shared AI decision knobs: engage/fire ranges, fire cone, wander, leash, formation gains |
+| `player.wingmen` | Wing size, per-wingman orders + formation slots; wingmen fly the `player` profile with `maxSpeed`/`thrust`/`dragRate` overridden (drag is needed to hold formation) |
 | `laser` | Bolt speed/lifetime/visuals (shared across both factions) |
 | `missile` | Homing secondary: ammo, speed, turnRate, damage range, lock range/cone, mesh + trail dims |
 | `arena` | Half-width, half-depth |

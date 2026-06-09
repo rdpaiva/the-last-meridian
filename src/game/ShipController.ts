@@ -12,6 +12,15 @@ export interface ControllerWorld {
   opponents: Ship[];
   /** The opposing faction's mothership, or null. */
   opponentMothership: Mothership | null;
+  /** This faction's own mothership — used by "defend" order. */
+  homeMothership: Mothership | null;
+  /**
+   * The wing leader for this faction's AI fighters to escort/cover — the human
+   * pilot's ship for the player side, or null (enemy fighters have no leader to
+   * form on). Used by `AIController` "cover"/"formation" orders. Mutable so Game
+   * can wire it once the async-loaded player ship exists.
+   */
+  leader: Ship | null;
   arenaHalfX: number;
   arenaHalfZ: number;
 }

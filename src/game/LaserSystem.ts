@@ -32,19 +32,20 @@ export type LaserSystemOptions = {
   /** Optional name for the material — handy when debugging in the inspector. */
   materialName?: string;
   /**
-   * Called once per bolt that lands a hit, with the target it struck. The
-   * target lets the caller scale feedback by what was hit — e.g. flash + big
-   * hitstop when the player's own ship is hit, but only a light cue when the
-   * (huge, stationary) mothership takes a chip of damage.
+   * Called once per bolt that lands a hit, with the target it struck and
+   * whether the human pilot fired that bolt. The target lets the caller scale
+   * feedback by what was hit (flash + big hitstop when the player's own ship is
+   * hit, light cue when the mothership is chipped); `fromPlayer` lets it give
+   * the "you landed a hit" jolt only for the player, not every AI wingman shot.
    */
-  onHit?: (target: DamageTarget) => void;
+  onHit?: (target: DamageTarget, fromPlayer: boolean) => void;
 };
 
 export class LaserSystem {
   private readonly lasers: Laser[] = [];
   private readonly material: Material;
   private readonly damage: number;
-  private readonly onHit: ((target: DamageTarget) => void) | null;
+  private readonly onHit: ((target: DamageTarget, fromPlayer: boolean) => void) | null;
   /**
    * Targets this system's bolts test against each frame. The player system
    * registers every enemy (multi-target); the enemy system registers just
@@ -90,8 +91,10 @@ export class LaserSystem {
 
   /**
    * Spawn a laser at `origin` with forward direction derived from `rotationY`.
+   * `fromPlayer` tags bolts the human pilot fired (vs. an AI wingman on the same
+   * faction system) so onHit can scale feedback to the player's own shots.
    */
-  spawn(origin: Vector3, rotationY: number): void {
+  spawn(origin: Vector3, rotationY: number, fromPlayer = false): void {
     const cfg = GameConfig.laser;
 
     const mesh = MeshBuilder.CreateBox(
@@ -105,7 +108,15 @@ export class LaserSystem {
     );
     mesh.material = this.material;
     mesh.isPickable = false;
-    mesh.position.copyFrom(origin);
+    // The bolt mesh is `length` long and CENTERED on its position, so spawning
+    // it exactly at the muzzle leaves half the streak poking out behind. Nudge
+    // it forward along its heading so its rear tip sits at the muzzle and the
+    // bolt reads as emanating from the gun.
+    mesh.position.set(
+      origin.x + Math.sin(rotationY) * cfg.spawnOffset,
+      origin.y,
+      origin.z + Math.cos(rotationY) * cfg.spawnOffset,
+    );
 
     const velocity = new Vector3(
       Math.sin(rotationY) * cfg.speed,
@@ -113,7 +124,7 @@ export class LaserSystem {
       Math.cos(rotationY) * cfg.speed,
     );
 
-    this.lasers.push(new Laser(mesh, velocity, cfg.lifetimeMs, rotationY));
+    this.lasers.push(new Laser(mesh, velocity, cfg.lifetimeMs, rotationY, fromPlayer));
   }
 
   update(deltaSeconds: number, deltaMs: number): void {
@@ -133,7 +144,7 @@ export class LaserSystem {
         if (dx * dx + dz * dz <= radiusSq) {
           target.takeDamage(this.damage);
           laser.kill();
-          this.onHit?.(target);
+          this.onHit?.(target, laser.fromPlayer);
           break;
         }
       }

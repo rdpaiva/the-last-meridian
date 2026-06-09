@@ -18,35 +18,58 @@ import "@babylonjs/core/Meshes/Builders/cylinderBuilder";
 import "@babylonjs/core/Meshes/Builders/sphereBuilder";
 
 /**
- * Fixed orientation + scale applied to an imported model so its nose
- * points along the ship's local +Z. All values in radians.
+ * Per-model orientation + scale lives in `GameConfig.shipModels`, keyed by
+ * filename, so spitfire (player) and wraith (enemy) each carry their own
+ * correction. The value points the model's nose along the ship's local +Z at
+ * fleet scale. All rotations are radians.
  *
- * HOW TO TUNE WHEN YOUR MODEL LOOKS WRONG:
+ * HOW TO TUNE WHEN A MODEL LOOKS WRONG:
  *
  *   1. Open the dev server with `npm run dev`.
  *   2. Press `I` in the browser to open the Babylon Inspector.
  *   3. In the scene tree, expand `playerShipRoot` → `playerShipModel`
  *      (NOT the outer playerShipRoot — gameplay drives its Y rotation,
- *      so any edits there get overwritten each frame).
+ *      so any edits there get overwritten each frame). Enemy clones live
+ *      under `fighter_<faction>_root` nodes.
  *   4. Adjust rotation X/Y/Z in the right panel until the booster is
  *      at the back of the ship and the nose points "north" in the
  *      arena. Tweak scaling if the ship is too big or too small.
- *   5. Copy the values you see in the Inspector into the constants
- *      below (note: Inspector shows DEGREES; the constants use RADIANS
- *      — multiply by π/180).
+ *   5. Copy the values into the matching entry in `GameConfig.shipModels`
+ *      (note: Inspector shows DEGREES; the config uses RADIANS — multiply
+ *      by π/180).
  *
  * Common rotation tries — start here before opening the Inspector:
- *   - Ship facing backwards:   ROTATION_Y = Math.PI
- *   - Booster on right side:   ROTATION_Y = Math.PI / 2
- *   - Booster on left side:    ROTATION_Y = -Math.PI / 2
- *   - Lying on its back:       ROTATION_X = -Math.PI / 2
- *   - Lying on its belly:      ROTATION_X =  Math.PI / 2
- *   - Rolled 90° sideways:     ROTATION_Z = ±Math.PI / 2
+ *   - Ship facing backwards:   rotY = Math.PI
+ *   - Nose points right/left:  rotY = ±Math.PI / 2  (model authored along X)
+ *   - Lying on its back/belly: rotX = ∓Math.PI / 2
+ *   - Rolled 90° sideways:     rotZ = ±Math.PI / 2
  */
-const MODEL_ROTATION_X = 0;
-const MODEL_ROTATION_Y = 0;
-const MODEL_ROTATION_Z = 0;
-const MODEL_SCALE = 1;
+const DEFAULT_CORRECTION = { rotX: 0, rotY: 0, rotZ: 0, scale: 1 };
+
+/** A point in the ship's OUTER-root local frame (same space gameplay uses). */
+export type MarkerPoint = { x: number; y: number; z: number };
+
+/**
+ * Mount points read from named "empty" nodes authored into the GLB (in Blender:
+ * `Add → Empty`, name it, parent to the hull, re-export). Each is expressed in
+ * the ship's outer-root frame, so they feed straight into EngineGlow / Ship
+ * muzzles / SecondaryThrusters. Empty arrays / undefined = the model defined
+ * none, and the consumer falls back to its GameConfig defaults.
+ *
+ * Naming convention (case-insensitive, Blender `.001` suffixes ignored):
+ *   thruster*  → engine glow nozzles (any count)
+ *   muzzle*    → laser spawn points (any count)
+ *   rcs.nose   → reverse jet; the other two rcs.* are the strafe jets, assigned
+ *                port/stbd by their actual X (see extractMarkers) so a 180° yaw
+ *                correction or a mislabel can't put them on the wrong side.
+ */
+export type ModelMarkers = {
+  thrusters: MarkerPoint[];
+  muzzles: MarkerPoint[];
+  rcs: { nose?: MarkerPoint; port?: MarkerPoint; stbd?: MarkerPoint };
+};
+
+const EMPTY_MARKERS: ModelMarkers = { thrusters: [], muzzles: [], rcs: {} };
 
 export type LoadedShip = {
   /**
@@ -61,15 +84,18 @@ export type LoadedShip = {
    */
   modelRoot: TransformNode;
   usingFallback: boolean;
+  /** Mount points authored into the model (empty when using the fallback). */
+  markers: ModelMarkers;
 };
 
 export class AssetLoader {
   constructor(private readonly scene: Scene) {}
 
   /**
-   * Attempts to load /models/fighter.glb (or .gltf — same loader). On any
-   * failure, builds a fallback ship from primitives so the game still
-   * runs. Always resolves; never rejects.
+   * Attempts to load /models/<GameConfig.player.shipModel> (.glb or .gltf
+   * — same loader). If shipModel is null, or the file is missing / fails to
+   * load, builds a fallback ship from primitives so the game still runs.
+   * Always resolves; never rejects.
    *
    * Returns a TWO-LEVEL node hierarchy:
    *
@@ -86,12 +112,57 @@ export class AssetLoader {
     const modelRoot = new TransformNode("playerShipModel", this.scene);
     modelRoot.parent = root;
 
+    const modelFile = GameConfig.player.shipModel;
+    if (modelFile) {
+      const markers = await this.importInto(modelRoot, modelFile);
+      if (markers) {
+        return { root, modelRoot, usingFallback: false, markers };
+      }
+    }
+
+    // No model configured, or the import failed: build a primitive ship.
+    // The fallback is oriented +Z forward by construction, so we leave
+    // modelRoot at identity rotation/scale (no correction applied).
+    this.buildFallbackShip(modelRoot);
+    return { root, modelRoot, usingFallback: true, markers: EMPTY_MARKERS };
+  }
+
+  /**
+   * Loads a GLB into a single TransformNode (with its orientation/scale
+   * correction applied) for use as a CLONE TEMPLATE — the enemy fleet
+   * instantiates one copy per fighter. The template itself is disabled so it
+   * never renders as a stray ship; callers re-enable each clone's subtree.
+   *
+   * Returns null when `filename` is null or the import fails, so the caller
+   * can fall back to a procedural mesh.
+   */
+  async loadModelTemplate(filename: string | null): Promise<TransformNode | null> {
+    if (!filename) return null;
+    const modelRoot = new TransformNode(`shipTemplate_${filename}`, this.scene);
+    if (await this.importInto(modelRoot, filename)) {
+      modelRoot.setEnabled(false);
+      return modelRoot;
+    }
+    modelRoot.dispose();
+    return null;
+  }
+
+  /**
+   * Imports /models/<filename> and parents its content under `modelRoot`,
+   * then applies the per-model correction. Returns true on success, false on
+   * failure (logged). Shared by the player loader and the clone-template
+   * loader so both handle the glTF __root__ and correction identically.
+   */
+  private async importInto(
+    modelRoot: TransformNode,
+    filename: string,
+  ): Promise<ModelMarkers | null> {
     try {
       // NOTE: trailing slash on rootUrl is required for SceneLoader.
       const result = await SceneLoader.ImportMeshAsync(
         "",
         "/models/",
-        "fighter.glb",
+        filename,
         this.scene,
       );
 
@@ -111,26 +182,137 @@ export class AssetLoader {
         }
       }
 
-      this.applyOrientationCorrection(modelRoot);
-      return { root, modelRoot, usingFallback: false };
+      // Recenter BEFORE applying the correction: many GLBs are authored with
+      // their origin off the hull's center (Kenney's craft_* are far off in
+      // X/Z). Gameplay rotates the OUTER root about the model root's origin and
+      // the EngineGlow is anchored there, so an off-center origin makes the
+      // ship orbit a point beside itself and parks the thruster off to the
+      // side. This slides the content so its X/Z centroid sits on the pivot.
+      this.recenterPivot(modelRoot, filename);
+
+      this.applyOrientationCorrection(modelRoot, filename);
+
+      // Read mount-point markers in the OUTER-root frame (the parent gameplay
+      // drives). At load the outer root is identity, but transforming by its
+      // inverse is robust if that ever changes.
+      const frame = modelRoot.parent instanceof TransformNode ? modelRoot.parent : modelRoot;
+      return this.extractMarkers(result.transformNodes, frame);
     } catch (err) {
       console.warn(
-        "[AssetLoader] Failed to load /models/fighter.glb — using fallback ship.",
+        `[AssetLoader] Failed to load /models/${filename} — using fallback.`,
         err,
       );
-      this.buildFallbackShip(modelRoot);
-      // Fallback ship is already oriented +Z forward by construction, so
-      // we don't apply the user correction here — leave modelRoot at
-      // identity rotation/scale.
-      return { root, modelRoot, usingFallback: true };
+      return null;
     }
   }
 
-  private applyOrientationCorrection(modelRoot: TransformNode): void {
-    modelRoot.rotation.x = MODEL_ROTATION_X;
-    modelRoot.rotation.y = MODEL_ROTATION_Y;
-    modelRoot.rotation.z = MODEL_ROTATION_Z;
-    modelRoot.scaling.setAll(MODEL_SCALE);
+  /**
+   * Collects named "empty" marker nodes from an import and returns their
+   * positions in `frame`'s local space. See `ModelMarkers` for the naming
+   * convention. RCS strafe jets are assigned to port/stbd by their actual X
+   * (min → port, max → stbd), NOT by their `.port`/`.stbd` label, so a model
+   * with a 180° yaw correction (which mirrors left↔right) still gets the jets
+   * on the correct sides.
+   */
+  private extractMarkers(
+    nodes: TransformNode[],
+    frame: TransformNode,
+  ): ModelMarkers {
+    frame.computeWorldMatrix(true);
+    const inv = frame.getWorldMatrix().clone().invert();
+    const localPos = (n: TransformNode): MarkerPoint => {
+      n.computeWorldMatrix(true);
+      const p = Vector3.TransformCoordinates(n.getAbsolutePosition(), inv);
+      return { x: p.x, y: p.y, z: p.z };
+    };
+    // Lowercase and drop Blender's duplicate suffix (".001") for matching.
+    const norm = (name: string) => name.toLowerCase().replace(/\.\d+$/, "");
+
+    const thrusters: MarkerPoint[] = [];
+    const muzzles: MarkerPoint[] = [];
+    const rcsSides: MarkerPoint[] = [];
+    const rcs: ModelMarkers["rcs"] = {};
+
+    for (const n of nodes) {
+      if (!n.name) continue;
+      const nm = norm(n.name);
+      if (nm.startsWith("thruster")) thrusters.push(localPos(n));
+      else if (nm.startsWith("muzzle")) muzzles.push(localPos(n));
+      else if (nm.startsWith("rcs")) {
+        if (nm.includes("nose")) rcs.nose = localPos(n);
+        else rcsSides.push(localPos(n));
+      }
+    }
+
+    // Assign strafe jets by position, not label (see method doc).
+    rcsSides.sort((a, b) => a.x - b.x);
+    if (rcsSides.length >= 1) rcs.port = rcsSides[0];
+    if (rcsSides.length >= 2) rcs.stbd = rcsSides[rcsSides.length - 1];
+
+    return { thrusters, muzzles, rcs };
+  }
+
+  /**
+   * Slides the imported content so its bounding-box center sits on `modelRoot`'s
+   * origin in the X/Z (yaw) plane — making the rotation pivot the visual center.
+   * Called while `modelRoot` is still at identity (before correction), so its
+   * local frame is the content's frame. Y is left as authored so the ship keeps
+   * its height above the arena plane.
+   */
+  private recenterPivot(modelRoot: TransformNode, filename: string): void {
+    const meshes = modelRoot.getChildMeshes(false);
+    if (meshes.length === 0) return;
+
+    const inv = modelRoot.getWorldMatrix().clone().invert();
+    let min = new Vector3(Infinity, Infinity, Infinity);
+    let max = new Vector3(-Infinity, -Infinity, -Infinity);
+    for (const m of meshes) {
+      m.computeWorldMatrix(true);
+      for (const corner of m.getBoundingInfo().boundingBox.vectorsWorld) {
+        const local = Vector3.TransformCoordinates(corner, inv);
+        min = Vector3.Minimize(min, local);
+        max = Vector3.Maximize(max, local);
+      }
+    }
+
+    const centerX = (min.x + max.x) * 0.5;
+    const centerZ = (min.z + max.z) * 0.5;
+
+    // This is a SAFETY NET, not the intended fix: a model should be authored
+    // with its origin at the geometry center (in Blender: Set Origin → Origin
+    // to Geometry, then zero the location). When it isn't, the rotation pivot
+    // sits beside the hull, so we recenter — but warn so the bad asset gets
+    // fixed at the source instead of silently relying on this. Threshold is 1%
+    // of the model's footprint, so a correctly-centered model never warns.
+    const offCenterX = Math.abs(centerX) > (max.x - min.x) * 0.01;
+    const offCenterZ = Math.abs(centerZ) > (max.z - min.z) * 0.01;
+    if (offCenterX || offCenterZ) {
+      console.warn(
+        `[AssetLoader] /models/${filename} is off-center by ` +
+          `(${centerX.toFixed(2)}, ${centerZ.toFixed(2)}) in X/Z — recentering ` +
+          `at runtime. Fix at the source: center the model's origin in Blender ` +
+          `(Set Origin → Origin to Geometry, then zero its location) and re-export.`,
+      );
+    }
+
+    // Shift every direct child (the glTF __root__, or loose meshes) by the same
+    // offset, preserving their relative layout. Their `position` is in
+    // modelRoot-local space, which is what we measured the center in.
+    for (const child of modelRoot.getChildTransformNodes(true)) {
+      child.position.x -= centerX;
+      child.position.z -= centerZ;
+    }
+  }
+
+  private applyOrientationCorrection(
+    modelRoot: TransformNode,
+    filename: string,
+  ): void {
+    const c = GameConfig.shipModels[filename] ?? DEFAULT_CORRECTION;
+    modelRoot.rotation.x = c.rotX;
+    modelRoot.rotation.y = c.rotY;
+    modelRoot.rotation.z = c.rotZ;
+    modelRoot.scaling.setAll(c.scale);
   }
 
   /**

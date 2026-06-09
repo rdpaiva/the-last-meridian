@@ -28,14 +28,31 @@ import { GameConfig } from "./GameConfig";
 export class SecondaryThrusters {
   private readonly units: ThrusterUnit[];
 
-  constructor(scene: Scene, shipRoot: TransformNode, glowLayer: GlowLayer) {
+  /**
+   * `mounts` are nozzle positions in the ship's local frame, from the model's
+   * `rcs.*` markers. Any mount that's missing falls back to the position built
+   * from `GameConfig.secondaryThrusters` (`noseZ`/`sideX`/`sideZ`). The ejection
+   * direction + plume size always come from config — markers set WHERE, not how.
+   */
+  constructor(
+    scene: Scene,
+    shipRoot: TransformNode,
+    glowLayer: GlowLayer,
+    mounts?: {
+      nose?: { x: number; y: number; z: number };
+      port?: { x: number; y: number; z: number };
+      stbd?: { x: number; y: number; z: number };
+    },
+  ) {
     const cfg = GameConfig.secondaryThrusters;
     const hw = cfg.plumeLength / 2;
+    const vec = (p?: { x: number; y: number; z: number }, fallback?: Vector3) =>
+      p ? new Vector3(p.x, p.y, p.z) : (fallback as Vector3);
 
     // Nose — reverse thrust ejects forward (+Z in ship-local space).
     const nose = makeUnit(
       scene, shipRoot, glowLayer,
-      new Vector3(0, 0, cfg.noseZ),
+      vec(mounts?.nose, new Vector3(0, 0, cfg.noseZ)),
       new Vector3(0, 0, hw),                                // plume offset along +Z
       new Vector3(cfg.plumeWidth, cfg.plumeWidth, cfg.plumeLength),
       "sec_nose",
@@ -44,7 +61,7 @@ export class SecondaryThrusters {
     // Port (left side) — fires when strafing right, ejects to the left (-X).
     const port = makeUnit(
       scene, shipRoot, glowLayer,
-      new Vector3(-cfg.sideX, 0, cfg.sideZ),
+      vec(mounts?.port, new Vector3(-cfg.sideX, 0, cfg.sideZ)),
       new Vector3(-hw, 0, 0),                               // plume offset along -X
       new Vector3(cfg.plumeLength, cfg.plumeWidth, cfg.plumeWidth),
       "sec_port",
@@ -53,7 +70,7 @@ export class SecondaryThrusters {
     // Starboard (right side) — fires when strafing left, ejects to the right (+X).
     const starboard = makeUnit(
       scene, shipRoot, glowLayer,
-      new Vector3(cfg.sideX, 0, cfg.sideZ),
+      vec(mounts?.stbd, new Vector3(cfg.sideX, 0, cfg.sideZ)),
       new Vector3(hw, 0, 0),                                // plume offset along +X
       new Vector3(cfg.plumeLength, cfg.plumeWidth, cfg.plumeWidth),
       "sec_stbd",
@@ -118,6 +135,7 @@ function makeUnit(
   coreMat.specularColor = new Color3(0, 0, 0);
   coreMat.emissiveColor = new Color3(0, 0, 0);
   coreMat.disableLighting = true;
+  coreMat.alpha = 0; // start invisible; updateUnit fades it in with intensity
   core.material = coreMat;
   // GlowLayer is in included-only mode; explicit registration is required.
   glowLayer.addIncludedOnlyMesh(core);
@@ -157,5 +175,9 @@ function updateUnit(unit: ThrusterUnit, deltaSeconds: number, active: boolean): 
   const { r, g, b } = cfg.color;
   unit.coreMat.emissiveColor.set(r * i, g * i, b * i);
   unit.plumeMat.emissiveColor.set(r * i, g * i, b * i);
+  // Fade BOTH the plume and the core out with intensity. The core is an
+  // unlit emissive sphere; left opaque it renders as a solid BLACK dot when
+  // idle (emissive (0,0,0)), so it must fade to transparent too.
+  unit.coreMat.alpha = i;
   unit.plumeMat.alpha = cfg.maxAlpha * i;
 }

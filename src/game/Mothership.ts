@@ -90,30 +90,46 @@ export class Mothership implements DamageTarget {
 
   // ─── Query helpers ────────────────────────────────────────────────────────
 
+  /** How many catapult launch bays (tubes) this carrier has. */
+  getLaunchBayCount(): number {
+    return GameConfig.mothership.launchBays.length;
+  }
+
   /**
-   * World-space start position inside the starboard launch tube (near the aft
-   * wall). Y is forced to 0 so the fighter sits on the gameplay plane.
-   * Only meaningful for a player-faction ship (rotationY=0).
+   * World-space start position inside launch bay `bayIndex` (wraps if it runs
+   * past the configured bays). Y is forced to 0 so the fighter sits on the
+   * gameplay plane. Works for either carrier — the local bay offset is rotated
+   * by the root's facing. Bay positions are tunable via
+   * GameConfig.mothership.launchBays.
    */
-  getLaunchStartPosition(): Vector3 {
-    const lx = Mothership.STARBOARD_X;
-    const lz = -(Mothership.POD_HALF_DEPTH - 30); // 30 units from aft wall
+  getLaunchStartPosition(bayIndex = 0): Vector3 {
+    const bays = GameConfig.mothership.launchBays;
+    const bay = bays[bayIndex % bays.length];
     const sin = Math.sin(this.root.rotation.y);
     const cos = Math.cos(this.root.rotation.y);
     return new Vector3(
-      this.root.position.x + cos * lx + sin * lz,
+      this.root.position.x + cos * bay.x + sin * bay.z,
       0,
-      this.root.position.z - sin * lx + cos * lz,
+      this.root.position.z - sin * bay.x + cos * bay.z,
     );
   }
 
   /**
-   * World-space Z that the player ship must pass (heading +Z) to have fully
-   * cleared the bow. Only valid for rotationY=0 (player mothership).
+   * Unit forward direction (world X/Z) the catapult fires along — the carrier's
+   * facing. Humans (rotationY=0) launch toward +Z; machines (rotationY=π) toward
+   * -Z. Pairs with getLaunchExitDistance() so the launch works for either side.
    */
-  getLaunchExitZ(): number {
+  getLaunchForward(): { x: number; z: number } {
+    return { x: Math.sin(this.root.rotation.y), z: Math.cos(this.root.rotation.y) };
+  }
+
+  /**
+   * Distance (world units) along the launch-forward axis, measured from the
+   * carrier center, that a fighter must travel to fully clear the bow.
+   */
+  getLaunchExitDistance(): number {
     // Bridge cap overhangs to roughly localZ = +148; add a margin.
-    return this.root.position.z + Mothership.HULL_HALF_DEPTH + 25;
+    return Mothership.HULL_HALF_DEPTH + 25;
   }
 
   // ─── Central hull ─────────────────────────────────────────────────────────

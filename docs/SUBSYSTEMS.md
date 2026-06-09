@@ -30,19 +30,102 @@
   (single nose cannon, 0 missiles). Implements `DamageTarget`.
 - **`ShipController`** (`ShipController.ts`) — interface: `update(dt, self,
   world) → InputState`. `ControllerWorld` is a per-faction read-only view
-  (opposing ships + opposing mothership + arena bounds). Implementations must
-  return a **stable** `InputState` (mutate in place — no per-frame allocation).
+  (opposing ships + opposing mothership + arena bounds + a `leader` ref — the
+  human pilot's ship for that faction, used by cover/formation wingmen, else
+  null). Implementations must return a **stable** `InputState` (mutate in place —
+  no per-frame allocation).
 - **`LocalInputController`** — surfaces `InputManager.state` (the keyboard).
-- **`AIController`** (`AIController.ts`) — ports the old enemy wander/engage/
-  fire-cone AI but **emits inputs** instead of mutating the ship: steering is
-  left/right button presses from the sign of the heading error (deadband to
-  avoid oscillation); `fire` is held whenever in range + cone (the Ship's own
-  cooldown paces the actual shots, same as the player). Targets the nearest
-  live opponent. Boolean inputs are also exactly what a network controller
-  sends — by design.
+- **`AIController`** (`AIController.ts`) — the computer pilot for BOTH sides'
+  fighters; **emits an `InputState`** instead of mutating the ship (inputs are
+  exactly what a network controller sends). Steering is the one **analog** input:
+  the controller sets `InputState.turn` ∈ [-1, 1] (the rest stay boolean
+  buttons). Constructed with a standing **order**
+  (`AIOrder`) + optional formation slot:
+  - `patrol` (default = the original enemy behavior): wander leashed toward the
+    objective mothership, engage the nearest opponent in `engagementRange`.
+  - `strike`: press the enemy mothership and fire on it (fire range widens to the
+    carrier's `hitRadius` so it strafes from stand-off), self-defense fire only.
+  - `hunt`: chase the nearest enemy fighter, ignore the carrier; with no prey,
+    **loiter on the leader** (station-keep on an escort slot trailing it via the
+    shared `stationKeep` servo) instead of charging its position and looping back.
+  - `cover` / `formation`: hold a slot on the leader's wing (`cover` also breaks
+    to engage threats within `ai.coverBreakRange` of the leader, then reforms).
+  Most orders resolve to a steer-heading + thrust + aim target, then a shared tail
+  turns that into thrust/reverse/strafe/fire and a **proportional turn command**.
+  Decision tuning is shared in `GameConfig.ai`. **Formation is the subtle part** —
+  see the next entry.
+  - **Steering is proportional, not bang-bang.** The shared tail sets
+    `out.turn = clamp(headingDiff / ai.steerBand, -1, 1)` above a thin
+    `ai.steerDeadband`: full turn rate beyond `steerBand` of heading error, easing
+    linearly to zero as the nose lines up, so the pilot *decelerates into* its
+    target heading. This is what makes turns smooth. A purely boolean (full-rate
+    on/off) tail can't track a moving heading without a limit cycle — a tight
+    deadband shows it as a high-frequency **shake**, a wide one as a low-frequency
+    **"clock-hands" stepping** (snap to target, stop, wait for the error to
+    rebuild, snap again). Both are the same bug; proportional control removes it.
+    `Ship.update` sums `turn` with the keyboard's rotate booleans, so the human
+    still turns full-rate (keyboard leaves `turn` at 0) while the AI eases.
+- **Player wingmen** (Phase 5) — there is no separate wingman class: a wingman is
+  a player-faction `Ship` wearing an `AIController` with a `cover`/`hunt`/etc.
+  order, built in `Game.start()` from `GameConfig.player.wingmen`. Two non-obvious
+  invariants:
+  - **They CLONE the player's loaded ship mesh** (`loaded.modelRoot.instantiate
+    Hierarchy(root, { doNotInstantiate: true })`), not a separate mesh, so they
+    track whatever the player flies (procedural `shipDesign` or a real
+    `fighter.glb`). Clone the *model* root (not the ship root) so the player-only
+    damage-flash doesn't tag along; `doNotInstantiate` = real meshes (not GPU
+    instances) so a wingman survives the player ship being disabled on death.
+    Each wingman is then given its **own** `EngineGlow` + `SecondaryThrusters` on
+    its root (the player's are separate instances), driven from the inputs the
+    wingman emits each frame — so it lights its exhaust under thrust instead of
+    floating silently.
+  - **They fly the player's EXACT movement/weapon profile** (`movement:
+    GameConfig.player`, no per-wingman overrides), so an ally is mechanically
+    identical to you — same thrust, drag (currently none), top speed, guns, HP.
+    This is deliberate: they can never out-run you, and with the player's zero
+    drag a wingman coasts at your velocity once matched and doesn't have to puff
+    its engine on an interval just to hold a cruise speed.
+  - **Formation follows the leader's PATH, not its nose** — and this holds for the
+    SLOT too: the slot is placed relative to the leader's *course* (velocity
+    direction), NOT its facing (`leader.rotationY`). That matters because the
+    player constantly nudges their nose to hold a line; if the slot rode the
+    facing, every nose-twitch would whip the slots sideways and the wing would
+    scramble to chase them (the "shake at certain angles while following"). Riding
+    the course, a nose-swing with no course change leaves the slots — and the wing
+    — completely still. Each frame the wingman then computes the velocity it needs
+    (`leaderVel + speed-capped approach to the slot`), points its nose along *that*
+    (`steerHeading = atan2(desiredVel)`), and
+    flies there like a pilot, trimming cross-track error with strafe. Because it
+    steers by where it needs to **go**, a turn the leader makes without changing
+    course doesn't drag the wing around — it only banks when the leader's actual
+    travel direction shifts. The forward thrusters are gated to a cone around the
+    desired-velocity direction (`formationThrustConeAngle`) so it coasts while
+    turning to line up rather than thrusting off-course, and each jet runs through
+    a **Schmitt trigger** (`formationVelEngageBand` to light / `formationVel
+    Deadband` to release) so a stable slot doesn't chatter. Crucially the heading
+    is steered by the leader's *velocity* (the path), **not** the desired velocity
+    — the slot-approach (a position correction) is left out of the nose so it
+    doesn't yaw back and forth chasing small off-slot errors; it's blended into
+    the heading only as the wingman gets far from its slot (`formationHeading
+    BlendRange`), so it still turns nose-first to fly up to formation. Tuning lives
+    in `GameConfig.ai` (`formationPosGain`, `formationApproachSpeed`, `formationVel
+    Deadband`, `formationVelEngageBand`, `formationHeadingMinSpeed`,
+    `formationHeadingBlendRange`, `formationThrustConeAngle`,
+    `formationCourseSmooth`). One more subtlety: the whole formation flies off a
+    **low-passed** copy of the leader's velocity (`formationCourseSmooth`), not
+    the raw value — a hand-flown leader holding a line at speed thrusts while
+    tapping its nose, so the raw velocity (and the course-placed slot) wobbles,
+    and wingmen at their speed limit would chase the wobble and weave. The
+    low-pass makes them follow the average path instead. This whole servo lives in
+  `AIController.stationKeep` and is SHARED: the `hunt` order's no-prey loiter
+  calls it too (with an escort slot), so an idle hunter holds a trailing station
+  on the leader with the same easing/braking instead of ramming it. It must run
+  every frame (the low-pass and Schmitt jets need continuity), which is why
+  `hunt` joins `cover`/`formation` in the per-frame set (exempt from the
+  reaction-timer cache).
 - **`FighterMesh.ts`** — `buildFighterMesh(scene, glow, faction)` is the old
-  `EnemyShip.buildMesh`, themed by faction (used for AI fighters; the human
-  player's own ship still comes from `AssetLoader`). `randomFighterSpawn()` is
+  `EnemyShip.buildMesh`, themed by faction (used for ENEMY AI fighters; the human
+  player and its wingmen come from `AssetLoader`). `randomFighterSpawn()` is
   the spawn-away-from-player helper (was `EnemyShip.randomSpawnPosition`).
 
 Game wires each Ship as a target of the **opposing** faction's `LaserSystem`
@@ -80,10 +163,14 @@ friendly-fire-free without per-bolt faction checks.
   the opposing mothership (`addTarget` supports many targets).
 - Shared material per system; one `Laser` instance per bolt with its
   own mesh.
-- `spawn(origin, rotationY)` creates a bolt with velocity along forward.
+- `spawn(origin, rotationY, fromPlayer?)` creates a bolt with velocity along
+  forward. `fromPlayer` tags bolts the human pilot fired (vs. an AI wingman
+  sharing the same faction system).
 - `update()` advances bolts, runs X/Z sphere-vs-target collision, calls
-  `onHit(target)` on impact — the struck target lets Game scale feedback
-  (heavy flash/hitstop for the player's own ship, light cue for a mothership).
+  `onHit(target, fromPlayer)` on impact — the struck target lets Game scale
+  feedback (heavy flash/hitstop for the player's own ship, light cue for a
+  mothership), and `fromPlayer` gates the "you landed a hit" jolt + gun SFX to the
+  player's OWN shots so 3 wingmen firing don't spam hitstop on the shared system.
 - `Laser.kill()` marks a bolt expired (it'll be swept on the next pass).
 
 ## MissileSystem

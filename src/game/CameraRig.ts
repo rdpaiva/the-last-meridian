@@ -42,7 +42,7 @@ export class CameraRig {
    * Live zoom factor multiplying the base offset. 1.0 = default framing;
    * driven by the +/- keys via update(), clamped to [minZoom, maxZoom].
    */
-  private zoom = 1;
+  private zoom = GameConfig.camera.defaultZoom;
 
   constructor(scene: Scene) {
     const cfg = GameConfig.camera;
@@ -53,7 +53,7 @@ export class CameraRig {
     this.camera.setTarget(Vector3.Zero());
     this.camera.minZ = cfg.nearClip;
     this.camera.maxZ = cfg.farClip;
-    this.camera.fov = 0.9;
+    this.camera.fov = cfg.fov;
 
     this.camera.inputs.clear();
   }

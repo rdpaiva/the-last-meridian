@@ -2,7 +2,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 
 import { GameConfig } from "./GameConfig";
-import type { DamageTarget, InputState } from "./types";
+import type { DamageTarget, FireSoundKey, InputState } from "./types";
 import type { Faction } from "./Faction";
 import { clamp, exponentialMultiplier } from "./math";
 
@@ -33,6 +33,14 @@ export interface ShipOptions {
   startMissileAmmo: number;
   /** Movement/weapon tuning (GameConfig.player or GameConfig.enemy). */
   movement: ShipMovementConfig;
+  /**
+   * Optional per-ship muzzle positions (ship-local), overriding
+   * `movement.muzzles`. Fed from the model's `muzzle*` markers when present;
+   * falls back to the movement config's muzzles otherwise.
+   */
+  muzzles?: ReadonlyArray<{ x: number; y: number; z: number }>;
+  /** Sound played when this ship fires. Maps ship type to audio cue. */
+  fireSound: FireSoundKey;
 }
 
 /**
@@ -59,6 +67,7 @@ export class Ship implements DamageTarget {
   rotationY = 0;
 
   readonly faction: Faction;
+  readonly fireSound: FireSoundKey;
   readonly maxHp: number;
   hp: number;
   readonly hitRadius: number = GameConfig.combat.shipHitRadius;
@@ -91,17 +100,22 @@ export class Ship implements DamageTarget {
   /** Next muzzle index for "alternate" fire mode; reset on respawn. */
   private nextMuzzleIdx = 0;
 
+  /** Muzzle positions (ship-local): model markers if given, else the config's. */
+  private readonly muzzles: ReadonlyArray<{ x: number; y: number; z: number }>;
+
   constructor(
     readonly root: TransformNode,
     opts: ShipOptions,
   ) {
     this.faction = opts.faction;
+    this.fireSound = opts.fireSound;
     this.maxHp = opts.maxHp;
     this.hp = opts.maxHp;
     this.respawnDelayMs = opts.respawnDelayMs;
     this.startMissileAmmo = opts.startMissileAmmo;
     this.missileAmmo = opts.startMissileAmmo;
     this.cfg = opts.movement;
+    this.muzzles = opts.muzzles ?? opts.movement.muzzles;
   }
 
   // ---------- DamageTarget ----------
@@ -169,19 +183,18 @@ export class Ship implements DamageTarget {
     return this.rightScratch;
   }
 
-  update(
-    deltaSeconds: number,
-    input: InputState,
-    arenaHalfX: number,
-    arenaHalfZ: number,
-  ): void {
+  update(deltaSeconds: number, input: InputState): void {
     if (!this.isAlive) return; // frozen while dead; Game handles respawn.
 
     const cfg = this.cfg;
 
     // --- Rotation ---
-    if (input.rotateLeft) this.rotationY -= cfg.rotationSpeed * deltaSeconds;
-    if (input.rotateRight) this.rotationY += cfg.rotationSpeed * deltaSeconds;
+    // Analog turn channel (AI sets a proportional rate for smooth tracking)
+    // summed with the keyboard's full-rate booleans, then clamped to ±1.
+    let turn = input.turn;
+    if (input.rotateRight) turn += 1;
+    if (input.rotateLeft) turn -= 1;
+    this.rotationY += clamp(turn, -1, 1) * cfg.rotationSpeed * deltaSeconds;
 
     // --- Acceleration ---
     const fwd = this.forward();
@@ -220,8 +233,9 @@ export class Ship implements DamageTarget {
     // --- Integrate position ---
     this.position.x += this.velocity.x * deltaSeconds;
     this.position.z += this.velocity.z * deltaSeconds;
-    this.position.x = clamp(this.position.x, -arenaHalfX, arenaHalfX);
-    this.position.z = clamp(this.position.z, -arenaHalfZ, arenaHalfZ);
+    // The arena is unbounded — no position clamp. Ships are kept in the combat
+    // corridor by piloting (the player) and the AIController's leash bias
+    // toward its objective mothership (the AI fighters), not by walls.
 
     // --- Sync visuals ---
     this.root.position.copyFrom(this.position);
@@ -245,17 +259,17 @@ export class Ship implements DamageTarget {
     if (this.fireCooldownRemainingMs > 0) return [];
     this.fireCooldownRemainingMs = this.cfg.fireCooldownMs;
 
-    const cfg = this.cfg;
-    if (cfg.muzzles.length === 0) return [];
+    const muzzles = this.muzzles;
+    if (muzzles.length === 0) return [];
 
     const positions: Vector3[] = [];
-    if (cfg.fireMode === "salvo") {
-      for (const m of cfg.muzzles) {
+    if (this.cfg.fireMode === "salvo") {
+      for (const m of muzzles) {
         positions.push(this.worldFromLocal(m.x, m.y, m.z, new Vector3()));
       }
     } else {
-      const m = cfg.muzzles[this.nextMuzzleIdx];
-      this.nextMuzzleIdx = (this.nextMuzzleIdx + 1) % cfg.muzzles.length;
+      const m = muzzles[this.nextMuzzleIdx];
+      this.nextMuzzleIdx = (this.nextMuzzleIdx + 1) % muzzles.length;
       positions.push(this.worldFromLocal(m.x, m.y, m.z, new Vector3()));
     }
     return positions;
@@ -297,5 +311,10 @@ export class Ship implements DamageTarget {
 
   get speed(): number {
     return Math.hypot(this.velocity.x, this.velocity.z);
+  }
+
+  /** This ship's velocity cap (units/sec) — its movement profile's maxSpeed. */
+  get maxSpeed(): number {
+    return this.cfg.maxSpeed;
   }
 }

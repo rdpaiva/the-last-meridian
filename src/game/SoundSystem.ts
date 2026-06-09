@@ -1,6 +1,9 @@
 import { Sound } from "@babylonjs/core/Audio/sound";
 import { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine";
 import type { Scene } from "@babylonjs/core/scene";
+import type { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import type { FireSoundKey } from "./types";
+import { GameConfig } from "./GameConfig";
 
 // Side-effect imports.
 //   audioEngine         — registers AbstractEngine.AudioEngineFactory so
@@ -23,6 +26,10 @@ import "@babylonjs/core/Audio/audioSceneComponent";
  *
  * To play, we round-robin through the pool — that way rapid fire (180ms
  * cooldown) plays cleanly even if each sound is 700ms long.
+ *
+ * When `spatial: true`, each Sound is configured as a 3D source with a
+ * linear distance model. Call `playAt(pos)` to set the world position
+ * before triggering playback; the listener is the active camera.
  */
 class PooledSound {
   private readonly sounds: Sound[] = [];
@@ -33,13 +40,21 @@ class PooledSound {
     url: string,
     scene: Scene,
     poolSize: number,
-    options: { volume: number },
+    options: { volume: number; spatial?: boolean },
   ) {
+    const cfg = GameConfig.sound;
     for (let i = 0; i < poolSize; i++) {
       this.sounds.push(
         new Sound(`${name}_${i}`, url, scene, null, {
           volume: options.volume,
           autoplay: false,
+          ...(options.spatial && {
+            spatialSound: true,
+            distanceModel: "linear",
+            maxDistance: cfg.maxDistance,
+            refDistance: cfg.refDistance,
+            rolloffFactor: 1,
+          }),
         }),
       );
     }
@@ -52,6 +67,16 @@ class PooledSound {
     // design, no errors. First few rapid-fire shots after page load may
     // be silent while files stream in.
     if (s.isReady()) s.play();
+  }
+
+  /** Set the 3D position of the next slot and play it (spatial sounds only). */
+  playAt(position: Vector3): void {
+    const s = this.sounds[this.idx];
+    this.idx = (this.idx + 1) % this.sounds.length;
+    if (s.isReady()) {
+      s.setPosition(position);
+      s.play();
+    }
   }
 }
 
@@ -72,6 +97,7 @@ export class SoundSystem {
   private readonly playerGuns: PooledSound;
   private readonly missileLaunch: PooledSound;
   private readonly enemyLaser: PooledSound;
+  private readonly laserGun: PooledSound;
   private readonly hit: PooledSound;
   private readonly explosion: PooledSound;
   private readonly engineHum: Sound;
@@ -109,21 +135,28 @@ export class SoundSystem {
       `${baseUrl}/enemy_laser.mp3`,
       scene,
       4,
-      { volume: 0.3 },
+      { volume: 0.3, spatial: true },
+    );
+    this.laserGun = new PooledSound(
+      "sfx_laser_gun",
+      `${baseUrl}/laser-gun.mp3`,
+      scene,
+      4,
+      { volume: 0.3, spatial: true },
     );
     this.hit = new PooledSound(
       "sfx_hit",
       `${baseUrl}/hit.mp3`,
       scene,
       4,
-      { volume: 0.35 },
+      { volume: 0.35, spatial: true },
     );
     this.explosion = new PooledSound(
       "sfx_explosion",
       `${baseUrl}/explosion.mp3`,
       scene,
       2,
-      { volume: 0.6 },
+      { volume: 0.6, spatial: true },
     );
 
     this.engineHum = new Sound(
@@ -216,13 +249,31 @@ export class SoundSystem {
   playMissileLaunch(): void {
     this.missileLaunch.play();
   }
-  playEnemyLaser(): void {
-    this.enemyLaser.play();
+  playEnemyLaser(position: Vector3): void {
+    this.enemyLaser.playAt(position);
   }
-  playHit(): void {
-    this.hit.play();
+  playLaserGun(position: Vector3): void {
+    this.laserGun.playAt(position);
   }
-  playExplosion(): void {
-    this.explosion.play();
+  /**
+   * Play the fire sound mapped to a ship's FireSoundKey.
+   * Pass `position` for any ship that isn't the player — those sounds are
+   * spatial and attenuate with distance. Omit it for the player's own fire
+   * (always full volume since the player is at the listener).
+   */
+  playFireSound(key: FireSoundKey, position?: Vector3): void {
+    switch (key) {
+      case "playerGuns": this.playerGuns.play(); break;
+      case "enemyLaser": if (position) this.enemyLaser.playAt(position); break;
+      case "laserGun":   if (position) this.laserGun.playAt(position);   break;
+    }
+  }
+  /** Play the hit cue at a world position (attenuates with distance). */
+  playHit(position: Vector3): void {
+    this.hit.playAt(position);
+  }
+  /** Play the explosion cue at a world position (attenuates with distance). */
+  playExplosion(position: Vector3): void {
+    this.explosion.playAt(position);
   }
 }
