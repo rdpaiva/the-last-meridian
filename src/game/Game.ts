@@ -127,6 +127,8 @@ export class Game {
   private engineGlow: EngineGlow | null = null;
   private secondaryThrusters: SecondaryThrusters | null = null;
   private playerDamageFlash: DamageFlash | null = null;
+  /** Hit-confirm flash for every non-player ship (enemies + wingmen). */
+  private readonly aiDamageFlashes = new Map<Ship, DamageFlash>();
 
   private state: GameState = "launching";
   private started = false;
@@ -375,6 +377,7 @@ export class Game {
         glow: new EngineGlow(this.scene, root, this.glowLayer, markers.thrusters),
         thrusters: new SecondaryThrusters(this.scene, root, this.glowLayer, markers.rcs),
       });
+      this.aiDamageFlashes.set(ship, new DamageFlash(this.scene, root, this.glowLayer, new Color3(2.5, 1.5, 0.2)));
     }
 
     this.engineGlow = new EngineGlow(
@@ -438,6 +441,7 @@ export class Game {
           ),
         });
       }
+      this.aiDamageFlashes.set(ship, new DamageFlash(this.scene, ship.root, this.glowLayer, new Color3(2.5, 1.5, 0.2)));
     }
 
     // Wire combat targets: every ship is a target of the opposing faction's
@@ -478,10 +482,14 @@ export class Game {
       this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
       this.applyHitstop(GameConfig.hitstop.playerLaserHitMs);
       this.playerDamageFlash?.trigger();
-    } else if (fromPlayer) {
-      // The player (not an AI wingman) landed a hit on an enemy — light confirm.
-      this.cameraRig.addTrauma(GameConfig.shake.traumaEnemyLaserHit);
-      this.applyHitstop(GameConfig.hitstop.enemyLaserHitMs);
+    } else {
+      // A non-player ship was hit — flash it so impacts are always visible.
+      this.aiDamageFlashes.get(target as Ship)?.trigger();
+      if (fromPlayer) {
+        // The player (not an AI wingman) landed the hit — add camera confirm.
+        this.cameraRig.addTrauma(GameConfig.shake.traumaEnemyLaserHit);
+        this.applyHitstop(GameConfig.hitstop.enemyLaserHitMs);
+      }
     }
   }
 
@@ -745,6 +753,7 @@ export class Game {
         }
       }
       this.playerDamageFlash?.update();
+      for (const flash of this.aiDamageFlashes.values()) flash.update();
 
       const engineIntensity =
         this.playerShip && this.playerShip.isAlive

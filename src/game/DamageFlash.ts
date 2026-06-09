@@ -7,6 +7,9 @@ import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import "@babylonjs/core/Meshes/Builders/sphereBuilder";
 
+/** Default red — signals damage to the player. Pass a different color for hit-confirm flashes on AI ships. */
+const DEFAULT_EMISSIVE = new Color3(2.5, 0.2, 0.2);
+
 import { GameConfig } from "./GameConfig";
 
 /**
@@ -24,7 +27,7 @@ export class DamageFlash {
   private flashStartedMs = 0;
   private active = false;
 
-  constructor(scene: Scene, shipRoot: TransformNode, glowLayer: GlowLayer) {
+  constructor(scene: Scene, shipRoot: TransformNode, glowLayer: GlowLayer, emissiveColor?: Color3) {
     const cfg = GameConfig.damageFlash;
 
     this.mesh = MeshBuilder.CreateSphere(
@@ -39,7 +42,7 @@ export class DamageFlash {
     this.material = new StandardMaterial("damage_flash_mat", scene);
     this.material.diffuseColor = new Color3(0, 0, 0);
     this.material.specularColor = new Color3(0, 0, 0);
-    this.material.emissiveColor = new Color3(2.5, 0.2, 0.2);
+    this.material.emissiveColor = emissiveColor ?? DEFAULT_EMISSIVE;
     this.material.disableLighting = true;
     this.material.alpha = 0;
     // Don't write into the depth buffer — keeps the ship's own depth
