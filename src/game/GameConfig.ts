@@ -123,7 +123,7 @@ export const GameConfig = {
      */
     wingmen: {
       /** How many AI wingmen launch on the player's side. 0 disables the wing. */
-      count: 20,
+      count: 2,
       /**
        * Wingmen fly the PLAYER's ship — the SAME movement/weapon profile
        * (GameConfig.player: thrust, drag, maxSpeed, turn rate, reverse/strafe,
@@ -139,7 +139,7 @@ export const GameConfig = {
        * what each one's standing order + slot is.
        */
       /** Per-wingman standing order (wraps if shorter than count). */
-      orders: ["defend"] as ReadonlyArray<
+      orders: ["cover"] as ReadonlyArray<
         "cover" | "formation" | "hunt" | "strike" | "defend"
       >,
       /**
@@ -673,7 +673,7 @@ export const GameConfig = {
      */
     shipModel: "wraith.glb" as string | null,
     /** How many enemy fighters share the arena at once. */
-    count: 10,
+    count: 6,
     /**
      * How many of those enemy fighters fly a "strike" order — pressing the
      * player's mothership and firing on it — instead of the default "patrol"
@@ -681,7 +681,7 @@ export const GameConfig = {
      * is what actually threatens the win/lose objective. The rest patrol/escort.
      * Set 0 for the old behavior (no enemy ever attacks the mothership).
      */
-    strikeCount: 3,
+    strikeCount: 2,
     /** Forward acceleration (units / sec^2). Matches player. */
     thrust: 38,
     /** Velocity cap. Matches player. */
