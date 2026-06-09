@@ -218,14 +218,27 @@ and explicitly skipped. Update this when you finish or start work.
   running lights (blue-grey for player, red for enemy), glow-layer bloom
 - Two motherships placed as persistent scenery at opposite ends of the arena:
   player's at z=−700 (bow faces +Z), enemy's at z=+700 (bow faces −Z)
-- `LaunchSequence` state machine: `intro → countdown → launching → complete`
-  - **Intro phase** (2 s): camera zooms out to `introZoom=6` showing the full
-    mothership silhouette as a cinematic establishing shot; no overlay
-  - **Countdown phase** (3 s): "3 / 2 / 1 / LAUNCH!" centered HUD overlay; camera
-    smoothstep-lerps from zoom 6→1 so the view closes in on the launch bay
-  - **Launching phase**: catapult fires at 90 u/s; engine glow forced on;
-    camera trauma burst at fire moment
-  - **Complete**: normal player control resumes at `maxSpeed`
+- `LaunchSequence` — a per-SHIP catapult: `hold → launching → complete`. Every
+  ship that launches from a carrier gets one (player, AI wingmen, and the enemy
+  fleet), so all are frozen in the tube until their own catapult fires.
+  - **Hold phase**: ship frozen in the bay for `holdSec` (its controller is
+    suppressed). For the player's `cinematic` launch this window is the 2 s wide
+    establishing shot (camera at `introZoom=6`) + the "3 / 2 / 1 / LAUNCH!"
+    countdown (camera smoothstep-lerps zoom 6→default); for everyone else it is
+    just a staggered wait, silent and overlay-free.
+  - **Launching phase**: catapult fires at 90 u/s along the carrier's forward
+    axis; engine glow forced on; camera trauma burst at the fire moment
+    (distance-scaled for non-player ships).
+  - **Complete**: normal control resumes at the ship's own `maxSpeed`.
+- Match-start launch (`Game.assignInitialLaunches` / `launchFleet`): both fleets
+  stream out of their carriers' two launch bays (`GameConfig.mothership.launchBays`,
+  tunable), alternating bays so two tubes fire in parallel. The player catapults
+  first (cinematic), wingmen follow one behind the other; the enemy fleet does the
+  same from its own carrier (`GameConfig.launch.staggerSec` sets the cadence) — so
+  enemies start on their carrier rather than pre-scattered beside the player.
+  Respawns: every ship — player, wingmen, and enemy fleet — relaunches (skip-intro)
+  from its own carrier's assigned bay, so reinforcements always re-enter from the
+  mothership rather than popping into the arena.
 - `CameraRig.setZoom()` for programmatic zoom override during launch (bypasses
   `maxZoom` upper clamp so the cinematic wide-shot can exceed the player range)
 - Arena `halfDepth` expanded 400→600 to accommodate the post-launch glide path

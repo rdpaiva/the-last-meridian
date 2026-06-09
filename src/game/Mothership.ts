@@ -90,20 +90,27 @@ export class Mothership implements DamageTarget {
 
   // ─── Query helpers ────────────────────────────────────────────────────────
 
+  /** How many catapult launch bays (tubes) this carrier has. */
+  getLaunchBayCount(): number {
+    return GameConfig.mothership.launchBays.length;
+  }
+
   /**
-   * World-space start position inside the starboard launch tube (near the aft
-   * wall). Y is forced to 0 so the fighter sits on the gameplay plane. Works
-   * for either carrier — the local pod offset is rotated by the root's facing.
+   * World-space start position inside launch bay `bayIndex` (wraps if it runs
+   * past the configured bays). Y is forced to 0 so the fighter sits on the
+   * gameplay plane. Works for either carrier — the local bay offset is rotated
+   * by the root's facing. Bay positions are tunable via
+   * GameConfig.mothership.launchBays.
    */
-  getLaunchStartPosition(): Vector3 {
-    const lx = Mothership.STARBOARD_X;
-    const lz = -(Mothership.POD_HALF_DEPTH - 30); // 30 units from aft wall
+  getLaunchStartPosition(bayIndex = 0): Vector3 {
+    const bays = GameConfig.mothership.launchBays;
+    const bay = bays[bayIndex % bays.length];
     const sin = Math.sin(this.root.rotation.y);
     const cos = Math.cos(this.root.rotation.y);
     return new Vector3(
-      this.root.position.x + cos * lx + sin * lz,
+      this.root.position.x + cos * bay.x + sin * bay.z,
       0,
-      this.root.position.z - sin * lx + cos * lz,
+      this.root.position.z - sin * bay.x + cos * bay.z,
     );
   }
 

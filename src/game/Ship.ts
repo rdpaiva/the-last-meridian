@@ -302,4 +302,9 @@ export class Ship implements DamageTarget {
   get speed(): number {
     return Math.hypot(this.velocity.x, this.velocity.z);
   }
+
+  /** This ship's velocity cap (units/sec) — its movement profile's maxSpeed. */
+  get maxSpeed(): number {
+    return this.cfg.maxSpeed;
+  }
 }

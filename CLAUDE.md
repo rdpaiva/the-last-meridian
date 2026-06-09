@@ -185,8 +185,8 @@ src/
     Nebulas.ts             alpha-blended cloud quads from PNG textures (count via GameConfig)
     Backdrop.ts            full-screen deep-space background Layer (2D blit)
     CapitalShips.ts        3 procedural destroyer composites in deep background
-    Mothership.ts          BSG-style carrier; DamageTarget objective (HP) + launch-tube helpers
-    LaunchSequence.ts      catapult state machine (intro→countdown→launching); skipIntro for respawns
+    Mothership.ts          BSG-style carrier; DamageTarget objective (HP) + multi-bay launch helpers (getLaunchStartPosition(bayIndex))
+    LaunchSequence.ts      per-ship catapult (hold→launching→complete); player's hold is the cinematic intro+3-2-1 countdown, others a staggered wait. Both fleets launch from their carrier's two bays at match start (Game.assignInitialLaunches/launchFleet); skipIntro = respawn relaunch
     Hud.ts                 DOM HUD: HP cue + mothership objective bars + victory/defeat banner
     Radar.ts               player-centered north-up canvas minimap (fighters + mothership blips)
 public/

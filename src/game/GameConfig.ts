@@ -238,6 +238,23 @@ export const GameConfig = {
      */
     yLevel: -3,
 
+    /**
+     * Catapult launch bays (tubes), in mothership-LOCAL coordinates:
+     *   +x = starboard pod, -x = port pod (the pods sit at ±65);
+     *   z runs along the keel (bow = +z). More-negative z starts the fighter
+     *   deeper/aft in the tube, so it gets a longer catapult run.
+     * A fighter is placed here (Y forced to the gameplay plane) and flung along
+     * the carrier's forward axis. Two bays let a wing launch in PARALLEL — the
+     * launch queue alternates bays, so the deck clears about twice as fast as a
+     * single tube would. Both factions' carriers use these (the offsets are
+     * rotated by each carrier's facing). Tweak to move where ships launch from;
+     * add or remove entries to change the bay count.
+     */
+    launchBays: [
+      { x: 65, z: -80 },  // starboard pod
+      { x: -65, z: -80 }, // port pod
+    ] as ReadonlyArray<{ x: number; z: number }>,
+
     // --- Combat: the mothership is the win/lose objective. ---
     /**
      * Hit points. Destroying the enemy mothership wins the match; losing yours
@@ -299,6 +316,28 @@ export const GameConfig = {
     launchSpeed: 90,
     /** Camera trauma burst at the moment the catapult fires. */
     launchTrauma: 0.35,
+    /**
+     * Seconds between consecutive catapult firings within one fleet's launch
+     * queue. At match start a whole wing streams out of the carrier one ship at
+     * a time at this cadence — the player first, then each wingman; the enemy
+     * fleet likewise from its own carrier. Because the queue alternates bays
+     * (see mothership.launchBays), two tubes fire in parallel, so each bay
+     * actually fires every 2× this. Smaller = a tighter, faster stream.
+     */
+    staggerSec: 0.4,
+    /**
+     * Distance (world units) before the bow over which the catapult eases the
+     * ship from launchSpeed down to its OWN cruise speed (its maxSpeed), so
+     * control hands back with no speed jump. Without this the ship snapped from
+     * launchSpeed straight to its (much slower) max speed at the bow and looked
+     * like it braked hard the instant it cleared the deck — most obvious on the
+     * slow enemy fighters (90 → 22). The ease floors at the ship's cruise speed,
+     * so the launch never drops below normal flight speed (no crawl). Larger =
+     * a longer, gentler settle but a less punchy exit; 0 restores the hard snap.
+     * (A separate, gentler slow-down still follows from drag as the ship settles
+     * to its thrust equilibrium — tune that via the faction's dragRate.)
+     */
+    settleDistance: 55,
   },
 
   camera: {

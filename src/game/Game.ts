@@ -35,7 +35,7 @@ import { opposing, FACTION_THEME, type Faction } from "./Faction";
 import { LocalInputController } from "./LocalInputController";
 import { AIController } from "./AIController";
 import type { ShipController, ControllerWorld } from "./ShipController";
-import { buildFighterMesh, randomFighterSpawn } from "./FighterMesh";
+import { buildFighterMesh } from "./FighterMesh";
 import type { DamageTarget } from "./types";
 
 /** Match lifecycle. The match has a beginning (launch), middle (playing), end. */
@@ -45,6 +45,18 @@ type GameState = "launching" | "playing" | "victory" | "defeat";
 interface Combatant {
   ship: Ship;
   controller: ShipController;
+  /**
+   * Active catapult launch, or null once flying normally. While set (and not
+   * complete) the sequence drives the ship and its controller is suppressed —
+   * this is what freezes every ship in the tube until its own launch fires.
+   */
+  launch: LaunchSequence | null;
+  /**
+   * Which carrier launch bay this ship flies from (index into
+   * GameConfig.mothership.launchBays). Assigned at launch; reused so a respawn
+   * streams back out of the same tube.
+   */
+  bayIndex: number;
 }
 
 /**
@@ -86,8 +98,6 @@ export class Game {
 
   /** All ships, regardless of side, plus their controllers. */
   private readonly combatants: Combatant[] = [];
-  /** Player-faction AI wingmen (subset of combatants); used for spawn placement. */
-  private readonly wingmen: Ship[] = [];
   /**
    * Per-wingman engine visuals (glow + maneuvering-thruster plumes), keyed by
    * the wingman's Ship. Driven each frame from that wingman's emitted input so
@@ -115,7 +125,12 @@ export class Game {
 
   private state: GameState = "launching";
   private started = false;
-  private launchSequence: LaunchSequence | null = null;
+  /**
+   * The player's combatant, set once the ship loads. Its `launch` field is the
+   * cinematic launch sequence the camera zoom + 3-2-1 overlay read from (via the
+   * `playerLaunch` getter) — every other ship's launch is silent.
+   */
+  private playerCombatant: Combatant | null = null;
 
   /**
    * Wall-clock timestamp until which the simulation is paused. While
@@ -252,7 +267,12 @@ export class Game {
     for (let i = 0; i < GameConfig.enemy.count; i++) {
       const ship = this.makeFighter(this.enemyFaction);
       const order = i < GameConfig.enemy.strikeCount ? "strike" : "patrol";
-      this.combatants.push({ ship, controller: new AIController({ order }) });
+      this.combatants.push({
+        ship,
+        controller: new AIController({ order }),
+        launch: null,
+        bayIndex: 0,
+      });
     }
 
     this.cameraRig = new CameraRig(this.scene);
@@ -329,8 +349,7 @@ export class Game {
         order: wcfg.orders[i % wcfg.orders.length],
         slot: wcfg.slots[i % wcfg.slots.length],
       });
-      this.combatants.push({ ship, controller });
-      this.wingmen.push(ship);
+      this.combatants.push({ ship, controller, launch: null, bayIndex: 0 });
       // Each wingman gets its own engine glow + RCS plumes on its outer root, so
       // it reads as a real fighter under thrust instead of floating. Driven from
       // the wingman's emitted input in the sim loop (see tick()).
@@ -349,7 +368,13 @@ export class Game {
     this.playerDamageFlash = new DamageFlash(this.scene, loaded.root, this.glowLayer);
     this.hud.setModelLabel(loaded.usingFallback ? "fallback" : "fighter.glb");
 
-    this.combatants.push({ ship: this.playerShip, controller: this.playerController });
+    this.playerCombatant = {
+      ship: this.playerShip,
+      controller: this.playerController,
+      launch: null,
+      bayIndex: 0,
+    };
+    this.combatants.push(this.playerCombatant);
 
     // The player ship is the wing leader its faction's wingmen form on.
     this.worldByFaction[this.playerFaction].leader = this.playerShip;
@@ -367,26 +392,12 @@ export class Game {
     }
     this.playerMissiles.addTarget(this.motherships[this.enemyFaction]);
 
-    // Place the player inside their own mothership's starboard launch tube and
-    // run the full catapult cinematic.
-    const home = this.motherships[this.playerFaction];
-    const launchStart = home.getLaunchStartPosition();
-    this.playerShip.respawn(launchStart.x, launchStart.z, home.root.rotation.y);
-    this.launchSequence = this.makeLaunchSequence(home);
+    // Both fleets launch from their carriers (the player runs the full
+    // cinematic; everyone else holds and streams out behind them). This freezes
+    // every ship in the tube until its own catapult fires and keeps the enemy
+    // wing on its own carrier instead of pre-scattered next to the player.
     this.state = "launching";
-
-    // Scatter the enemy fighters into the arena, away from the player; the
-    // player's wingmen form up near the home carrier instead (handled below).
-    for (const c of this.combatants) {
-      if (c.ship.faction !== this.enemyFaction) continue;
-      const spawn = randomFighterSpawn(
-        this.arena.halfWidth,
-        this.arena.halfDepth,
-        this.playerShip.position,
-      );
-      c.ship.respawn(spawn.x, spawn.z, Math.random() * Math.PI * 2);
-    }
-    this.wingmen.forEach((ship, i) => this.spawnWingman(ship, i));
+    this.assignInitialLaunches();
 
     this.music.playPlaylist("game");
     this.engine.runRenderLoop(this.tick);
@@ -517,17 +528,45 @@ export class Game {
           const ship = c.ship;
           const isPlayer = ship === this.playerShip;
 
-          // Player launch: the catapult drives the ship; input is suppressed.
-          if (isPlayer && this.launchSequence && !this.launchSequence.isComplete) {
-            this.launchSequence.update(deltaSeconds, ship);
-            if (this.launchSequence.justLaunched) {
-              this.cameraRig.addTrauma(GameConfig.launch.launchTrauma);
+          // Catapult launch: the sequence drives the ship and its controller is
+          // suppressed (frozen in the tube, then flung out) until it clears the
+          // bow. Every launching ship runs this — player, wingmen, and enemy
+          // fleet alike — so nobody moves until their own launch fires.
+          if (c.launch && !c.launch.isComplete) {
+            if (ship.isAlive) {
+              c.launch.update(deltaSeconds, ship);
+              if (c.launch.justLaunched) {
+                // The player's launch is full-volume trauma; everyone else's
+                // scales with distance (a far enemy catapult barely registers).
+                this.cameraRig.addTrauma(
+                  isPlayer
+                    ? GameConfig.launch.launchTrauma
+                    : this.traumaAtDistance(GameConfig.launch.launchTrauma, ship.position),
+                );
+              }
+              // Light a launching wingman's exhaust during its catapult run (the
+              // player's own glow is handled in the always-on animation block).
+              const vis = this.wingmanVisuals.get(ship);
+              if (vis) {
+                vis.glow.update(
+                  deltaSeconds,
+                  ship.speed,
+                  GameConfig.player.maxSpeed,
+                  c.launch.isLaunching,
+                );
+                vis.thrusters.update(deltaSeconds, false, false, false);
+              }
+              if (c.launch.isComplete) {
+                // The match goes live the instant the PLAYER clears the bow;
+                // the rest of the wing may still be launching behind them.
+                if (isPlayer && this.state === "launching") this.state = "playing";
+                c.launch = null;
+              }
+              continue;
             }
-            if (this.launchSequence.isComplete) {
-              if (this.state === "launching") this.state = "playing";
-              this.launchSequence = null;
-            }
-            continue;
+            // Died mid-launch (a stray hit) — abandon the catapult and fall
+            // through to normal death handling below.
+            c.launch = null;
           }
 
           const input = c.controller.update(deltaSeconds, ship, this.worldByFaction[ship.faction]);
@@ -595,7 +634,7 @@ export class Game {
             );
             ship.explosionFired = true;
           }
-          if (ship.shouldRespawn(nowMs)) this.respawnShip(ship, isPlayer);
+          if (ship.shouldRespawn(nowMs)) this.respawnShip(c, isPlayer);
         }
 
         this.factionLasers.humans.update(deltaSeconds, deltaMs);
@@ -611,8 +650,9 @@ export class Game {
 
       // --- Animations that continue THROUGH hitstop ---
       if (this.playerShip && this.playerShip.isAlive) {
-        if (this.launchSequence) {
-          this.cameraRig.setZoom(this.launchSequence.desiredZoom);
+        const playerLaunch = this.playerLaunch;
+        if (playerLaunch) {
+          this.cameraRig.setZoom(playerLaunch.desiredZoom);
         }
         const zoomInput =
           (this.input.state.zoomIn ? 1 : 0) - (this.input.state.zoomOut ? 1 : 0);
@@ -627,7 +667,7 @@ export class Game {
         if (!inHitstop) {
           const thrustActive =
             this.input.state.thrust ||
-            (this.launchSequence?.isLaunching ?? false);
+            (playerLaunch?.isLaunching ?? false);
           this.engineGlow?.update(
             deltaSeconds,
             this.playerShip.speed,
@@ -668,7 +708,7 @@ export class Game {
       if (this.playerShip) {
         this.radar.update(this.playerShip, this.shipsByFaction, this.motherships);
       }
-      this.hud.setLaunchOverlay(this.launchSequence?.overlayText ?? null);
+      this.hud.setLaunchOverlay(this.playerLaunch?.overlayText ?? null);
       this.hud.setEndBanner(
         this.state === "victory" ? "victory" : this.state === "defeat" ? "defeat" : null,
       );
@@ -679,11 +719,24 @@ export class Game {
     }
   };
 
+  /** The player's active launch sequence — what the camera zoom + overlay read. */
+  private get playerLaunch(): LaunchSequence | null {
+    return this.playerCombatant?.launch ?? null;
+  }
+
   /**
    * Build a catapult sequence for the given carrier, derived from its facing so
    * either mothership launches correctly (humans fire +Z, machines fire -Z).
+   * `holdSec` is the time frozen in the tube before the catapult fires (the
+   * player's cinematic countdown, plus a per-ship stagger for the rest of the
+   * wing); `cinematic` (player only) drives the camera zoom + 3-2-1 overlay.
    */
-  private makeLaunchSequence(home: Mothership, skipIntro = false): LaunchSequence {
+  private makeLaunchSequence(
+    home: Mothership,
+    holdSec: number,
+    cinematic: boolean,
+    skipIntro = false,
+  ): LaunchSequence {
     const fwd = home.getLaunchForward();
     return new LaunchSequence(
       fwd.x,
@@ -691,8 +744,54 @@ export class Game {
       home.position.x,
       home.position.z,
       home.getLaunchExitDistance(),
+      holdSec,
+      cinematic,
       skipIntro,
     );
+  }
+
+  /**
+   * Launch both fleets from their carriers at match start. The player runs the
+   * full cinematic and catapults first; their wingmen stream out one behind the
+   * other, and the enemy fleet does the same from its own carrier — so no ship
+   * moves until its own catapult fires (the wing no longer leaks out during the
+   * countdown), and the enemy starts at its carrier instead of beside the
+   * player.
+   */
+  private assignInitialLaunches(): void {
+    // The player's queue: the player first (cinematic), then their wingmen.
+    const friendly: Combatant[] = [];
+    if (this.playerCombatant) friendly.push(this.playerCombatant);
+    for (const c of this.combatants) {
+      if (c.ship.faction === this.playerFaction && c !== this.playerCombatant) {
+        friendly.push(c);
+      }
+    }
+    const enemy = this.combatants.filter((c) => c.ship.faction === this.enemyFaction);
+
+    const base = LaunchSequence.cinematicHoldSec();
+    this.launchFleet(friendly, this.motherships[this.playerFaction], base);
+    this.launchFleet(enemy, this.motherships[this.enemyFaction], base);
+  }
+
+  /**
+   * Stage a fleet `queue` in the bays of `home` and give each ship a launch
+   * sequence. Ships alternate bays so the wing streams out in parallel, and
+   * each launches `staggerSec` after the previous (the first at `baseHoldSec`,
+   * which for the player side is the cinematic countdown). The player's own
+   * launch is the cinematic one.
+   */
+  private launchFleet(queue: Combatant[], home: Mothership, baseHoldSec: number): void {
+    const bays = home.getLaunchBayCount();
+    const stagger = GameConfig.launch.staggerSec;
+    queue.forEach((c, i) => {
+      const bayIndex = i % bays;
+      c.bayIndex = bayIndex;
+      const start = home.getLaunchStartPosition(bayIndex);
+      c.ship.respawn(start.x, start.z, home.root.rotation.y);
+      const isPlayer = c === this.playerCombatant;
+      c.launch = this.makeLaunchSequence(home, baseHoldSec + i * stagger, isPlayer);
+    });
   }
 
   /** Build an AI fighter mesh + Ship for a faction (defaults to the enemy profile). */
@@ -713,47 +812,22 @@ export class Game {
   }
 
   /**
-   * Place wingman `index` near the home carrier, fanned out along the launch
-   * line and facing into the arena, so the wing appears alongside the player
-   * (it flies to its formation slot / order on its own once in the air).
+   * Respawn a dead ship by relaunching it from its own carrier: every ship —
+   * the player, their wingmen, and the enemy fleet — streams back out of its
+   * mothership's bay via a streamlined (skip-intro) catapult out of the bay it
+   * was assigned at match start, so reinforcements always re-enter from the
+   * carrier rather than popping into the arena.
    */
-  private spawnWingman(ship: Ship, index: number): void {
-    const home = this.motherships[this.playerFaction];
-    const start = home.getLaunchStartPosition();
-    const fwd = home.getLaunchForward();
-    // Perpendicular to launch-forward on the X/Z plane, for lateral spread.
-    const rx = fwd.z;
-    const rz = -fwd.x;
-    const lateral = (index - (this.wingmen.length - 1) / 2) * 14;
-    const back = -12; // sit behind the launch line so they don't clip the player
-    ship.respawn(
-      start.x + rx * lateral + fwd.x * back,
-      start.z + rz * lateral + fwd.z * back,
-      home.root.rotation.y,
-    );
-  }
-
-  /** Respawn a dead ship: player + wingmen relaunch from home, enemies scatter. */
-  private respawnShip(ship: Ship, isPlayer: boolean): void {
-    if (isPlayer) {
-      const home = this.motherships[this.playerFaction];
-      // No respawn once your mothership is gone — that path ends in defeat.
-      if (!home.isAlive) return;
-      const start = home.getLaunchStartPosition();
-      ship.respawn(start.x, start.z, home.root.rotation.y);
-      // Streamlined catapult — skip the wide shot + countdown on a respawn.
-      this.launchSequence = this.makeLaunchSequence(home, true);
-      return;
-    }
-    // A wingman re-joins from the home carrier (if it still stands).
-    if (ship.faction === this.playerFaction) {
-      if (!this.motherships[this.playerFaction].isAlive) return;
-      this.spawnWingman(ship, this.wingmen.indexOf(ship));
-      return;
-    }
-    const avoid = this.playerShip?.position ?? ship.position;
-    const spawn = randomFighterSpawn(this.arena.halfWidth, this.arena.halfDepth, avoid);
-    ship.respawn(spawn.x, spawn.z, Math.random() * Math.PI * 2);
+  private respawnShip(c: Combatant, isPlayer: boolean): void {
+    const ship = c.ship;
+    const home = this.motherships[ship.faction];
+    // No respawn once a carrier is gone (for the player that path ends in defeat,
+    // and a fallen enemy carrier means the match is already won).
+    if (!home.isAlive) return;
+    const start = home.getLaunchStartPosition(c.bayIndex);
+    ship.respawn(start.x, start.z, home.root.rotation.y);
+    // skipIntro = immediate catapult, no wide shot / countdown on a respawn.
+    c.launch = this.makeLaunchSequence(home, 0, isPlayer, true);
   }
 
   /** Win when the enemy mothership falls; lose when yours does. */
@@ -769,7 +843,9 @@ export class Game {
   /** Freeze the sim, play the mothership death spectacle, show the banner. */
   private endMatch(outcome: "victory" | "defeat", destroyed: Mothership): void {
     this.state = outcome;
-    this.launchSequence = null;
+    // Kill any in-progress launch (e.g. the player's cinematic) so its overlay
+    // clears and the catapult stops driving a ship under the end banner.
+    for (const c of this.combatants) c.launch = null;
 
     const cfg = GameConfig.mothership;
     const center = destroyed.position;
