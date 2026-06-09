@@ -85,6 +85,68 @@ export const GameConfig = {
      * side from the north mothership — everything mirrors. No UI (by design).
      */
     faction: "humans" as import("./Faction").Faction,
+
+    /**
+     * AI wingmen that fly on the player's side (Phase 5). Each is an ordinary
+     * player-faction `Ship` wearing an `AIController` with a standing order —
+     * the same seam that drives the enemy fighters, just on the human side.
+     * Orders are STATIC (assigned at spawn, no in-game command UI yet); in a
+     * future multiplayer build the wing self-organizes instead.
+     *
+     * Wingmen fly the shared AI-fighter movement profile (`GameConfig.enemy`),
+     * NOT the player's, so both sides' fighters are mechanically symmetric and
+     * the human pilot stays the one elite ship.
+     *
+     * `orders[i]` and `slots[i]` configure wingman i; if there are more wingmen
+     * than entries the list wraps. Orders:
+     *   "cover"     — escort the leader in a slot, break to engage any opponent
+     *                 within `ai.coverBreakRange` of the leader, then reform.
+     *   "formation" — hold the slot on the leader's wing; fire only at targets
+     *                 that wander into the cone (no breaking off).
+     *   "hunt"      — seek & destroy: always chase the nearest enemy fighter
+     *                 (ignores the mothership); loiter on the leader if none.
+     *   "strike"    — press the enemy mothership and fire on it; engage fighters
+     *                 only in close self-defense.
+     */
+    wingmen: {
+      /** How many AI wingmen launch on the player's side. 0 disables the wing. */
+      count: 3,
+      /**
+       * Wingmen fly the player's ship and pilot it with the same control inputs a
+       * human presses — the AIController emits thrust/turn/strafe, the shared Ship
+       * sim turns that into motion; speed/position are NEVER set directly. They
+       * use GameConfig.player for guns, turn rate, reverse/strafe and HP, with
+       * just these three movement values overridden:
+       *   - maxSpeed a hair above the player's 35 so a wingman can close the gap
+       *     to its slot (an identical-top-speed escort can't reel in a leader
+       *     flying flat-out straight).
+       *   - REAL drag (the player has none). Zero drag makes a formation slot
+       *     impossible to hold with on/off thrusters — small velocity errors
+       *     integrate into position drift and the escort surges in and out of the
+       *     slot (or orbits). A little drag damps that so it parks cleanly. You
+       *     barely feel drag this small in a dogfight.
+       *   - thrust scaled up so terminal speed (thrust/drag) still clears maxSpeed
+       *     (64/1.6 = 40), i.e. they're every bit as fast as you despite the drag.
+       * Set dragRate: 0 to match the player exactly, at the cost of looser
+       * formation-keeping.
+       */
+      maxSpeed: 40,
+      thrust: 64,
+      dragRate: 1.6,
+      /** Per-wingman standing order (wraps if shorter than count). */
+      orders: ["cover", "cover", "hunt"] as ReadonlyArray<
+        "cover" | "formation" | "hunt" | "strike"
+      >,
+      /**
+       * Per-wingman formation slot, in LEADER-LOCAL units (+x = starboard,
+       * +z = ahead; negative z trails the leader). Used by cover/formation.
+       */
+      slots: [
+        { x: -10, z: -6 },
+        { x: 10, z: -6 },
+        { x: 0, z: -12 },
+      ] as ReadonlyArray<{ x: number; z: number }>,
+    },
   },
 
   laser: {
@@ -501,6 +563,14 @@ export const GameConfig = {
   enemy: {
     /** How many enemy fighters share the arena at once. */
     count: 10,
+    /**
+     * How many of those enemy fighters fly a "strike" order — pressing the
+     * player's mothership and firing on it — instead of the default "patrol"
+     * (which only wanders toward the carrier and dogfights your fighters). This
+     * is what actually threatens the win/lose objective. The rest patrol/escort.
+     * Set 0 for the old behavior (no enemy ever attacks the mothership).
+     */
+    strikeCount: 3,
     /** Forward acceleration (units / sec^2). Lower than the player. */
     thrust: 18,
     /** Velocity cap. */
@@ -521,15 +591,25 @@ export const GameConfig = {
     muzzles: [{ x: 0, y: 0, z: 0.9 }],
     /** All muzzles fire at once (only one here). */
     fireMode: "salvo" as "alternate" | "salvo",
+    /** Minimum time between shots. Slower than the player's 120ms. */
+    fireCooldownMs: 700,
+  },
 
-    /** Range at which the enemy stops wandering and turns toward the player. */
+  /**
+   * Shared AI piloting tuning, read by `AIController` for BOTH sides' computer
+   * fighters: the machine fighters AND the player's human wingmen (Phase 5).
+   * These are *decision* knobs (when to engage, when to fire, how to wander) —
+   * the *movement* profile a fighter flies with (thrust/maxSpeed/muzzles) still
+   * comes from its faction's own block (the AI-fighter profile lives in
+   * `enemy`, which both sides' fighters share so the dogfight stays symmetric).
+   */
+  ai: {
+    /** Range at which a fighter stops wandering and turns toward a target. */
     engagementRange: 35,
-    /** Range below which the enemy will fire when its cone is on target. */
+    /** Range below which a fighter will fire when its cone is on target. */
     fireRange: 26,
     /** Half-angle of the fire cone (rad). 0.22 ≈ 12.6°. */
     fireConeAngle: 0.22,
-    /** Minimum time between shots. Slower than the player's 180ms. */
-    fireCooldownMs: 700,
 
     /** How often the wander heading gets nudged (seconds). */
     wanderRetargetSec: 1.4,
@@ -537,18 +617,55 @@ export const GameConfig = {
     wanderJitter: 0.9,
     /**
      * Bias strength (0..1) pulling an idle fighter's wander heading toward its
-     * leash anchor — its opponent mothership (see AIController). Now that the
-     * arena is unbounded, this is what keeps fighters pressing the front line
-     * instead of drifting off into empty space.
+     * leash anchor (see AIController — the anchor is role-specific). Now that
+     * the arena is unbounded, this is what keeps fighters pressing the front
+     * line instead of drifting off into empty space.
      */
     leashBias: 0.35,
     /**
      * Distance (world units) from the leash anchor at which the bias reaches
      * full strength. Inside it fighters roam freely; beyond it the pull ramps
      * up to leashBias so they turn back toward the fight. Sized to span the
-     * ~700-unit gap between a fighter at world center and the enemy carrier.
+     * ~700-unit gap between a fighter at world center and its anchor.
      */
     leashRadius: 700,
+
+    // --- Formation (used by player wingmen flying "cover"/"formation") ---
+    // A wingman holds its slot like a real pilot would in this ship: it keeps its
+    // nose pointed the SAME way as the leader and uses its thrust / reverse /
+    // strafe thrusters to make its velocity track a target. It does NOT turn to
+    // chase the slot (turning-to-chase orbits) — strafe cancels sideways drift
+    // directly. The target velocity is the leader's velocity plus an approach
+    // toward the slot, and the approach is SPEED-CAPPED so the (weak) reverse
+    // thruster can still brake it before it overshoots and loops around.
+    /** Approach speed per unit of slot offset (1/sec). Higher = snappier closing. */
+    formationPosGain: 1.0,
+    /**
+     * Cap on the approach speed toward the slot (units/sec), ON TOP of matching
+     * the leader's velocity. Keep it under what the reverse thruster can brake
+     * (reverseThrust ≈ 18) or the wingman overshoots the slot and circles back.
+     */
+    formationApproachSpeed: 12,
+    /**
+     * Velocity-error deadband (units/sec): below it the wingman fires no thruster
+     * and coasts. With zero drag this is what stops it twitching with constant
+     * micro-corrections once parked in the slot.
+     */
+    formationVelDeadband: 2,
+    /**
+     * How fast a wingman's formation heading tracks the leader's (per sec, fed to
+     * exponentialDecay). LOWER = more lag, so the wing banks into your turns a
+     * beat behind you instead of pivoting in lock-step. The steady-state lag in a
+     * sustained turn is roughly (your turn rate ÷ this), so at the player's brisk
+     * 4.5 rad/s a value of 6 gives ~0.75 rad (~43°) at full turn, less on gentler
+     * ones — a clear beat of lag without the wing pointing away from you.
+     */
+    formationTurnLag: 6,
+    /**
+     * "cover" wingmen break formation to engage any opponent within this radius
+     * of the LEADER (not of themselves), then return to slot once it is clear.
+     */
+    coverBreakRange: 45,
   },
 
   explosion: {

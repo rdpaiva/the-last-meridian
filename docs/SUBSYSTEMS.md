@@ -30,19 +30,49 @@
   (single nose cannon, 0 missiles). Implements `DamageTarget`.
 - **`ShipController`** (`ShipController.ts`) — interface: `update(dt, self,
   world) → InputState`. `ControllerWorld` is a per-faction read-only view
-  (opposing ships + opposing mothership + arena bounds). Implementations must
-  return a **stable** `InputState` (mutate in place — no per-frame allocation).
+  (opposing ships + opposing mothership + arena bounds + a `leader` ref — the
+  human pilot's ship for that faction, used by cover/formation wingmen, else
+  null). Implementations must return a **stable** `InputState` (mutate in place —
+  no per-frame allocation).
 - **`LocalInputController`** — surfaces `InputManager.state` (the keyboard).
-- **`AIController`** (`AIController.ts`) — ports the old enemy wander/engage/
-  fire-cone AI but **emits inputs** instead of mutating the ship: steering is
-  left/right button presses from the sign of the heading error (deadband to
-  avoid oscillation); `fire` is held whenever in range + cone (the Ship's own
-  cooldown paces the actual shots, same as the player). Targets the nearest
-  live opponent. Boolean inputs are also exactly what a network controller
-  sends — by design.
+- **`AIController`** (`AIController.ts`) — the computer pilot for BOTH sides'
+  fighters; **emits inputs** instead of mutating the ship (boolean inputs are
+  exactly what a network controller sends). Constructed with a standing **order**
+  (`AIOrder`) + optional formation slot:
+  - `patrol` (default = the original enemy behavior): wander leashed toward the
+    objective mothership, engage the nearest opponent in `engagementRange`.
+  - `strike`: press the enemy mothership and fire on it (fire range widens to the
+    carrier's `hitRadius` so it strafes from stand-off), self-defense fire only.
+  - `hunt`: chase the nearest enemy fighter, ignore the carrier.
+  - `cover` / `formation`: hold a slot on the leader's wing (`cover` also breaks
+    to engage threats within `ai.coverBreakRange` of the leader, then reforms).
+  Most orders resolve to a steer-heading + thrust + aim target, then a shared tail
+  presses left/right/thrust/reverse/strafe/fire. Decision tuning is shared in
+  `GameConfig.ai`. **Formation is the subtle part** — see the next entry.
+- **Player wingmen** (Phase 5) — there is no separate wingman class: a wingman is
+  a player-faction `Ship` wearing an `AIController` with a `cover`/`hunt`/etc.
+  order, built in `Game.start()` from `GameConfig.player.wingmen`. Two non-obvious
+  invariants:
+  - **They CLONE the player's loaded ship mesh** (`loaded.modelRoot.instantiate
+    Hierarchy(root, { doNotInstantiate: true })`), not a separate mesh, so they
+    track whatever the player flies (procedural `shipDesign` or a real
+    `fighter.glb`). Clone the *model* root (not the ship root) so the player-only
+    engine glow / thrusters / damage-flash don't tag along; `doNotInstantiate` =
+    real meshes (not GPU instances) so a wingman survives the player ship being
+    disabled on death.
+  - **Formation = a velocity-servo on the strafe/reverse thrusters, NOT a
+    turn-to-chase.** The wingman keeps its nose on a *lagged* copy of the leader's
+    heading (`ai.formationTurnLag`, so it banks into turns a beat late) and makes
+    its velocity track `leaderVel + speed-capped approach to the slot`, firing
+    whichever of thrust/reverse/strafe cuts the velocity error. Turning to chase
+    the slot **orbits** the leader; and a zero-drag ship can't hold a slot with
+    on/off thrusters (velocity errors integrate into position drift → it surges
+    in/out), which is why wingmen carry a little **drag** (`player.wingmen`) for
+    damping. Tuning lives in `GameConfig.ai` (`formationPosGain`,
+    `formationApproachSpeed`, `formationVelDeadband`, `formationTurnLag`).
 - **`FighterMesh.ts`** — `buildFighterMesh(scene, glow, faction)` is the old
-  `EnemyShip.buildMesh`, themed by faction (used for AI fighters; the human
-  player's own ship still comes from `AssetLoader`). `randomFighterSpawn()` is
+  `EnemyShip.buildMesh`, themed by faction (used for ENEMY AI fighters; the human
+  player and its wingmen come from `AssetLoader`). `randomFighterSpawn()` is
   the spawn-away-from-player helper (was `EnemyShip.randomSpawnPosition`).
 
 Game wires each Ship as a target of the **opposing** faction's `LaserSystem`
@@ -80,10 +110,14 @@ friendly-fire-free without per-bolt faction checks.
   the opposing mothership (`addTarget` supports many targets).
 - Shared material per system; one `Laser` instance per bolt with its
   own mesh.
-- `spawn(origin, rotationY)` creates a bolt with velocity along forward.
+- `spawn(origin, rotationY, fromPlayer?)` creates a bolt with velocity along
+  forward. `fromPlayer` tags bolts the human pilot fired (vs. an AI wingman
+  sharing the same faction system).
 - `update()` advances bolts, runs X/Z sphere-vs-target collision, calls
-  `onHit(target)` on impact — the struck target lets Game scale feedback
-  (heavy flash/hitstop for the player's own ship, light cue for a mothership).
+  `onHit(target, fromPlayer)` on impact — the struck target lets Game scale
+  feedback (heavy flash/hitstop for the player's own ship, light cue for a
+  mothership), and `fromPlayer` gates the "you landed a hit" jolt + gun SFX to the
+  player's OWN shots so 3 wingmen firing don't spam hitstop on the shared system.
 - `Laser.kill()` marks a bolt expired (it'll be swept on the next pass).
 
 ## MissileSystem

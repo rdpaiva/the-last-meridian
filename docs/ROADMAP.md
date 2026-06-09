@@ -36,7 +36,7 @@ and explicitly skipped. Update this when you finish or start work.
 - **Unbounded arena** (Phase 4): the X/Z position clamp is gone from `Ship`
   (`arena.halfWidth/halfDepth` now only size the reference grid + seed spawn
   scatter — no walls). `AIController` is re-leashed: idle fighters bias their
-  wander toward their objective mothership (`enemy.leashBias`/`leashRadius`),
+  wander toward their objective mothership (`ai.leashBias`/`leashRadius`),
   not arena center, so they press the front line instead of drifting off.
   Launch geometry generalized to the carrier's facing
   (`Mothership.getLaunchForward()` + `getLaunchExitDistance()` →
@@ -61,6 +61,65 @@ and explicitly skipped. Update this when you finish or start work.
 - Procedural red mesh (crimson body, dark wings, hot-red engine, red "eye" sphere)
 - Random respawn position helper (kept far from player)
 - Tuning: slower than the player so the duel is beatable
+
+### Player wingmen (Phase 5)
+- **AI wingmen on the player's side** — `GameConfig.player.wingmen.count` (default 3)
+  player-faction `Ship`s wearing an `AIController`, the same seam that drives the
+  enemy fighters. Friendly-fire-free by construction (per-faction LaserSystems);
+  they appear on the radar as friendly blips and are missile-immune to the player.
+- **Standing orders** (`AIController` `AIOrder`, static per-wingman, no command UI
+  yet — multiplayer would re-issue them): `cover` (escort the leader in a slot,
+  break to engage threats within `ai.coverBreakRange` of the leader, reform),
+  `formation` (hold the wing slot, opportunistic fire only), `hunt` (seek &
+  destroy the nearest enemy fighter, ignore the carrier), `strike` (press the
+  enemy mothership and fire on it — `fireRange` widens to the carrier's hitRadius
+  so it strafes from stand-off — self-defense fire only). Default loadout:
+  2× `cover` + `hunt`.
+- **Wingmen fly the player's ship**, piloted with the same control inputs a human
+  presses — the `AIController` only ever emits an `InputState` (thrust/turn/
+  reverse/strafe), exactly like the keyboard, and the shared `Ship` sim turns that
+  into motion; speed/position are never set directly. They use `GameConfig.player`
+  for guns, turn rate, reverse/strafe and HP, overriding three movement values
+  (`player.wingmen`): a slightly higher `maxSpeed` (close the gap to the slot),
+  real `dragRate` (the player has none), and scaled-up `thrust` so terminal speed
+  still matches the player. The drag matters — see formation below.
+- **Wingmen look like the player** — each is a real-mesh CLONE of the player's
+  ACTUAL loaded ship (`loaded.modelRoot.instantiateHierarchy(root, { doNotInstantiate:
+  true })`), not a separately-built mesh, so changing the player's ship (the
+  `shipDesign` flag or dropping in a real `fighter.glb`) changes the wing with it.
+  Clones the model root, not the ship root, so the player-only engine glow /
+  thrusters / damage-flash don't tag along; `doNotInstantiate` = independent
+  meshes (not GPU instances) so a wingman stays visible when the player ship is
+  disabled on death.
+- **Turn lag** — a wingman banks into your turns a beat late (`ai.formationTurnLag`)
+  instead of pivoting in lock-step: its formation heading eases toward the leader's
+  via `exponentialDecay`, giving a steady ≈ (your turn rate ÷ lag) offset (~43° at
+  the player's full 4.5 rad/s turn, less on gentler ones).
+- **Formation = velocity-servo with the strafe thrusters.** The wingman keeps its
+  nose on the leader's heading and makes its velocity track a target = leader's
+  velocity + a speed-capped approach toward the slot (`ai.formationPosGain`,
+  `formationApproachSpeed`), firing whichever of thrust/reverse/strafe reduces the
+  velocity error past `ai.formationVelDeadband`. It does NOT turn to chase the slot
+  (turning-to-chase orbits the leader); strafe cancels sideways drift directly.
+  Two failed iterations are why this is the way it is: a position-seek **orbits**
+  on a drag-free ship, and a bang-bang controller on a drag-free ship **surges
+  in/out of the slot** (velocity errors integrate into drift) — so wingmen carry a
+  little drag for damping. Verified: holds slot to **sd 0.1 u** in steady flight,
+  bounded re-forming through turns, no orbit/twitch.
+- **Shared AI tuning extracted to `GameConfig.ai`** — decision knobs (engage/fire
+  ranges, cone, wander, leash, formation gains) in one block read by both sides'
+  fighters; movement profiles stay per-faction. Leash anchor is role-specific
+  (objective carrier for patrol/strike; leader for cover).
+- **Enemy strikers** — `GameConfig.enemy.strikeCount` (default 3) of the enemy
+  fighters fly `strike` orders, so the enemy actually attacks the player's
+  mothership (the win/lose objective) instead of only dogfighting. 0 restores the
+  old behavior.
+- Friendly-fire-free by construction (per-faction LaserSystems); wingmen appear
+  on radar as friendly blips, are missile-immune to the player, form up near the
+  home carrier at launch, and re-join from it on respawn.
+- **Player-laser hit feedback fix** — bolts carry a `fromPlayer` flag so the
+  "you landed a hit" trauma/hitstop + player gun SFX fire only for the human
+  pilot's own shots, not every wingman bolt on the shared faction LaserSystem.
 
 ### Combat
 - Two `LaserSystem` instances per faction (player → enemy, enemy → player)
@@ -178,8 +237,10 @@ implemented yet. Roughly ordered by gameplay value.
 
 **Agreed next phases (battle build, continuing from the faction spine):**
 - **Carriers launch fighters** — both motherships spawn fighters from their pods
-  over time (wave cadence + max-alive cap in `GameConfig`); human-side AI
-  wingmen fall out for free.
+  over time (wave cadence + max-alive cap in `GameConfig`), instead of the
+  current fixed roster scattered/formed-up at match start. (Player-side AI
+  wingmen themselves are now done — see Phase 5 under Done; this is the
+  remaining carrier-driven *spawn cadence* piece.)
 - **Mothership defenses** — pod-mounted gun turrets + missile launchers as
   sub-emitters; optionally per-part hitboxes so pods/turrets can be shot off.
 - **Multiplayer** — now a planned direction (not out of scope). The

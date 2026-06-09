@@ -2,6 +2,7 @@ import { Engine } from "@babylonjs/core/Engines/engine";
 import { Scene } from "@babylonjs/core/scene";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
@@ -11,6 +12,7 @@ import { InputManager } from "./InputManager";
 import { Arena } from "./Arena";
 import { AssetLoader } from "./AssetLoader";
 import { Ship } from "./Ship";
+import type { ShipMovementConfig } from "./Ship";
 import { LaserSystem } from "./LaserSystem";
 import { MissileSystem } from "./MissileSystem";
 import { wrapAngle } from "./math";
@@ -84,6 +86,8 @@ export class Game {
 
   /** All ships, regardless of side, plus their controllers. */
   private readonly combatants: Combatant[] = [];
+  /** Player-faction AI wingmen (subset of combatants); used for spawn placement. */
+  private readonly wingmen: Ship[] = [];
   /** Live roster per faction, refilled each frame; backs the controller world. */
   private readonly shipsByFaction: Record<Faction, Ship[]> = {
     humans: [],
@@ -203,13 +207,13 @@ export class Game {
       damage: GameConfig.combat.laserDamage,
       emissive: FACTION_THEME.humans.laserEmissive,
       materialName: FACTION_THEME.humans.laserMaterialName,
-      onHit: (target) => this.onLaserHit("humans", target),
+      onHit: (target, fromPlayer) => this.onLaserHit(target, fromPlayer),
     });
     const machinesLasers = new LaserSystem(this.scene, {
       damage: GameConfig.combat.laserDamage,
       emissive: FACTION_THEME.machines.laserEmissive,
       materialName: FACTION_THEME.machines.laserMaterialName,
-      onHit: (target) => this.onLaserHit("machines", target),
+      onHit: (target, fromPlayer) => this.onLaserHit(target, fromPlayer),
     });
     this.factionLasers = { humans: humansLasers, machines: machinesLasers };
 
@@ -231,18 +235,14 @@ export class Game {
 
     this.explosions = new ExplosionSystem(this.scene, this.glowLayer);
 
-    // AI fighters belong to the enemy faction. The player's own AI wingmen
-    // (if any) would be added the same way later.
+    // Enemy AI fighters: the first `strikeCount` press the player's mothership
+    // (the objective); the rest patrol/dogfight (the default order). The player's
+    // wingmen are built in start(), once the player ship exists to clone (so they
+    // look exactly like the player's ship, not the enemy mesh).
     for (let i = 0; i < GameConfig.enemy.count; i++) {
-      const root = buildFighterMesh(this.scene, this.glowLayer, this.enemyFaction);
-      const ship = new Ship(root, {
-        faction: this.enemyFaction,
-        maxHp: GameConfig.combat.enemyMaxHp,
-        respawnDelayMs: GameConfig.combat.enemyRespawnDelayMs,
-        startMissileAmmo: 0,
-        movement: GameConfig.enemy,
-      });
-      this.combatants.push({ ship, controller: new AIController() });
+      const ship = this.makeFighter(this.enemyFaction);
+      const order = i < GameConfig.enemy.strikeCount ? "strike" : "patrol";
+      this.combatants.push({ ship, controller: new AIController({ order }) });
     }
 
     this.cameraRig = new CameraRig(this.scene);
@@ -257,12 +257,14 @@ export class Game {
       humans: {
         opponents: this.shipsByFaction.machines,
         opponentMothership: this.motherships.machines,
+        leader: null, // set to the player ship in start() if humans is the player side
         arenaHalfX: this.arena.halfWidth,
         arenaHalfZ: this.arena.halfDepth,
       },
       machines: {
         opponents: this.shipsByFaction.humans,
         opponentMothership: this.motherships.humans,
+        leader: null, // set to the player ship in start() if machines is the player side
         arenaHalfX: this.arena.halfWidth,
         arenaHalfZ: this.arena.halfDepth,
       },
@@ -282,6 +284,44 @@ export class Game {
       startMissileAmmo: GameConfig.missile.maxAmmo,
       movement: GameConfig.player,
     });
+
+    // Player-side AI wingmen (Phase 5): real fighters like the player. Each gets a
+    // CLONE of the player's actual loaded ship model, so wingmen always look like
+    // whatever the player flies — change the player's ship (the `shipDesign` flag
+    // or a real fighter.glb) and the wing changes with it automatically. They fly
+    // the player's profile (guns/turn/HP) with drag + higher thrust so they hold
+    // formation, and each carries a standing order/slot.
+    const wcfg = GameConfig.player.wingmen;
+    const wingmanMovement: ShipMovementConfig = {
+      ...GameConfig.player,
+      maxSpeed: wcfg.maxSpeed,
+      thrust: wcfg.thrust,
+      dragRate: wcfg.dragRate,
+    };
+    for (let i = 0; i < wcfg.count; i++) {
+      // Two-tier root like the player's: gameplay drives `root.rotation.y`, the
+      // cloned model carries its own alignment. Clone modelRoot (the visual) — NOT
+      // the player root — so the player-only engine glow / thrusters / damage
+      // flash don't tag along. doNotInstantiate = independent copies (not GPU
+      // instances), so a wingman stays visible when the player ship is disabled
+      // on death.
+      const root = new TransformNode(`wingmanRoot${i}`, this.scene);
+      loaded.modelRoot.instantiateHierarchy(root, { doNotInstantiate: true });
+      const ship = new Ship(root, {
+        faction: this.playerFaction,
+        maxHp: GameConfig.combat.playerMaxHp,
+        respawnDelayMs: GameConfig.combat.enemyRespawnDelayMs,
+        startMissileAmmo: 0,
+        movement: wingmanMovement,
+      });
+      const controller = new AIController({
+        order: wcfg.orders[i % wcfg.orders.length],
+        slot: wcfg.slots[i % wcfg.slots.length],
+      });
+      this.combatants.push({ ship, controller });
+      this.wingmen.push(ship);
+    }
+
     this.engineGlow = new EngineGlow(this.scene, loaded.root, this.glowLayer);
     this.secondaryThrusters = new SecondaryThrusters(
       this.scene,
@@ -292,6 +332,9 @@ export class Game {
     this.hud.setModelLabel(loaded.usingFallback ? "fallback" : "fighter.glb");
 
     this.combatants.push({ ship: this.playerShip, controller: this.playerController });
+
+    // The player ship is the wing leader its faction's wingmen form on.
+    this.worldByFaction[this.playerFaction].leader = this.playerShip;
 
     // Wire combat targets: every ship is a target of the opposing faction's
     // lasers; the player's missiles target every enemy ship + their mothership.
@@ -314,9 +357,10 @@ export class Game {
     this.launchSequence = this.makeLaunchSequence(home);
     this.state = "launching";
 
-    // Scatter the enemy fighters into the arena, away from the player.
+    // Scatter the enemy fighters into the arena, away from the player; the
+    // player's wingmen form up near the home carrier instead (handled below).
     for (const c of this.combatants) {
-      if (c.ship === this.playerShip) continue;
+      if (c.ship.faction !== this.enemyFaction) continue;
       const spawn = randomFighterSpawn(
         this.arena.halfWidth,
         this.arena.halfDepth,
@@ -324,6 +368,7 @@ export class Game {
       );
       c.ship.respawn(spawn.x, spawn.z, Math.random() * Math.PI * 2);
     }
+    this.wingmen.forEach((ship, i) => this.spawnWingman(ship, i));
 
     this.music.playPlaylist("game");
     this.engine.runRenderLoop(this.tick);
@@ -331,8 +376,8 @@ export class Game {
 
   // ─── Combat feedback ───────────────────────────────────────────────────────
 
-  /** A laser of `firingFaction` struck `target`; scale feedback to the hit. */
-  private onLaserHit(firingFaction: Faction, target: DamageTarget): void {
+  /** A laser struck `target`; scale feedback to the hit (and to who fired). */
+  private onLaserHit(target: DamageTarget, fromPlayer: boolean): void {
     this.sound.playHit();
     // Chipping a mothership: light cue only (avoid hitstop spam on the objective).
     if (target === this.motherships.humans || target === this.motherships.machines) {
@@ -343,8 +388,8 @@ export class Game {
       this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
       this.applyHitstop(GameConfig.hitstop.playerLaserHitMs);
       this.playerDamageFlash?.trigger();
-    } else if (firingFaction === this.playerFaction) {
-      // The player landed a hit on an enemy fighter — lighter confirmation.
+    } else if (fromPlayer) {
+      // The player (not an AI wingman) landed a hit on an enemy — light confirm.
       this.cameraRig.addTrauma(GameConfig.shake.traumaEnemyLaserHit);
       this.applyHitstop(GameConfig.hitstop.enemyLaserHitMs);
     }
@@ -459,9 +504,15 @@ export class Game {
           if (ship.isAlive && input.fire) {
             const positions = ship.tryFire();
             for (const p of positions) {
-              this.factionLasers[ship.faction].spawn(p, ship.rotationY);
+              this.factionLasers[ship.faction].spawn(p, ship.rotationY, isPlayer);
             }
-            if (positions.length > 0) this.playFireSound(ship.faction);
+            // The player's own guns get their distinct cue; every AI fighter
+            // (wingman or enemy) shares the generic laser zap so the human
+            // pilot isn't fooled into thinking they're firing.
+            if (positions.length > 0) {
+              if (isPlayer) this.sound.playPlayerGuns();
+              else this.sound.playEnemyLaser();
+            }
           }
 
           // Missiles: player capability. Homes onto the lock if any, else ballistic.
@@ -577,12 +628,6 @@ export class Game {
     }
   };
 
-  /** Faction-appropriate laser SFX. */
-  private playFireSound(faction: Faction): void {
-    if (faction === "humans") this.sound.playPlayerGuns();
-    else this.sound.playEnemyLaser();
-  }
-
   /**
    * Build a catapult sequence for the given carrier, derived from its facing so
    * either mothership launches correctly (humans fire +Z, machines fire -Z).
@@ -599,7 +644,44 @@ export class Game {
     );
   }
 
-  /** Respawn a dead ship: player relaunches from its pad, fighters scatter. */
+  /** Build an AI fighter mesh + Ship for a faction (defaults to the enemy profile). */
+  private makeFighter(
+    faction: Faction,
+    movement: ShipMovementConfig = GameConfig.enemy,
+    maxHp: number = GameConfig.combat.enemyMaxHp,
+  ): Ship {
+    const root = buildFighterMesh(this.scene, this.glowLayer, faction);
+    return new Ship(root, {
+      faction,
+      maxHp,
+      respawnDelayMs: GameConfig.combat.enemyRespawnDelayMs,
+      startMissileAmmo: 0,
+      movement,
+    });
+  }
+
+  /**
+   * Place wingman `index` near the home carrier, fanned out along the launch
+   * line and facing into the arena, so the wing appears alongside the player
+   * (it flies to its formation slot / order on its own once in the air).
+   */
+  private spawnWingman(ship: Ship, index: number): void {
+    const home = this.motherships[this.playerFaction];
+    const start = home.getLaunchStartPosition();
+    const fwd = home.getLaunchForward();
+    // Perpendicular to launch-forward on the X/Z plane, for lateral spread.
+    const rx = fwd.z;
+    const rz = -fwd.x;
+    const lateral = (index - (this.wingmen.length - 1) / 2) * 14;
+    const back = -12; // sit behind the launch line so they don't clip the player
+    ship.respawn(
+      start.x + rx * lateral + fwd.x * back,
+      start.z + rz * lateral + fwd.z * back,
+      home.root.rotation.y,
+    );
+  }
+
+  /** Respawn a dead ship: player + wingmen relaunch from home, enemies scatter. */
   private respawnShip(ship: Ship, isPlayer: boolean): void {
     if (isPlayer) {
       const home = this.motherships[this.playerFaction];
@@ -609,6 +691,12 @@ export class Game {
       ship.respawn(start.x, start.z, home.root.rotation.y);
       // Streamlined catapult — skip the wide shot + countdown on a respawn.
       this.launchSequence = this.makeLaunchSequence(home, true);
+      return;
+    }
+    // A wingman re-joins from the home carrier (if it still stands).
+    if (ship.faction === this.playerFaction) {
+      if (!this.motherships[this.playerFaction].isAlive) return;
+      this.spawnWingman(ship, this.wingmen.indexOf(ship));
       return;
     }
     const avoid = this.playerShip?.position ?? ship.position;

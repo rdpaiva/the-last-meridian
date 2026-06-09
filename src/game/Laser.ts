@@ -13,6 +13,12 @@ export class Laser {
     readonly velocity: Vector3,
     readonly lifetimeMs: number,
     rotationY: number,
+    /**
+     * True if the human pilot's own ship fired this bolt (as opposed to an AI
+     * wingman sharing the same faction system). Lets the hit feedback give the
+     * heavy "you landed a hit" jolt only for the player, not every wingman shot.
+     */
+    readonly fromPlayer: boolean = false,
   ) {
     mesh.rotation.y = rotationY;
   }

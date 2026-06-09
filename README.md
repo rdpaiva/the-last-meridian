@@ -1,8 +1,10 @@
 # Space Duel
 
-A browser-based top-down arcade space combat game. You pilot a fighter
-on a flat plane against an AI enemy in a bounded arena lit by glowing
-laser fire, engine trails, and distant capital-ship silhouettes.
+A browser-based top-down arcade space combat game. You launch from a
+carrier and pilot a fighter — backed by a wing of AI escorts — against an
+enemy fighter group, racing to destroy their mothership before they
+destroy yours, amid glowing laser fire, engine trails, and distant
+capital-ship silhouettes.
 
 Built with **Vite + TypeScript + Babylon.js**.
 
@@ -55,8 +57,13 @@ audio until a user gesture).
   `"classic"` dart with a blue cockpit, or a Colonial-Viper-style
   `"viper"` (default) with a long nose, triple engines, and red stripes.
   You can still drop a `fighter.glb` into `public/models/` for a custom model.
-- **Enemy AI** with wander → engage → fire-cone behavior. Slower than the
-  player so duels are winnable.
+- **Enemy AI** with wander → engage → fire-cone behavior, including a
+  configurable number of **strikers** (`enemy.strikeCount`) that press your
+  mothership instead of only dogfighting.
+- **AI wingmen** on your side (`GameConfig.player.wingmen`) — fighters that look
+  like your ship (cloned from it) and fly it the same way, with standing orders
+  (escort/cover, hold formation, hunt enemy fighters, strike the enemy carrier).
+  They hold formation on your wing and bank into your turns a beat behind you.
 - **HP system** with respawn after death.
 - **Faction-colored lasers** (pink = player, green = enemy) with bloom and
   per-faction collision targeting (no friendly fire).
@@ -103,7 +110,8 @@ there — no other file needs to change for routine tuning.
 Frequent knobs:
 
 - `player.thrust`, `player.maxSpeed`, `player.fireCooldownMs`
-- `enemy.engagementRange`, `enemy.fireConeAngle`
+- `ai.engagementRange`, `ai.fireConeAngle` (shared by enemy fighters + wingmen)
+- `player.wingmen.count` / `.orders`, `enemy.strikeCount`
 - `combat.playerMaxHp`, `combat.enemyMaxHp`, `combat.laserDamage`
 - `shake.traumaXxx` (more juice ↑, calmer ↓)
 - `hitstop.xxxMs` (longer = heavier impact feel)
