@@ -28,6 +28,8 @@ export class EngineGlow {
   /** One glow core + exhaust trail per configured nozzle (emitter). */
   private readonly cores: ReturnType<typeof MeshBuilder.CreateSphere>[] = [];
   private readonly trails: TrailMesh[] = [];
+  private readonly anchors: TransformNode[] = [];
+  private readonly scene: Scene;
 
   /** 0 = idle, 1 = full thrust. Smoothed each frame. */
   private intensity = 0;
@@ -61,6 +63,7 @@ export class EngineGlow {
     glowLayer: GlowLayer,
     emitters?: ReadonlyArray<{ x: number; y: number; z: number }>,
   ) {
+    this.scene = scene;
     const cfg = GameConfig.engineGlow;
     const nozzles = emitters && emitters.length > 0 ? emitters : cfg.emitters;
 
@@ -84,6 +87,7 @@ export class EngineGlow {
       const anchor = new TransformNode(`engine_anchor${i}`, scene);
       anchor.parent = shipRoot;
       anchor.position = new Vector3(e.x, e.y, e.z);
+      this.anchors.push(anchor);
 
       const core = MeshBuilder.CreateSphere(
         `engine_core${i}`,
@@ -116,6 +120,33 @@ export class EngineGlow {
       // into includedOnly mode.
       glowLayer.addIncludedOnlyMesh(core);
     });
+  }
+
+  /**
+   * Called on ship respawn after the root teleports to the new position.
+   * Disposes the old TrailMesh instances (which still hold the pre-teleport
+   * position history) and creates fresh ones anchored at the current location,
+   * preventing the long streak that would otherwise appear on the first thrust.
+   */
+  resetTrails(): void {
+    this.intensity = 0;
+    this.trailIntensity = 0;
+    const cfg = GameConfig.engineGlow;
+    for (let i = 0; i < this.trails.length; i++) {
+      this.trails[i].dispose();
+      const trail = new TrailMesh(
+        `engine_trail${i}`,
+        this.anchors[i],
+        this.scene,
+        cfg.trailDiameter,
+        cfg.trailLength,
+        true,
+      );
+      trail.material = this.trailMat;
+      trail.isPickable = false;
+      trail.setEnabled(false);
+      this.trails[i] = trail;
+    }
   }
 
   update(

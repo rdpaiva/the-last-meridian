@@ -20,12 +20,12 @@ export const GameConfig = {
      */
     strafeThrust: 34,
     /** Cap on velocity magnitude (units / sec). */
-    maxSpeed: 35,
+    maxSpeed: 24,
     /**
      * Exponential drag rate (1/sec). With dragRate = 1.5, velocity decays
      * to ~22% of its value after 1 second of no input.
      */
-    dragRate: 0,
+    dragRate: 0.9,
     /** Angular speed (radians / sec). */
     rotationSpeed: 4.5,
     /** Minimum time between consecutive laser shots. */
@@ -132,9 +132,8 @@ export const GameConfig = {
        * the player applies to the wing too, so an ally is mechanically identical
        * to you — never faster, and with the same drag (or none) you have.
        *
-       * This is what keeps the slot quiet. With the player's zero drag a wingman
-       * coasts at your velocity once matched and only fires its jets to correct a
-       * real disturbance — no metronomic "keep-up" puffing to fight drag. Holding
+       * This is what keeps the slot quiet. Wingmen coast at your velocity once
+       * matched and only fire their jets to correct real disturbances. Holding
        * formation is handled by piloting (the AIController's servo), not by giving
        * them more thrust/speed than you. The only knobs here are how many fly and
        * what each one's standing order + slot is.
@@ -386,7 +385,7 @@ export const GameConfig = {
     smoothingRate: 8,
     /**
      * Seconds of look-ahead based on velocity. At velocityLead=0.25 and
-     * maxSpeed=35, the camera leads the ship by up to ~8.75 units in the
+     * maxSpeed=24, the camera leads the ship by up to ~6 units in the
      * direction it's moving. Subtle — gives a feel of forward momentum
      * without sliding the ship around the frame.
      */
@@ -686,9 +685,9 @@ export const GameConfig = {
     /** Forward acceleration (units / sec^2). Matches player. */
     thrust: 38,
     /** Velocity cap. Matches player. */
-    maxSpeed: 25,
-    /** No drag — matches player's zero-drag profile. */
-    dragRate: 0,
+    maxSpeed: 20,
+    /** Drag rate matching the player's profile to keep fights compact. */
+    dragRate: 0.9,
     /** Angular speed (rad / sec). Matches player. */
     rotationSpeed: 3.5,
 

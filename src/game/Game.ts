@@ -943,6 +943,13 @@ export class Game {
     if (!home.isAlive) return;
     const start = home.getLaunchStartPosition(c.bayIndex);
     ship.respawn(start.x, start.z, home.root.rotation.y);
+    // Flush the trail history so no streak appears on the first thrust after
+    // teleporting to the respawn position.
+    if (isPlayer) {
+      this.engineGlow?.resetTrails();
+    } else {
+      this.aiVisuals.get(ship)?.glow.resetTrails();
+    }
     // skipIntro = immediate catapult, no wide shot / countdown on a respawn.
     c.launch = this.makeLaunchSequence(home, 0, isPlayer, true);
   }
