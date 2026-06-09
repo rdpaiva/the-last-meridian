@@ -364,13 +364,21 @@ export const GameConfig = {
   },
 
   camera: {
+    /**
+     * Vertical field of view (radians). LOWER = more telephoto = flatter
+     * perspective, so ships stay a consistent size regardless of where they are
+     * on screen (a wide FOV makes near objects balloon and far ones shrink). The
+     * offsets below are pulled back to compensate so the framing is preserved:
+     * roughly distance ∝ 1/tan(fov/2), so halving the FOV ~doubles the offsets.
+     */
+    fov: 0.45,
     /** World-space Y offset above the gameplay plane. */
-    offsetY: 35,
+    offsetY: 74,
     /**
      * World-space Z offset behind the player. Camera does NOT rotate with
      * the ship — this is a fixed world-space offset, not a chase-cam length.
      */
-    offsetZ: 28,
+    offsetZ: 59,
     /**
      * Smoothing rate (1/sec). With rate = 8, camera covers ~63% of remaining
      * distance every 1/8 sec. Higher = stiffer, lower = floatier.
@@ -405,7 +413,7 @@ export const GameConfig = {
      */
     minZoom: 0.45,
     maxZoom: 2.5,
-    defaultZoom: 1.78,
+    defaultZoom: 1.25,
     zoomRate: 1.2,
 
     /**

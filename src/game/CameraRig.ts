@@ -53,7 +53,7 @@ export class CameraRig {
     this.camera.setTarget(Vector3.Zero());
     this.camera.minZ = cfg.nearClip;
     this.camera.maxZ = cfg.farClip;
-    this.camera.fov = 0.9;
+    this.camera.fov = cfg.fov;
 
     this.camera.inputs.clear();
   }
