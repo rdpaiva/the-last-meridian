@@ -36,8 +36,10 @@
   no per-frame allocation).
 - **`LocalInputController`** — surfaces `InputManager.state` (the keyboard).
 - **`AIController`** (`AIController.ts`) — the computer pilot for BOTH sides'
-  fighters; **emits inputs** instead of mutating the ship (boolean inputs are
-  exactly what a network controller sends). Constructed with a standing **order**
+  fighters; **emits an `InputState`** instead of mutating the ship (inputs are
+  exactly what a network controller sends). Steering is the one **analog** input:
+  the controller sets `InputState.turn` ∈ [-1, 1] (the rest stay boolean
+  buttons). Constructed with a standing **order**
   (`AIOrder`) + optional formation slot:
   - `patrol` (default = the original enemy behavior): wander leashed toward the
     objective mothership, engage the nearest opponent in `engagementRange`.
@@ -47,8 +49,20 @@
   - `cover` / `formation`: hold a slot on the leader's wing (`cover` also breaks
     to engage threats within `ai.coverBreakRange` of the leader, then reforms).
   Most orders resolve to a steer-heading + thrust + aim target, then a shared tail
-  presses left/right/thrust/reverse/strafe/fire. Decision tuning is shared in
-  `GameConfig.ai`. **Formation is the subtle part** — see the next entry.
+  turns that into thrust/reverse/strafe/fire and a **proportional turn command**.
+  Decision tuning is shared in `GameConfig.ai`. **Formation is the subtle part** —
+  see the next entry.
+  - **Steering is proportional, not bang-bang.** The shared tail sets
+    `out.turn = clamp(headingDiff / ai.steerBand, -1, 1)` above a thin
+    `ai.steerDeadband`: full turn rate beyond `steerBand` of heading error, easing
+    linearly to zero as the nose lines up, so the pilot *decelerates into* its
+    target heading. This is what makes turns smooth. A purely boolean (full-rate
+    on/off) tail can't track a moving heading without a limit cycle — a tight
+    deadband shows it as a high-frequency **shake**, a wide one as a low-frequency
+    **"clock-hands" stepping** (snap to target, stop, wait for the error to
+    rebuild, snap again). Both are the same bug; proportional control removes it.
+    `Ship.update` sums `turn` with the keyboard's rotate booleans, so the human
+    still turns full-rate (keyboard leaves `turn` at 0) while the AI eases.
 - **Player wingmen** (Phase 5) — there is no separate wingman class: a wingman is
   a player-faction `Ship` wearing an `AIController` with a `cover`/`hunt`/etc.
   order, built in `Game.start()` from `GameConfig.player.wingmen`. Two non-obvious
@@ -57,19 +71,50 @@
     Hierarchy(root, { doNotInstantiate: true })`), not a separate mesh, so they
     track whatever the player flies (procedural `shipDesign` or a real
     `fighter.glb`). Clone the *model* root (not the ship root) so the player-only
-    engine glow / thrusters / damage-flash don't tag along; `doNotInstantiate` =
-    real meshes (not GPU instances) so a wingman survives the player ship being
-    disabled on death.
-  - **Formation = a velocity-servo on the strafe/reverse thrusters, NOT a
-    turn-to-chase.** The wingman keeps its nose on a *lagged* copy of the leader's
-    heading (`ai.formationTurnLag`, so it banks into turns a beat late) and makes
-    its velocity track `leaderVel + speed-capped approach to the slot`, firing
-    whichever of thrust/reverse/strafe cuts the velocity error. Turning to chase
-    the slot **orbits** the leader; and a zero-drag ship can't hold a slot with
-    on/off thrusters (velocity errors integrate into position drift → it surges
-    in/out), which is why wingmen carry a little **drag** (`player.wingmen`) for
-    damping. Tuning lives in `GameConfig.ai` (`formationPosGain`,
-    `formationApproachSpeed`, `formationVelDeadband`, `formationTurnLag`).
+    damage-flash doesn't tag along; `doNotInstantiate` = real meshes (not GPU
+    instances) so a wingman survives the player ship being disabled on death.
+    Each wingman is then given its **own** `EngineGlow` + `SecondaryThrusters` on
+    its root (the player's are separate instances), driven from the inputs the
+    wingman emits each frame — so it lights its exhaust under thrust instead of
+    floating silently.
+  - **They fly the player's EXACT movement/weapon profile** (`movement:
+    GameConfig.player`, no per-wingman overrides), so an ally is mechanically
+    identical to you — same thrust, drag (currently none), top speed, guns, HP.
+    This is deliberate: they can never out-run you, and with the player's zero
+    drag a wingman coasts at your velocity once matched and doesn't have to puff
+    its engine on an interval just to hold a cruise speed.
+  - **Formation follows the leader's PATH, not its nose** — and this holds for the
+    SLOT too: the slot is placed relative to the leader's *course* (velocity
+    direction), NOT its facing (`leader.rotationY`). That matters because the
+    player constantly nudges their nose to hold a line; if the slot rode the
+    facing, every nose-twitch would whip the slots sideways and the wing would
+    scramble to chase them (the "shake at certain angles while following"). Riding
+    the course, a nose-swing with no course change leaves the slots — and the wing
+    — completely still. Each frame the wingman then computes the velocity it needs
+    (`leaderVel + speed-capped approach to the slot`), points its nose along *that*
+    (`steerHeading = atan2(desiredVel)`), and
+    flies there like a pilot, trimming cross-track error with strafe. Because it
+    steers by where it needs to **go**, a turn the leader makes without changing
+    course doesn't drag the wing around — it only banks when the leader's actual
+    travel direction shifts. The forward thrusters are gated to a cone around the
+    desired-velocity direction (`formationThrustConeAngle`) so it coasts while
+    turning to line up rather than thrusting off-course, and each jet runs through
+    a **Schmitt trigger** (`formationVelEngageBand` to light / `formationVel
+    Deadband` to release) so a stable slot doesn't chatter. Crucially the heading
+    is steered by the leader's *velocity* (the path), **not** the desired velocity
+    — the slot-approach (a position correction) is left out of the nose so it
+    doesn't yaw back and forth chasing small off-slot errors; it's blended into
+    the heading only as the wingman gets far from its slot (`formationHeading
+    BlendRange`), so it still turns nose-first to fly up to formation. Tuning lives
+    in `GameConfig.ai` (`formationPosGain`, `formationApproachSpeed`, `formationVel
+    Deadband`, `formationVelEngageBand`, `formationHeadingMinSpeed`,
+    `formationHeadingBlendRange`, `formationThrustConeAngle`,
+    `formationCourseSmooth`). One more subtlety: the whole formation flies off a
+    **low-passed** copy of the leader's velocity (`formationCourseSmooth`), not
+    the raw value — a hand-flown leader holding a line at speed thrusts while
+    tapping its nose, so the raw velocity (and the course-placed slot) wobbles,
+    and wingmen at their speed limit would chase the wobble and weave. The
+    low-pass makes them follow the average path instead.
 - **`FighterMesh.ts`** — `buildFighterMesh(scene, glow, faction)` is the old
   `EnemyShip.buildMesh`, themed by faction (used for ENEMY AI fighters; the human
   player and its wingmen come from `AssetLoader`). `randomFighterSpawn()` is

@@ -93,9 +93,11 @@ export const GameConfig = {
      * Orders are STATIC (assigned at spawn, no in-game command UI yet); in a
      * future multiplayer build the wing self-organizes instead.
      *
-     * Wingmen fly the shared AI-fighter movement profile (`GameConfig.enemy`),
-     * NOT the player's, so both sides' fighters are mechanically symmetric and
-     * the human pilot stays the one elite ship.
+     * Wingmen fly the PLAYER's movement/weapon profile (guns, turn rate,
+     * reverse/strafe, HP) with just maxSpeed/thrust/dragRate overridden below.
+     * maxSpeed is CAPPED at the player's so an ally never out-runs you — they
+     * are strong, player-grade fighters, but you stay the one ship that can't
+     * be out-flown.
      *
      * `orders[i]` and `slots[i]` configure wingman i; if there are more wingmen
      * than entries the list wraps. Orders:
@@ -112,27 +114,20 @@ export const GameConfig = {
       /** How many AI wingmen launch on the player's side. 0 disables the wing. */
       count: 3,
       /**
-       * Wingmen fly the player's ship and pilot it with the same control inputs a
-       * human presses — the AIController emits thrust/turn/strafe, the shared Ship
-       * sim turns that into motion; speed/position are NEVER set directly. They
-       * use GameConfig.player for guns, turn rate, reverse/strafe and HP, with
-       * just these three movement values overridden:
-       *   - maxSpeed a hair above the player's 35 so a wingman can close the gap
-       *     to its slot (an identical-top-speed escort can't reel in a leader
-       *     flying flat-out straight).
-       *   - REAL drag (the player has none). Zero drag makes a formation slot
-       *     impossible to hold with on/off thrusters — small velocity errors
-       *     integrate into position drift and the escort surges in and out of the
-       *     slot (or orbits). A little drag damps that so it parks cleanly. You
-       *     barely feel drag this small in a dogfight.
-       *   - thrust scaled up so terminal speed (thrust/drag) still clears maxSpeed
-       *     (64/1.6 = 40), i.e. they're every bit as fast as you despite the drag.
-       * Set dragRate: 0 to match the player exactly, at the cost of looser
-       * formation-keeping.
+       * Wingmen fly the PLAYER's ship — the SAME movement/weapon profile
+       * (GameConfig.player: thrust, drag, maxSpeed, turn rate, reverse/strafe,
+       * guns, HP), just piloted by an AIController instead of the keyboard. There
+       * are deliberately NO per-wingman movement overrides: whatever you tune for
+       * the player applies to the wing too, so an ally is mechanically identical
+       * to you — never faster, and with the same drag (or none) you have.
+       *
+       * This is what keeps the slot quiet. With the player's zero drag a wingman
+       * coasts at your velocity once matched and only fires its jets to correct a
+       * real disturbance — no metronomic "keep-up" puffing to fight drag. Holding
+       * formation is handled by piloting (the AIController's servo), not by giving
+       * them more thrust/speed than you. The only knobs here are how many fly and
+       * what each one's standing order + slot is.
        */
-      maxSpeed: 40,
-      thrust: 64,
-      dragRate: 1.6,
       /** Per-wingman standing order (wraps if shorter than count). */
       orders: ["cover", "cover", "hunt"] as ReadonlyArray<
         "cover" | "formation" | "hunt" | "strike"
@@ -348,6 +343,7 @@ export const GameConfig = {
      */
     minZoom: 0.45,
     maxZoom: 2.5,
+    defaultZoom: 1.78,
     zoomRate: 1.2,
 
     /**
@@ -631,41 +627,124 @@ export const GameConfig = {
     leashRadius: 700,
 
     // --- Formation (used by player wingmen flying "cover"/"formation") ---
-    // A wingman holds its slot like a real pilot would in this ship: it keeps its
-    // nose pointed the SAME way as the leader and uses its thrust / reverse /
-    // strafe thrusters to make its velocity track a target. It does NOT turn to
-    // chase the slot (turning-to-chase orbits) — strafe cancels sideways drift
-    // directly. The target velocity is the leader's velocity plus an approach
-    // toward the slot, and the approach is SPEED-CAPPED so the (weak) reverse
-    // thruster can still brake it before it overshoots and loops around.
+    // A wingman flies its slot like a real pilot, following the leader's PATH
+    // rather than copying its facing. Each frame it works out the velocity it
+    // needs — the leader's velocity plus a speed-capped approach toward the slot
+    // — then points its nose along that velocity and thrusts toward it, trimming
+    // cross-track error with strafe. Because it steers by where it needs to GO
+    // (not by the leader's nose), a turn the leader makes without changing course
+    // doesn't drag the wing around; it only banks when the leader's actual travel
+    // direction shifts. The approach is SPEED-CAPPED so the (weak) reverse
+    // thruster can still brake it before it overshoots the slot.
     /** Approach speed per unit of slot offset (1/sec). Higher = snappier closing. */
     formationPosGain: 1.0,
     /**
      * Cap on the approach speed toward the slot (units/sec), ON TOP of matching
-     * the leader's velocity. Keep it under what the reverse thruster can brake
+     * the leader's velocity. Keep it at/under what the reverse thruster can brake
      * (reverseThrust ≈ 18) or the wingman overshoots the slot and circles back.
      */
-    formationApproachSpeed: 12,
+    formationApproachSpeed: 16,
     /**
-     * Velocity-error deadband (units/sec): below it the wingman fires no thruster
-     * and coasts. With zero drag this is what stops it twitching with constant
-     * micro-corrections once parked in the slot.
+     * Velocity-error RELEASE band (units/sec) — the lower edge of the
+     * station-keeping Schmitt trigger. Once a jet is firing it keeps firing
+     * until the error falls back under this; below it the wingman coasts. Pair
+     * with formationVelEngageBand (the upper edge that must be crossed to light
+     * a jet from rest) — the gap between the two is the anti-chatter hysteresis.
      */
-    formationVelDeadband: 2,
+    formationVelDeadband: 0.5,
     /**
-     * How fast a wingman's formation heading tracks the leader's (per sec, fed to
-     * exponentialDecay). LOWER = more lag, so the wing banks into your turns a
-     * beat behind you instead of pivoting in lock-step. The steady-state lag in a
-     * sustained turn is roughly (your turn rate ÷ this), so at the player's brisk
-     * 4.5 rad/s a value of 6 gives ~0.75 rad (~43°) at full turn, less on gentler
-     * ones — a clear beat of lag without the wing pointing away from you.
+     * Velocity-error ENGAGE band (units/sec) — the upper edge of the
+     * station-keeping Schmitt trigger: a thruster won't light until the velocity
+     * error exceeds this.
+     *
+     * MUST BE THIN now that wingmen carry NO drag. With drag, a wide band hid the
+     * constant drag-fighting; without drag the band has the opposite effect — any
+     * velocity error smaller than the band is left UNCORRECTED, and with nothing
+     * to damp it the wingman drifts off its slot until the error finally grows
+     * past the band, then the jet slams on and overshoots. That undamped cycle is
+     * a slow back-and-forth WEAVE across the slot. A thin band nulls small
+     * disturbances immediately, before they can grow into a weave; and because
+     * there's no drag to fight, a wingman that's truly settled still sits with its
+     * jets dark (its velocity error stays ~0, well inside the band). Keep it just
+     * a hair above the release band — wide enough to avoid chatter, no wider.
      */
-    formationTurnLag: 6,
+    formationVelEngageBand: 1.5,
+    /**
+     * Speed (units/sec) below which the desired-velocity direction is treated as
+     * ill-defined and the wingman just holds its current heading instead of
+     * steering by it. Without this floor, a wingman parked behind a near-
+     * stationary leader would chase the noise in a tiny desired-velocity vector
+     * and spin/jitter in place. Keep it small — a slow crawl, well under cruise.
+     */
+    formationHeadingMinSpeed: 4,
+    /**
+     * Distance (world units) over which the wingman's HEADING blends from "track
+     * the leader's path" (in the slot) to "point nose-first at the slot" (far
+     * out). Parked in formation the slot-approach is left OUT of the heading — it
+     * is a translation job for the thrusters — so the nose tracks only the smooth
+     * leader-velocity direction and doesn't yaw back and forth chasing small
+     * position corrections. The further off-slot (up to this range), the more the
+     * nose turns to fly in. Bigger = the nose stays path-aligned through bigger
+     * excursions (calmer, but slower to point at a distant slot).
+     */
+    formationHeadingBlendRange: 25,
+    /**
+     * How fast the formation tracks the leader's velocity (1/sec, fed to
+     * exponentialDecay) — i.e. the low-pass on the leader's course/speed that the
+     * whole formation flies off. LOWER = smoother but laggier: it filters out the
+     * high-frequency velocity wobble a hand-flown leader makes (thrusting while
+     * tapping the nose to hold a line), which is what made wingmen at their speed
+     * limit weave as they chased every twitch of the slot. Too low and the wing
+     * reacts sluggishly to real course changes; ~3 (≈0.33s time constant) absorbs
+     * the twitch while still following genuine maneuvers promptly.
+     */
+    formationCourseSmooth: 3,
+    /**
+     * Half-angle (rad) of the cone, around the desired-velocity direction, within
+     * which the wingman will actually fire its forward/reverse thrusters. Outside
+     * it the nose isn't yet lined up, so the wingman coasts and just turns rather
+     * than thrusting (or braking) off-course. 0.6 ≈ 34°.
+     */
+    formationThrustConeAngle: 0.6,
     /**
      * "cover" wingmen break formation to engage any opponent within this radius
      * of the LEADER (not of themselves), then return to slot once it is clear.
      */
     coverBreakRange: 45,
+
+    /**
+     * How often non-formation AI pilots re-evaluate their heading and target
+     * (seconds). Gives pilots realistic reaction lag instead of perfect-reflex
+     * every-frame targeting. Formation/cover orders are exempt — their
+     * velocity-matching servo requires per-frame updates to stay stable.
+     * ~0.15–0.25 feels human; 0 = every frame (original behavior).
+     */
+    reactionSec: 0.28,
+
+    // --- Nose-steering (PROPORTIONAL turn control) ---
+    // AI pilots steer with an analog turn rate (InputState.turn), not bang-bang
+    // keys. The rate is proportional to heading error: full rate beyond
+    // steerBand of error, easing linearly to zero as the nose lines up. That
+    // smooth deceleration into the target heading is what fixes BOTH failure
+    // modes of the old bang-bang steering — the high-frequency micro-correction
+    // "shake", and the low-frequency "clock-hands" stepping when it snapped to a
+    // moving heading, stopped, and snapped again. Tracking a moving heading is
+    // now a continuous follow, not a series of pulses.
+    /**
+     * Heading error (rad) at which the turn rate saturates to full. Below it the
+     * rate scales linearly with error (a P-controller on heading). SMALLER =
+     * snappier, more aggressive turns that saturate sooner (good for dogfight
+     * tracking but can overshoot a touch); LARGER = gentler, more damped
+     * easing into the heading (calmer formation following). 0.5 ≈ 29°.
+     */
+    steerBand: 0.5,
+    /**
+     * Heading error (rad) below which the nose simply holds (no turn command).
+     * A thin floor so a continuously-tracked heading doesn't induce a permanent
+     * sign-flipping micro-jitter on sub-degree noise. Keep it small — the
+     * proportional term already eases the rate to ~0 here. 0.02 ≈ 1.1°.
+     */
+    steerDeadband: 0.02,
   },
 
   explosion: {

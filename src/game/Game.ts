@@ -88,6 +88,16 @@ export class Game {
   private readonly combatants: Combatant[] = [];
   /** Player-faction AI wingmen (subset of combatants); used for spawn placement. */
   private readonly wingmen: Ship[] = [];
+  /**
+   * Per-wingman engine visuals (glow + maneuvering-thruster plumes), keyed by
+   * the wingman's Ship. Driven each frame from that wingman's emitted input so
+   * its exhaust lights when it burns — the player ship gets these via the
+   * standalone engineGlow/secondaryThrusters fields; wingmen each get their own.
+   */
+  private readonly wingmanVisuals = new Map<
+    Ship,
+    { glow: EngineGlow; thrusters: SecondaryThrusters }
+  >();
   /** Live roster per faction, refilled each frame; backs the controller world. */
   private readonly shipsByFaction: Record<Faction, Ship[]> = {
     humans: [],
@@ -292,12 +302,11 @@ export class Game {
     // the player's profile (guns/turn/HP) with drag + higher thrust so they hold
     // formation, and each carries a standing order/slot.
     const wcfg = GameConfig.player.wingmen;
-    const wingmanMovement: ShipMovementConfig = {
-      ...GameConfig.player,
-      maxSpeed: wcfg.maxSpeed,
-      thrust: wcfg.thrust,
-      dragRate: wcfg.dragRate,
-    };
+    // Wingmen fly the player's exact movement/weapon profile — identical ship,
+    // just AI-piloted. No overrides: whatever drag/speed/thrust the player has,
+    // the wing inherits, so an ally is never faster than you and carries the
+    // same (zero) drag, which is what keeps a stable slot from puffing its jets.
+    const wingmanMovement: ShipMovementConfig = GameConfig.player;
     for (let i = 0; i < wcfg.count; i++) {
       // Two-tier root like the player's: gameplay drives `root.rotation.y`, the
       // cloned model carries its own alignment. Clone modelRoot (the visual) — NOT
@@ -320,6 +329,13 @@ export class Game {
       });
       this.combatants.push({ ship, controller });
       this.wingmen.push(ship);
+      // Each wingman gets its own engine glow + RCS plumes on its outer root, so
+      // it reads as a real fighter under thrust instead of floating. Driven from
+      // the wingman's emitted input in the sim loop (see tick()).
+      this.wingmanVisuals.set(ship, {
+        glow: new EngineGlow(this.scene, root, this.glowLayer),
+        thrusters: new SecondaryThrusters(this.scene, root, this.glowLayer),
+      });
     }
 
     this.engineGlow = new EngineGlow(this.scene, loaded.root, this.glowLayer);
@@ -500,6 +516,27 @@ export class Game {
 
           const input = c.controller.update(deltaSeconds, ship, this.worldByFaction[ship.faction]);
           ship.update(deltaSeconds, input);
+
+          // Light a wingman's exhaust from the same inputs it just flew on (the
+          // player's equivalent visuals update further down). Dead ships pass
+          // all-false (the AIController already emits that), so the glow/plumes
+          // taper off rather than freezing lit.
+          const vis = this.wingmanVisuals.get(ship);
+          if (vis) {
+            const alive = ship.isAlive;
+            vis.glow.update(
+              deltaSeconds,
+              ship.speed,
+              GameConfig.player.maxSpeed,
+              alive && input.thrust,
+            );
+            vis.thrusters.update(
+              deltaSeconds,
+              alive && input.reverse,
+              alive && input.strafeLeft,
+              alive && input.strafeRight,
+            );
+          }
 
           if (ship.isAlive && input.fire) {
             const positions = ship.tryFire();

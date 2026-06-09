@@ -15,6 +15,7 @@ export class InputManager {
     reverse: false,
     rotateLeft: false,
     rotateRight: false,
+    turn: 0, // keyboard turns via the booleans; analog channel is AI-only.
     strafeLeft: false,
     strafeRight: false,
     fire: false,

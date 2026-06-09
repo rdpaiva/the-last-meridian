@@ -87,25 +87,32 @@ and explicitly skipped. Update this when you finish or start work.
   ACTUAL loaded ship (`loaded.modelRoot.instantiateHierarchy(root, { doNotInstantiate:
   true })`), not a separately-built mesh, so changing the player's ship (the
   `shipDesign` flag or dropping in a real `fighter.glb`) changes the wing with it.
-  Clones the model root, not the ship root, so the player-only engine glow /
-  thrusters / damage-flash don't tag along; `doNotInstantiate` = independent
-  meshes (not GPU instances) so a wingman stays visible when the player ship is
-  disabled on death.
-- **Turn lag** — a wingman banks into your turns a beat late (`ai.formationTurnLag`)
-  instead of pivoting in lock-step: its formation heading eases toward the leader's
-  via `exponentialDecay`, giving a steady ≈ (your turn rate ÷ lag) offset (~43° at
-  the player's full 4.5 rad/s turn, less on gentler ones).
-- **Formation = velocity-servo with the strafe thrusters.** The wingman keeps its
-  nose on the leader's heading and makes its velocity track a target = leader's
-  velocity + a speed-capped approach toward the slot (`ai.formationPosGain`,
-  `formationApproachSpeed`), firing whichever of thrust/reverse/strafe reduces the
-  velocity error past `ai.formationVelDeadband`. It does NOT turn to chase the slot
-  (turning-to-chase orbits the leader); strafe cancels sideways drift directly.
-  Two failed iterations are why this is the way it is: a position-seek **orbits**
-  on a drag-free ship, and a bang-bang controller on a drag-free ship **surges
-  in/out of the slot** (velocity errors integrate into drift) — so wingmen carry a
-  little drag for damping. Verified: holds slot to **sd 0.1 u** in steady flight,
-  bounded re-forming through turns, no orbit/twitch.
+  Clones the model root, not the ship root, so the player-only damage-flash
+  doesn't tag along; `doNotInstantiate` = independent meshes (not GPU instances)
+  so a wingman stays visible when the player ship is disabled on death. Each
+  wingman then gets its **own** engine glow + maneuvering-thruster plumes on its
+  root, driven from its emitted input, so it reads as a real fighter under burn.
+- **Identical to the player.** Wingmen fly `GameConfig.player` verbatim (no
+  per-wingman movement overrides) — same thrust, drag (currently zero), top speed,
+  guns, HP. An ally can never out-run you, and with the player's zero drag it
+  coasts at your velocity once matched instead of puffing its engine on an interval
+  to fight drag.
+- **Formation follows the leader's PATH, not its nose.** Each frame the wingman
+  computes the velocity it needs (leader's velocity + a speed-capped approach
+  toward the slot: `ai.formationPosGain`, `formationApproachSpeed`), points its
+  nose along that desired velocity, and flies there like a pilot — trimming
+  cross-track error with strafe. The SLOT itself is also placed relative to the
+  leader's *course* (velocity direction), not its facing, so nudging the nose to
+  hold a line doesn't whip the slots around and shake the wing. Because it steers
+  by where it needs to **go**, a turn the leader makes without changing course
+  doesn't drag the wing around; it only banks when the leader's actual travel
+  direction shifts. Forward thrust is
+  gated to a cone around the desired-velocity heading (`formationThrustConeAngle`)
+  so it coasts while turning to line up, and each jet runs through a **Schmitt
+  trigger** (`formationVelEngageBand` lights / `formationVelDeadband` releases) so
+  a stable slot stays quiet instead of chattering. This replaced an earlier
+  lagged-leader-heading + strafe-crab scheme that read as the wing copying your
+  turns in lock-step.
 - **Shared AI tuning extracted to `GameConfig.ai`** — decision knobs (engage/fire
   ranges, cone, wander, leash, formation gains) in one block read by both sides'
   fighters; movement profiles stay per-faction. Leash anchor is role-specific
@@ -120,6 +127,26 @@ and explicitly skipped. Update this when you finish or start work.
 - **Player-laser hit feedback fix** — bolts carry a `fromPlayer` flag so the
   "you landed a hit" trauma/hitstop + player gun SFX fire only for the human
   pilot's own shots, not every wingman bolt on the shared faction LaserSystem.
+- **Wingman engine visuals** — each wingman gets its own `EngineGlow` +
+  `SecondaryThrusters` (were player-only), driven from its emitted input, so it
+  lights its exhaust under thrust instead of floating.
+
+- **Wingman "shake"/jitter fixed — steering is now proportional.** The remaining
+  weave/jitter (and the "clock-hands" stepping that briefly replaced it) was a
+  bang-bang steering limit cycle: the AI could only press rotate-left/right at
+  full rate, so tracking a continuously-moving heading meant snapping to it,
+  stopping, and snapping again — a tight deadband made it a high-frequency shake,
+  a wide one a low-frequency step. Fixed by adding an analog `InputState.turn`
+  ∈ [-1, 1] channel: the shared tail now sets it *proportionally* to heading
+  error (`ai.steerBand` saturation, `ai.steerDeadband` floor), so the nose eases
+  into its target heading and tracks a moving one smoothly. `Ship.update` sums
+  `turn` with the keyboard rotate booleans (keyboard leaves it 0), so the human
+  still turns full-rate. The path-following slot work above still stands — this
+  fixed the *nose control* on top of it.
+  - *Minor follow-up (optional polish, not a bug):* the **hunt** wingman's
+    no-prey branch still flies straight at the leader without braking, so it can
+    drift past and loop back. With proportional steering it no longer reads as
+    jitter, but a proper loiter (hold a station/escort) would be tidier.
 
 ### Combat
 - Two `LaserSystem` instances per faction (player → enemy, enemy → player)

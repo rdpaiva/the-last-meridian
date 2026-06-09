@@ -9,6 +9,15 @@ export type InputState = {
   reverse: boolean;
   rotateLeft: boolean;
   rotateRight: boolean;
+  /**
+   * Analog turn rate in [-1, 1] (-1 = full left, +1 = full right), summed with
+   * the rotateLeft/rotateRight booleans by the Ship sim. The keyboard leaves
+   * this 0 and drives the booleans (full-rate turns, as a human expects); the
+   * AIController uses it to turn PROPORTIONALLY — easing the rate down as it
+   * lines up on its target heading so it tracks a moving heading smoothly
+   * instead of stepping toward it with bang-bang full-rate pulses.
+   */
+  turn: number;
   strafeLeft: boolean;
   strafeRight: boolean;
   fire: boolean;

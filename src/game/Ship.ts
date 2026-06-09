@@ -4,7 +4,7 @@ import type { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { GameConfig } from "./GameConfig";
 import type { DamageTarget, InputState } from "./types";
 import type { Faction } from "./Faction";
-import { exponentialMultiplier } from "./math";
+import { clamp, exponentialMultiplier } from "./math";
 
 /**
  * Movement + weapon tuning a Ship reads each frame. Both GameConfig.player and
@@ -175,8 +175,12 @@ export class Ship implements DamageTarget {
     const cfg = this.cfg;
 
     // --- Rotation ---
-    if (input.rotateLeft) this.rotationY -= cfg.rotationSpeed * deltaSeconds;
-    if (input.rotateRight) this.rotationY += cfg.rotationSpeed * deltaSeconds;
+    // Analog turn channel (AI sets a proportional rate for smooth tracking)
+    // summed with the keyboard's full-rate booleans, then clamped to ±1.
+    let turn = input.turn;
+    if (input.rotateRight) turn += 1;
+    if (input.rotateLeft) turn -= 1;
+    this.rotationY += clamp(turn, -1, 1) * cfg.rotationSpeed * deltaSeconds;
 
     // --- Acceleration ---
     const fwd = this.forward();

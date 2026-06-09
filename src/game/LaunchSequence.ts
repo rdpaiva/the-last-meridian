@@ -100,14 +100,15 @@ export class LaunchSequence {
     if (this.phase === "intro") return introZoom;
 
     if (this.phase === "countdown") {
+      const defaultZoom = GameConfig.camera.defaultZoom;
       const countdownDur = cfg.countdownStepSec * 3;
       const t = Math.min((this.elapsedSec - cfg.introDuration) / countdownDur, 1);
       // Smoothstep easing: slow start and end, fast middle — feels cinematic.
       const eased = t * t * (3 - 2 * t);
-      return introZoom + (1.0 - introZoom) * eased;
+      return introZoom + (defaultZoom - introZoom) * eased;
     }
 
-    return 1.0; // launching or complete
+    return GameConfig.camera.defaultZoom; // launching or complete
   }
 
   // ─── Tick ─────────────────────────────────────────────────────────────────
