@@ -54,7 +54,7 @@ export class Backdrop {
   constructor(scene: Scene) {
     if (!GameConfig.scenery.backdrop.enabled) return;
 
-    const layer = new Layer("backdrop", "/textures/space-backdrop.jpg", scene, true);
+    const layer = new Layer("backdrop", `${import.meta.env.BASE_URL}textures/space-backdrop.jpg`, scene, true);
     // `color` tints the blit (RGBA multiply). Dim slightly so the backdrop
     // reads as deep background and the gameplay layer stays dominant.
     const t = GameConfig.scenery.backdrop.tint;

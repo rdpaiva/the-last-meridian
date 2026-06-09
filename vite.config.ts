@@ -1,8 +1,8 @@
 import { defineConfig } from "vite";
 
-export default defineConfig({
-  base: "/the-last-meridian/",
+export default defineConfig(({ command }) => ({
+  base: command === "build" ? "/the-last-meridian/" : "/",
   server: {
     host: true,
   },
-});
+}));

@@ -61,7 +61,7 @@ export class Nebulas {
 
       // One painted cloud per quad, wrapping the file list if needed.
       const file = TEXTURE_FILES[i % TEXTURE_FILES.length];
-      const tex = new Texture(`/textures/${file}`, scene);
+      const tex = new Texture(`${import.meta.env.BASE_URL}textures/${file}`, scene);
       tex.hasAlpha = true;
 
       const mat = new StandardMaterial(`nebula_${i}_mat`, scene);

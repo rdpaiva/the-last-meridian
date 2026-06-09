@@ -161,7 +161,7 @@ export class AssetLoader {
       // NOTE: trailing slash on rootUrl is required for SceneLoader.
       const result = await SceneLoader.ImportMeshAsync(
         "",
-        "/models/",
+        `${import.meta.env.BASE_URL}models/`,
         filename,
         this.scene,
       );

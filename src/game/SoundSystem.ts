@@ -108,7 +108,7 @@ export class SoundSystem {
   private engineHumStarted = false;
   private muted = false;
 
-  constructor(scene: Scene, baseUrl = "/sounds") {
+  constructor(scene: Scene, baseUrl = `${import.meta.env.BASE_URL}sounds`) {
     this.playerLaser = new PooledSound(
       "sfx_player_laser",
       `${baseUrl}/player_laser.mp3`,

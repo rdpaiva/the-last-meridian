@@ -195,7 +195,7 @@ export class Game {
     // future PBR model benefits automatically). This sets reflections only — it
     // does NOT draw a skybox, so the visible background (Backdrop) is unchanged.
     this.scene.environmentTexture = new EquiRectangularCubeTexture(
-      "/textures/space-backdrop.jpg",
+      `${import.meta.env.BASE_URL}textures/space-backdrop.jpg`,
       this.scene,
       256,
     );
