@@ -143,10 +143,15 @@ and explicitly skipped. Update this when you finish or start work.
   `turn` with the keyboard rotate booleans (keyboard leaves it 0), so the human
   still turns full-rate. The path-following slot work above still stands — this
   fixed the *nose control* on top of it.
-  - *Minor follow-up (optional polish, not a bug):* the **hunt** wingman's
-    no-prey branch still flies straight at the leader without braking, so it can
-    drift past and loop back. With proportional steering it no longer reads as
-    jitter, but a proper loiter (hold a station/escort) would be tidier.
+- **Hunt wingman loiters properly when there's no prey.** Previously the `hunt`
+  order's no-prey branch flew straight at the leader's position with thrust
+  always on and no braking, so it drifted past and looped back (a ram/orbit).
+  Now it station-keeps on an escort slot trailing the leader using the SAME
+  servo formation uses (extracted to `AIController.stationKeep`) — easing in and
+  holding, braking as needed — until a target appears. It loiters on its
+  configured slot if it has one, else `ai.huntEscortDistance` behind the leader.
+  Hunt now re-plans every frame (like formation/cover) so the escort heading
+  stays fresh and the chase tracks tightly.
 
 ### Combat
 - Two `LaserSystem` instances per faction (player → enemy, enemy → player)

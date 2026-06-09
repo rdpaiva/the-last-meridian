@@ -45,7 +45,9 @@
     objective mothership, engage the nearest opponent in `engagementRange`.
   - `strike`: press the enemy mothership and fire on it (fire range widens to the
     carrier's `hitRadius` so it strafes from stand-off), self-defense fire only.
-  - `hunt`: chase the nearest enemy fighter, ignore the carrier.
+  - `hunt`: chase the nearest enemy fighter, ignore the carrier; with no prey,
+    **loiter on the leader** (station-keep on an escort slot trailing it via the
+    shared `stationKeep` servo) instead of charging its position and looping back.
   - `cover` / `formation`: hold a slot on the leader's wing (`cover` also breaks
     to engage threats within `ai.coverBreakRange` of the leader, then reforms).
   Most orders resolve to a steer-heading + thrust + aim target, then a shared tail
@@ -114,7 +116,13 @@
     the raw value — a hand-flown leader holding a line at speed thrusts while
     tapping its nose, so the raw velocity (and the course-placed slot) wobbles,
     and wingmen at their speed limit would chase the wobble and weave. The
-    low-pass makes them follow the average path instead.
+    low-pass makes them follow the average path instead. This whole servo lives in
+  `AIController.stationKeep` and is SHARED: the `hunt` order's no-prey loiter
+  calls it too (with an escort slot), so an idle hunter holds a trailing station
+  on the leader with the same easing/braking instead of ramming it. It must run
+  every frame (the low-pass and Schmitt jets need continuity), which is why
+  `hunt` joins `cover`/`formation` in the per-frame set (exempt from the
+  reaction-timer cache).
 - **`FighterMesh.ts`** — `buildFighterMesh(scene, glow, faction)` is the old
   `EnemyShip.buildMesh`, themed by faction (used for ENEMY AI fighters; the human
   player and its wingmen come from `AssetLoader`). `randomFighterSpawn()` is

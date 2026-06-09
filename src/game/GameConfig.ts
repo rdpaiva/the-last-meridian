@@ -711,6 +711,15 @@ export const GameConfig = {
      * of the LEADER (not of themselves), then return to slot once it is clear.
      */
     coverBreakRange: 45,
+    /**
+     * Where a "hunt" wingman loiters when there's no prey AND it has no
+     * configured formation slot: this far (world units) directly behind the
+     * leader. It station-keeps there with the formation servo — easing in and
+     * holding — instead of charging the leader's exact position and looping back
+     * past it. (A hunt wingman that DOES have a slot loiters on that slot
+     * instead.) Keep it comfortably outside a collision; a touch behind the wing.
+     */
+    huntEscortDistance: 14,
 
     /**
      * How often non-formation AI pilots re-evaluate their heading and target

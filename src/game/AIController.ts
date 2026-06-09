@@ -64,6 +64,25 @@ export class AIController implements ShipController {
 
   private readonly order: AIOrder;
   private readonly slot: { x: number; z: number };
+  /**
+   * Where a `hunt` wingman loiters when it has no prey: its configured slot if
+   * it has one, else a default station trailing the leader. Station-keeping on
+   * THIS (with the same servo formation uses) is what makes an idle hunter sit
+   * behind the leader and hold, instead of charging the leader's exact position
+   * at full thrust and looping back past it (the old no-prey "ram + orbit").
+   */
+  private readonly escortSlot: { x: number; z: number };
+  /**
+   * Scratch output of `stationKeep`, reused each frame so the servo stays
+   * allocation-free. Both the formation/cover orders and the hunt loiter fill
+   * it, then copy its fields into the per-frame control locals.
+   */
+  private readonly formationCmd = {
+    steerHeading: 0,
+    thrust: false,
+    reverse: false,
+    strafeDir: 0,
+  };
 
   private wanderTargetHeading = Math.random() * Math.PI * 2;
   private wanderTimerSec = 0;
@@ -99,6 +118,13 @@ export class AIController implements ShipController {
   constructor(opts: AIControllerOptions = {}) {
     this.order = opts.order ?? "patrol";
     this.slot = opts.slot ?? { x: 0, z: 0 };
+    // A configured slot doubles as the hunt loiter station; with no slot, fall
+    // back to a default position trailing the leader so the hunter sits BEHIND
+    // it rather than on top of it.
+    this.escortSlot =
+      this.slot.x !== 0 || this.slot.z !== 0
+        ? this.slot
+        : { x: 0, z: -GameConfig.ai.huntEscortDistance };
   }
 
   update(deltaSeconds: number, self: Ship, world: ControllerWorld): InputState {
@@ -117,12 +143,16 @@ export class AIController implements ShipController {
 
     const cfg = GameConfig.ai;
 
-    // Formation orders run their velocity servo every frame (freezing it breaks
-    // stability). All other orders re-evaluate heading + target only on the
-    // reaction timer so pilots have realistic lag instead of perfect-reflex tracking.
-    const isFormation = this.order === "cover" || this.order === "formation";
+    // Some orders must re-plan every frame: formation/cover run a velocity servo
+    // (freezing it breaks stability), and hunt runs that same servo when it
+    // loiters on the leader (escorting a moving leader needs a fresh heading each
+    // frame, and chasing prey every frame suits a dedicated hunter). The rest
+    // (patrol/strike) re-evaluate heading + target only on the reaction timer so
+    // they have realistic lag instead of perfect-reflex tracking.
+    const perFrame =
+      this.order === "cover" || this.order === "formation" || this.order === "hunt";
     let useCachedPlan = false;
-    if (!isFormation) {
+    if (!perFrame) {
       this.reactionTimer -= deltaSeconds;
       useCachedPlan = this.reactionTimer > 0;
     }
@@ -158,16 +188,25 @@ export class AIController implements ShipController {
       }
 
       case "hunt": {
-        if (!useCachedPlan) {
-          const prey = this.nearestLiveOpponent(self, world, Infinity);
-          if (prey) {
-            steerHeading = this.headingTo(self, prey.position.x, prey.position.z);
-            aim = prey;
-          } else if (world.leader && world.leader.isAlive) {
-            steerHeading = this.headingTo(self, world.leader.position.x, world.leader.position.z);
-          } else {
-            steerHeading = this.wander(deltaSeconds, self, world);
-          }
+        const prey = this.nearestLiveOpponent(self, world, Infinity);
+        if (prey) {
+          steerHeading = this.headingTo(self, prey.position.x, prey.position.z);
+          aim = prey;
+        } else if (world.leader && world.leader.isAlive) {
+          // No prey: loiter on the leader with the formation servo instead of
+          // charging its position and looping back. Station-keep on the escort
+          // slot (trailing the leader) so it eases into place and HOLDS there,
+          // braking as needed, until a target shows up.
+          const cmd = this.formationCmd;
+          this.stationKeep(
+            deltaSeconds, self, world.leader, this.escortSlot.x, this.escortSlot.z, cmd,
+          );
+          steerHeading = cmd.steerHeading;
+          thrust = cmd.thrust;
+          reverse = cmd.reverse;
+          strafeDir = cmd.strafeDir;
+        } else {
+          steerHeading = this.wander(deltaSeconds, self, world);
         }
         break;
       }
@@ -191,106 +230,14 @@ export class AIController implements ShipController {
           aim = threat;
           break;
         }
-        // The whole formation rides the leader's SMOOTHED velocity, not its raw
-        // velocity. A hand-flown leader holding a line at speed thrusts while
-        // tapping its nose, so the raw velocity wobbles; if the slot (and the
-        // matched velocity) tracked that, wingmen at their speed limit would
-        // chase the wobble and weave. The low-pass makes them follow the average
-        // path — like a real wingman ignoring your twitches — at the cost of a
-        // slight, natural reaction lag.
-        const k = exponentialDecay(cfg.formationCourseSmooth, deltaSeconds);
-        if (!this.smoothVelInit) {
-          this.smoothVelX = leader.velocity.x;
-          this.smoothVelZ = leader.velocity.z;
-          this.smoothVelInit = true;
-        }
-        this.smoothVelX += (leader.velocity.x - this.smoothVelX) * k;
-        this.smoothVelZ += (leader.velocity.z - this.smoothVelZ) * k;
-        const lvX = this.smoothVelX;
-        const lvZ = this.smoothVelZ;
-
-        // Formation slot in world space, oriented by the leader's COURSE (its
-        // smoothed velocity direction) — NOT its facing. The geometry is
-        // leader-relative (+x starboard, +z ahead), but it must ride the leader's
-        // PATH: if the slot tracked the leader's facing, then swinging the nose
-        // WITHOUT changing course (e.g. the small heading corrections you make to
-        // hold a straight line) would whip the slots sideways and send the whole
-        // wing scrambling to chase them — that nose-coupled slot swing is the
-        // "shake at certain angles while following". Falling back to facing only
-        // when the leader is too slow for its velocity to define a direction.
-        const leaderSpeed = Math.hypot(lvX, lvZ);
-        const course =
-          leaderSpeed > cfg.formationHeadingMinSpeed
-            ? Math.atan2(lvX, lvZ)
-            : leader.rotationY;
-        const cosT = Math.cos(course);
-        const sinT = Math.sin(course);
-        const sx = leader.position.x + cosT * this.slot.x + sinT * this.slot.z;
-        const sz = leader.position.z - sinT * this.slot.x + cosT * this.slot.z;
-        const slotDist = Math.hypot(sx - self.position.x, sz - self.position.z);
-
-        // Desired velocity = match the leader's (smoothed) velocity + a
-        // speed-capped approach toward the slot (a P-controller on slot
-        // position). The approach shrinks to zero as the wingman reaches the
-        // slot, so it eases in instead of barrelling through, and the cap stays
-        // under the reverse thruster's authority so any closing speed is brakeable.
-        let apX = cfg.formationPosGain * (sx - self.position.x);
-        let apZ = cfg.formationPosGain * (sz - self.position.z);
-        const apMag = Math.hypot(apX, apZ);
-        if (apMag > cfg.formationApproachSpeed) {
-          const sclamp = cfg.formationApproachSpeed / apMag;
-          apX *= sclamp;
-          apZ *= sclamp;
-        }
-        const dvX = lvX + apX; // desired velocity (world) — for the servo
-        const dvZ = lvZ + apZ;
-
-        // Heading: steer by the leader's PATH (its velocity), NOT by the desired
-        // velocity. The slot-approach term is a POSITION correction — a job for
-        // the thrusters (a translation), not the nose. Feeding it into the
-        // heading is what made a wingman that was slightly off-slot yaw back and
-        // forth: the correction tilts the aim point, it turns, overshoots, the
-        // error flips, and with zero drag nothing damps the cycle. So we only
-        // blend the slot-approach into the heading as the wingman gets FAR from
-        // its slot (so it still turns to fly nose-first up to formation); parked
-        // in the slot the weight is ~0 and the nose tracks only the smooth path.
-        const headWeight = clamp(slotDist / cfg.formationHeadingBlendRange, 0, 1);
-        const hvX = lvX + apX * headWeight;
-        const hvZ = lvZ + apZ * headWeight;
-        const hvMag = Math.hypot(hvX, hvZ);
-        if (hvMag > cfg.formationHeadingMinSpeed) {
-          steerHeading = Math.atan2(hvX, hvZ);
-        } else {
-          // Near-stationary leader: path direction is ill-defined, hold heading.
-          steerHeading = self.rotationY;
-        }
-
-        // Drive the thrusters to close the velocity error, projected onto the
-        // ship's own axes, each gated through a SCHMITT TRIGGER (cross the larger
-        // engage band to light a jet, stays lit until the error falls back under
-        // the smaller release band) so a stable slot doesn't chatter. Forward
-        // thrust/reverse only fire when the nose is roughly on the desired-
-        // velocity direction; while the wingman is still turning to line up it
-        // coasts rather than thrusting (or braking) off-course. Strafe trims
-        // small cross-track error at any time.
-        const evX = dvX - self.velocity.x;
-        const evZ = dvZ - self.velocity.z;
-        const fwd = self.forward();
-        const rgt = self.right();
-        const eFwd = evX * fwd.x + evZ * fwd.z;
-        const eRgt = evX * rgt.x + evZ * rgt.z;
-        const aligned =
-          Math.abs(wrapAngle(steerHeading - self.rotationY)) < cfg.formationThrustConeAngle;
-        this.prevFwdCmd = aligned
-          ? AIController.schmitt(eFwd, this.prevFwdCmd, cfg.formationVelDeadband, cfg.formationVelEngageBand)
-          : 0;
-        this.prevLatCmd = AIController.schmitt(
-          eRgt, this.prevLatCmd, cfg.formationVelDeadband, cfg.formationVelEngageBand,
-        );
-        thrust = this.prevFwdCmd > 0;
-        reverse = this.prevFwdCmd < 0;
-        strafeDir = this.prevLatCmd;
-        // Opportunistic fire: take the shot if an opponent is in the cone.
+        // Hold the slot with the station-keeping servo, then take any shot of
+        // opportunity.
+        const cmd = this.formationCmd;
+        this.stationKeep(deltaSeconds, self, leader, this.slot.x, this.slot.z, cmd);
+        steerHeading = cmd.steerHeading;
+        thrust = cmd.thrust;
+        reverse = cmd.reverse;
+        strafeDir = cmd.strafeDir;
         aim = this.nearestLiveOpponent(self, world, Infinity);
         break;
       }
@@ -306,7 +253,7 @@ export class AIController implements ShipController {
     }
 
     // Cache plan after a fresh think; restore it on stale frames.
-    if (!isFormation) {
+    if (!perFrame) {
       if (!useCachedPlan) {
         this.planHeading = steerHeading;
         this.planHasAim = aim !== null;
@@ -353,6 +300,110 @@ export class AIController implements ShipController {
   /** Heading (radians) from `self` toward a world point, in the +Z-forward convention. */
   private headingTo(self: Ship, x: number, z: number): number {
     return Math.atan2(x - self.position.x, z - self.position.z);
+  }
+
+  /**
+   * Station-keeping servo: fly `self` to a slot defined relative to `leader`'s
+   * smoothed COURSE (not its facing), matching the leader's velocity, and write
+   * the resulting heading + thruster commands into `cmd`. Shared by the
+   * formation/cover orders and the hunt order's no-prey loiter (which passes its
+   * escort slot). MUST be called every frame: it low-passes the leader's
+   * velocity and runs Schmitt-gated jets that both need continuity.
+   *
+   * The wing rides the leader's SMOOTHED velocity, not its raw velocity: a
+   * hand-flown leader holding a line thrusts while tapping its nose, so the raw
+   * velocity wobbles; matching that would make wingmen at their speed limit chase
+   * the wobble and weave. The slot is placed by the leader's course (smoothed
+   * velocity direction), NOT its facing, so a nose-swing with no course change
+   * doesn't whip the slot sideways. The nose steers by the leader's PATH; the
+   * slot-approach is a POSITION correction handled by the thrusters (a
+   * translation), only blended into the heading as the wingman gets far from its
+   * slot so it still turns nose-first to fly up to formation.
+   */
+  private stationKeep(
+    deltaSeconds: number,
+    self: Ship,
+    leader: Ship,
+    slotX: number,
+    slotZ: number,
+    cmd: { steerHeading: number; thrust: boolean; reverse: boolean; strafeDir: number },
+  ): void {
+    const cfg = GameConfig.ai;
+
+    const k = exponentialDecay(cfg.formationCourseSmooth, deltaSeconds);
+    if (!this.smoothVelInit) {
+      this.smoothVelX = leader.velocity.x;
+      this.smoothVelZ = leader.velocity.z;
+      this.smoothVelInit = true;
+    }
+    this.smoothVelX += (leader.velocity.x - this.smoothVelX) * k;
+    this.smoothVelZ += (leader.velocity.z - this.smoothVelZ) * k;
+    const lvX = this.smoothVelX;
+    const lvZ = this.smoothVelZ;
+
+    // Slot in world space, oriented by the leader's COURSE (falling back to its
+    // facing only when it's too slow for velocity to define a direction).
+    const leaderSpeed = Math.hypot(lvX, lvZ);
+    const course =
+      leaderSpeed > cfg.formationHeadingMinSpeed
+        ? Math.atan2(lvX, lvZ)
+        : leader.rotationY;
+    const cosT = Math.cos(course);
+    const sinT = Math.sin(course);
+    const sx = leader.position.x + cosT * slotX + sinT * slotZ;
+    const sz = leader.position.z - sinT * slotX + cosT * slotZ;
+    const slotDist = Math.hypot(sx - self.position.x, sz - self.position.z);
+
+    // Desired velocity = leader's (smoothed) velocity + a speed-capped approach
+    // toward the slot (a P-controller on slot position). The approach shrinks to
+    // zero at the slot, so it eases in instead of barrelling through, and the cap
+    // stays under the reverse thruster's authority so closing speed is brakeable.
+    let apX = cfg.formationPosGain * (sx - self.position.x);
+    let apZ = cfg.formationPosGain * (sz - self.position.z);
+    const apMag = Math.hypot(apX, apZ);
+    if (apMag > cfg.formationApproachSpeed) {
+      const sclamp = cfg.formationApproachSpeed / apMag;
+      apX *= sclamp;
+      apZ *= sclamp;
+    }
+    const dvX = lvX + apX; // desired velocity (world) — for the servo
+    const dvZ = lvZ + apZ;
+
+    // Heading: steer by the leader's PATH, blending in the slot-approach only as
+    // the wingman gets far from its slot (so it still turns nose-first to fly up
+    // to formation); parked in the slot the nose tracks only the smooth path.
+    const headWeight = clamp(slotDist / cfg.formationHeadingBlendRange, 0, 1);
+    const hvX = lvX + apX * headWeight;
+    const hvZ = lvZ + apZ * headWeight;
+    if (Math.hypot(hvX, hvZ) > cfg.formationHeadingMinSpeed) {
+      cmd.steerHeading = Math.atan2(hvX, hvZ);
+    } else {
+      // Near-stationary leader: path direction is ill-defined, hold heading.
+      cmd.steerHeading = self.rotationY;
+    }
+
+    // Drive the thrusters to close the velocity error, projected onto the ship's
+    // own axes, each gated through a Schmitt trigger so a stable slot doesn't
+    // chatter. Forward thrust/reverse only fire when the nose is roughly on the
+    // desired-velocity direction; while still turning to line up the wingman
+    // coasts. Strafe trims small cross-track error at any time.
+    const evX = dvX - self.velocity.x;
+    const evZ = dvZ - self.velocity.z;
+    const fwd = self.forward();
+    const rgt = self.right();
+    const eFwd = evX * fwd.x + evZ * fwd.z;
+    const eRgt = evX * rgt.x + evZ * rgt.z;
+    const aligned =
+      Math.abs(wrapAngle(cmd.steerHeading - self.rotationY)) < cfg.formationThrustConeAngle;
+    this.prevFwdCmd = aligned
+      ? AIController.schmitt(eFwd, this.prevFwdCmd, cfg.formationVelDeadband, cfg.formationVelEngageBand)
+      : 0;
+    this.prevLatCmd = AIController.schmitt(
+      eRgt, this.prevLatCmd, cfg.formationVelDeadband, cfg.formationVelEngageBand,
+    );
+    cmd.thrust = this.prevFwdCmd > 0;
+    cmd.reverse = this.prevFwdCmd < 0;
+    cmd.strafeDir = this.prevLatCmd;
   }
 
   /**
