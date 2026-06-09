@@ -2,7 +2,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 
 import { GameConfig } from "./GameConfig";
-import type { DamageTarget, InputState } from "./types";
+import type { DamageTarget, FireSoundKey, InputState } from "./types";
 import type { Faction } from "./Faction";
 import { clamp, exponentialMultiplier } from "./math";
 
@@ -33,6 +33,8 @@ export interface ShipOptions {
   startMissileAmmo: number;
   /** Movement/weapon tuning (GameConfig.player or GameConfig.enemy). */
   movement: ShipMovementConfig;
+  /** Sound played when this ship fires. Maps ship type to audio cue. */
+  fireSound: FireSoundKey;
 }
 
 /**
@@ -59,6 +61,7 @@ export class Ship implements DamageTarget {
   rotationY = 0;
 
   readonly faction: Faction;
+  readonly fireSound: FireSoundKey;
   readonly maxHp: number;
   hp: number;
   readonly hitRadius: number = GameConfig.combat.shipHitRadius;
@@ -96,6 +99,7 @@ export class Ship implements DamageTarget {
     opts: ShipOptions,
   ) {
     this.faction = opts.faction;
+    this.fireSound = opts.fireSound;
     this.maxHp = opts.maxHp;
     this.hp = opts.maxHp;
     this.respawnDelayMs = opts.respawnDelayMs;

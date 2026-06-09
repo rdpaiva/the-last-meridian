@@ -32,6 +32,9 @@ export type ShipState = {
   rotationY: number;
 };
 
+/** Keys for the per-ship fire sound, dispatched by SoundSystem.playFireSound(). */
+export type FireSoundKey = "playerGuns" | "enemyLaser" | "laserGun";
+
 /**
  * Anything a laser can damage. Implemented by PlayerShip and EnemyShip.
  * LaserSystem holds at most one target reference (set via setTarget) and

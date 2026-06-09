@@ -237,8 +237,8 @@ export class Game {
       materialName: "player_missile_mat",
       onHit: (pos) => {
         this.explosions.spawn(pos);
-        this.sound.playExplosion();
-        this.cameraRig.addTrauma(GameConfig.shake.traumaMissileHit);
+        this.sound.playExplosion(pos);
+        this.cameraRig.addTrauma(this.traumaAtDistance(GameConfig.shake.traumaMissileHit, pos));
         this.applyHitstop(GameConfig.hitstop.missileHitMs);
       },
     });
@@ -293,6 +293,7 @@ export class Game {
       respawnDelayMs: GameConfig.combat.playerRespawnDelayMs,
       startMissileAmmo: GameConfig.missile.maxAmmo,
       movement: GameConfig.player,
+      fireSound: "playerGuns",
     });
 
     // Player-side AI wingmen (Phase 5): real fighters like the player. Each gets a
@@ -322,6 +323,7 @@ export class Game {
         respawnDelayMs: GameConfig.combat.enemyRespawnDelayMs,
         startMissileAmmo: 0,
         movement: wingmanMovement,
+        fireSound: "playerGuns",
       });
       const controller = new AIController({
         order: wcfg.orders[i % wcfg.orders.length],
@@ -394,7 +396,7 @@ export class Game {
 
   /** A laser struck `target`; scale feedback to the hit (and to who fired). */
   private onLaserHit(target: DamageTarget, fromPlayer: boolean): void {
-    this.sound.playHit();
+    this.sound.playHit(target.position);
     // Chipping a mothership: light cue only (avoid hitstop spam on the objective).
     if (target === this.motherships.humans || target === this.motherships.machines) {
       return;
@@ -421,6 +423,20 @@ export class Game {
       window.location.reload();
     }
   };
+
+  /**
+   * Scale a base trauma value by how close `pos` is to the player.
+   * Returns the full value at distance 0, zero at GameConfig.sound.maxDistance.
+   * Used so distant explosions and missile impacts don't shake the camera.
+   */
+  private traumaAtDistance(base: number, pos: Vector3): number {
+    const player = this.playerShip;
+    if (!player) return base;
+    const dx = pos.x - player.position.x;
+    const dz = pos.z - player.position.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    return base * Math.max(0, 1 - dist / GameConfig.sound.maxDistance);
+  }
 
   /**
    * Extend the hitstop window. Stacked impacts in one frame don't compound past
@@ -543,12 +559,10 @@ export class Game {
             for (const p of positions) {
               this.factionLasers[ship.faction].spawn(p, ship.rotationY, isPlayer);
             }
-            // The player's own guns get their distinct cue; every AI fighter
-            // (wingman or enemy) shares the generic laser zap so the human
-            // pilot isn't fooled into thinking they're firing.
+            // Player fire: no position (always full-volume at the listener).
+            // All other ships: spatial — attenuates with distance from player.
             if (positions.length > 0) {
-              if (isPlayer) this.sound.playPlayerGuns();
-              else this.sound.playEnemyLaser();
+              this.sound.playFireSound(ship.fireSound, isPlayer ? undefined : ship.position);
             }
           }
 
@@ -568,11 +582,11 @@ export class Game {
           const isPlayer = ship === this.playerShip;
           if (!ship.isAlive && !ship.explosionFired) {
             this.explosions.spawn(ship.position);
-            this.sound.playExplosion();
+            this.sound.playExplosion(ship.position);
             this.cameraRig.addTrauma(
               isPlayer
                 ? GameConfig.shake.traumaPlayerExplosion
-                : GameConfig.shake.traumaEnemyExplosion,
+                : this.traumaAtDistance(GameConfig.shake.traumaEnemyExplosion, ship.position),
             );
             this.applyHitstop(
               isPlayer
@@ -694,6 +708,7 @@ export class Game {
       respawnDelayMs: GameConfig.combat.enemyRespawnDelayMs,
       startMissileAmmo: 0,
       movement,
+      fireSound: "laserGun",
     });
   }
 
@@ -763,7 +778,7 @@ export class Game {
       const oz = (Math.random() * 2 - 1) * cfg.deathExplosionSpread;
       this.explosions.spawn(new Vector3(center.x + ox, center.y, center.z + oz));
     }
-    this.sound.playExplosion();
+    this.sound.playExplosion(center);
     this.cameraRig.addTrauma(cfg.deathTrauma);
     this.applyHitstop(cfg.deathHitstopMs);
   }

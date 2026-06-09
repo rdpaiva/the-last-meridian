@@ -837,6 +837,17 @@ export const GameConfig = {
     volume: 0.45,
   },
 
+  sound: {
+    /**
+     * Beyond this distance (world units) non-player fire, hit, and explosion
+     * sounds are completely inaudible. Camera trauma from remote events also
+     * scales linearly to zero at this distance.
+     */
+    maxDistance: 500,
+    /** Distance at which a spatial sound plays at full volume. */
+    refDistance: 40,
+  },
+
   scene: {
     clearColor: { r: 0.02, g: 0.03, b: 0.06 },
     /**
