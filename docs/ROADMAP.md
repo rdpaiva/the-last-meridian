@@ -181,6 +181,15 @@ implemented yet. Roughly ordered by gameplay value.
   alongside `LocalInputController`/`AIController`; `InputState` is already a
   boolean wire format.
 
+> **Carry-over to fix along the way:** the catapult launch is still
+> humans/south-oriented. `Mothership.getLaunchExitZ()` and `LaunchSequence`
+> drive the ship along world **+Z** and test `position.z >= exitZ`, which only
+> holds for the humans mothership (rotationY 0). Flipping
+> `GameConfig.player.faction` to `"machines"` mirrors combat/colors/targeting
+> correctly, but the launch from the north pod would look wrong. Generalize the
+> launch direction/exit to the mothership's facing when the arena opens up
+> (Phase 4) or carriers start launching fighters (Phase 5).
+
 - **Score + combo multiplier** — kills earn points; quick consecutive
   kills build a multiplier. Persist best score to localStorage.
 - **Wave system** — replace single respawning enemy with escalating
