@@ -108,7 +108,15 @@ export class LaserSystem {
     );
     mesh.material = this.material;
     mesh.isPickable = false;
-    mesh.position.copyFrom(origin);
+    // The bolt mesh is `length` long and CENTERED on its position, so spawning
+    // it exactly at the muzzle leaves half the streak poking out behind. Nudge
+    // it forward along its heading so its rear tip sits at the muzzle and the
+    // bolt reads as emanating from the gun.
+    mesh.position.set(
+      origin.x + Math.sin(rotationY) * cfg.spawnOffset,
+      origin.y,
+      origin.z + Math.cos(rotationY) * cfg.spawnOffset,
+    );
 
     const velocity = new Vector3(
       Math.sin(rotationY) * cfg.speed,

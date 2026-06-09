@@ -6,6 +6,9 @@ import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
+// Builds a cube/IBL environment from an equirectangular image — used to light
+// the PBR (metallic) GLB ships, which need an environment to reflect.
+import { EquiRectangularCubeTexture } from "@babylonjs/core/Materials/Textures/equiRectangularCubeTexture";
 
 import { GameConfig } from "./GameConfig";
 import { InputManager } from "./InputManager";
@@ -99,14 +102,16 @@ export class Game {
   /** All ships, regardless of side, plus their controllers. */
   private readonly combatants: Combatant[] = [];
   /**
-   * Per-wingman engine visuals (glow + maneuvering-thruster plumes), keyed by
-   * the wingman's Ship. Driven each frame from that wingman's emitted input so
-   * its exhaust lights when it burns — the player ship gets these via the
-   * standalone engineGlow/secondaryThrusters fields; wingmen each get their own.
+   * Engine visuals for AI ships (glow + optional maneuvering-thruster plumes),
+   * keyed by Ship. Driven each frame from that ship's emitted input so its
+   * exhaust lights when it burns. Wingmen get both glow + thrusters; enemy GLB
+   * fighters get a glow only (they don't strafe, and procedural fighters already
+   * carry their own emissive engine). The player uses the standalone
+   * engineGlow/secondaryThrusters fields instead.
    */
-  private readonly wingmanVisuals = new Map<
+  private readonly aiVisuals = new Map<
     Ship,
-    { glow: EngineGlow; thrusters: SecondaryThrusters }
+    { glow: EngineGlow; thrusters?: SecondaryThrusters }
   >();
   /** Live roster per faction, refilled each frame; backs the controller world. */
   private readonly shipsByFaction: Record<Faction, Ship[]> = {
@@ -179,6 +184,20 @@ export class Game {
     );
     sun.intensity = 0.75;
     sun.diffuse = new Color3(1, 0.95, 0.85);
+
+    // --- Environment (IBL) ---
+    // The GLB ships use PBR materials — the spitfire's are fully metallic — and
+    // a metal surface is rendered almost entirely by what it REFLECTS. With no
+    // environment those metals come out flat/dark. Reuse the space backdrop as
+    // the environment map so ships pick up a subtle space-colored sheen (and any
+    // future PBR model benefits automatically). This sets reflections only — it
+    // does NOT draw a skybox, so the visible background (Backdrop) is unchanged.
+    this.scene.environmentTexture = new EquiRectangularCubeTexture(
+      "/textures/space-backdrop.jpg",
+      this.scene,
+      256,
+    );
+    this.scene.environmentIntensity = 0.6;
 
     // --- Factions ---
     this.playerFaction = GameConfig.player.faction;
@@ -260,20 +279,9 @@ export class Game {
 
     this.explosions = new ExplosionSystem(this.scene, this.glowLayer);
 
-    // Enemy AI fighters: the first `strikeCount` press the player's mothership
-    // (the objective); the rest patrol/dogfight (the default order). The player's
-    // wingmen are built in start(), once the player ship exists to clone (so they
-    // look exactly like the player's ship, not the enemy mesh).
-    for (let i = 0; i < GameConfig.enemy.count; i++) {
-      const ship = this.makeFighter(this.enemyFaction);
-      const order = i < GameConfig.enemy.strikeCount ? "strike" : "patrol";
-      this.combatants.push({
-        ship,
-        controller: new AIController({ order }),
-        launch: null,
-        bayIndex: 0,
-      });
-    }
+    // Enemy AI fighters are built in start(), not here: they clone a GLB
+    // template (GameConfig.enemy.shipModel) that has to be loaded async first,
+    // the same way the player's wingmen clone the player's loaded ship.
 
     this.cameraRig = new CameraRig(this.scene);
     this.starfield = new Starfield(this.scene, this.cameraRig.camera);
@@ -309,12 +317,19 @@ export class Game {
 
     const loader = new AssetLoader(this.scene);
     const loaded = await loader.loadPlayerShip();
+    // Enemy fighters clone this template (null → procedural FighterMesh).
+    const enemyTemplate = await loader.loadModelTemplate(GameConfig.enemy.shipModel);
+    // Mount points authored into the player model (empties named thruster*/
+    // muzzle*/rcs.*). Empty when the model has none → systems use their config
+    // defaults. Wingmen clone the same model, so they share these markers.
+    const markers = loaded.markers;
     this.playerShip = new Ship(loaded.root, {
       faction: this.playerFaction,
       maxHp: GameConfig.combat.playerMaxHp,
       respawnDelayMs: GameConfig.combat.playerRespawnDelayMs,
       startMissileAmmo: GameConfig.missile.maxAmmo,
       movement: GameConfig.player,
+      muzzles: markers.muzzles.length > 0 ? markers.muzzles : undefined,
       fireSound: "playerGuns",
     });
 
@@ -345,6 +360,7 @@ export class Game {
         respawnDelayMs: GameConfig.combat.enemyRespawnDelayMs,
         startMissileAmmo: 0,
         movement: wingmanMovement,
+        muzzles: markers.muzzles.length > 0 ? markers.muzzles : undefined,
         fireSound: "playerGuns",
       });
       const controller = new AIController({
@@ -355,20 +371,30 @@ export class Game {
       // Each wingman gets its own engine glow + RCS plumes on its outer root, so
       // it reads as a real fighter under thrust instead of floating. Driven from
       // the wingman's emitted input in the sim loop (see tick()).
-      this.wingmanVisuals.set(ship, {
-        glow: new EngineGlow(this.scene, root, this.glowLayer),
-        thrusters: new SecondaryThrusters(this.scene, root, this.glowLayer),
+      this.aiVisuals.set(ship, {
+        glow: new EngineGlow(this.scene, root, this.glowLayer, markers.thrusters),
+        thrusters: new SecondaryThrusters(this.scene, root, this.glowLayer, markers.rcs),
       });
     }
 
-    this.engineGlow = new EngineGlow(this.scene, loaded.root, this.glowLayer);
+    this.engineGlow = new EngineGlow(
+      this.scene,
+      loaded.root,
+      this.glowLayer,
+      markers.thrusters,
+    );
     this.secondaryThrusters = new SecondaryThrusters(
       this.scene,
       loaded.root,
       this.glowLayer,
+      markers.rcs,
     );
     this.playerDamageFlash = new DamageFlash(this.scene, loaded.root, this.glowLayer);
-    this.hud.setModelLabel(loaded.usingFallback ? "fallback" : "fighter.glb");
+    this.hud.setModelLabel(
+      loaded.usingFallback
+        ? "fallback"
+        : GameConfig.player.shipModel ?? "fallback",
+    );
 
     this.playerCombatant = {
       ship: this.playerShip,
@@ -380,6 +406,39 @@ export class Game {
 
     // The player ship is the wing leader its faction's wingmen form on.
     this.worldByFaction[this.playerFaction].leader = this.playerShip;
+
+    // Enemy AI fighters: the first `strikeCount` press the player's mothership
+    // (the objective); the rest patrol/dogfight (the default order). Each is a
+    // clone of the enemy GLB template (or the procedural mesh if none loaded).
+    for (let i = 0; i < GameConfig.enemy.count; i++) {
+      const ship = this.makeFighter(
+        this.enemyFaction,
+        GameConfig.enemy,
+        GameConfig.combat.enemyMaxHp,
+        enemyTemplate,
+      );
+      const order = i < GameConfig.enemy.strikeCount ? "strike" : "patrol";
+      this.combatants.push({
+        ship,
+        controller: new AIController({ order }),
+        launch: null,
+        bayIndex: 0,
+      });
+      // GLB enemies (the wraith) have no emissive engine of their own, so give
+      // them an EngineGlow at their rear so they read in combat. Procedural
+      // fighters already carry an emissive engine box, so skip those. The wraith
+      // has no thruster markers, so derive the rear nozzle from its bounding box.
+      if (enemyTemplate) {
+        this.aiVisuals.set(ship, {
+          glow: new EngineGlow(
+            this.scene,
+            ship.root,
+            this.glowLayer,
+            this.rearEmitters(ship.root),
+          ),
+        });
+      }
+    }
 
     // Wire combat targets: every ship is a target of the opposing faction's
     // lasers; the player's missiles target every enemy ship + their mothership.
@@ -548,15 +607,15 @@ export class Game {
               }
               // Light a launching wingman's exhaust during its catapult run (the
               // player's own glow is handled in the always-on animation block).
-              const vis = this.wingmanVisuals.get(ship);
+              const vis = this.aiVisuals.get(ship);
               if (vis) {
                 vis.glow.update(
                   deltaSeconds,
                   ship.speed,
-                  GameConfig.player.maxSpeed,
+                  ship.maxSpeed,
                   c.launch.isLaunching,
                 );
-                vis.thrusters.update(deltaSeconds, false, false, false);
+                vis.thrusters?.update(deltaSeconds, false, false, false);
               }
               if (c.launch.isComplete) {
                 // The match goes live the instant the PLAYER clears the bow;
@@ -578,16 +637,16 @@ export class Game {
           // player's equivalent visuals update further down). Dead ships pass
           // all-false (the AIController already emits that), so the glow/plumes
           // taper off rather than freezing lit.
-          const vis = this.wingmanVisuals.get(ship);
+          const vis = this.aiVisuals.get(ship);
           if (vis) {
             const alive = ship.isAlive;
             vis.glow.update(
               deltaSeconds,
               ship.speed,
-              GameConfig.player.maxSpeed,
+              ship.maxSpeed,
               alive && input.thrust,
             );
-            vis.thrusters.update(
+            vis.thrusters?.update(
               deltaSeconds,
               alive && input.reverse,
               alive && input.strafeLeft,
@@ -796,13 +855,60 @@ export class Game {
     });
   }
 
-  /** Build an AI fighter mesh + Ship for a faction (defaults to the enemy profile). */
+  /**
+   * Derives a single engine-glow emitter at the rear-center of a ship's mesh,
+   * in ship-local coordinates. Used for GLB enemies that carry no thruster
+   * markers: places the glow at the model's tail (min Z, since forward is +Z)
+   * regardless of the model's size. Call before the root is positioned (it's at
+   * identity then, so the mesh bounds are already in ship-local space).
+   */
+  private rearEmitters(
+    root: TransformNode,
+  ): Array<{ x: number; y: number; z: number }> {
+    const meshes = root.getChildMeshes(false);
+    if (meshes.length === 0) return [];
+    const inv = root.getWorldMatrix().clone().invert();
+    let min = new Vector3(Infinity, Infinity, Infinity);
+    let max = new Vector3(-Infinity, -Infinity, -Infinity);
+    for (const m of meshes) {
+      m.computeWorldMatrix(true);
+      for (const corner of m.getBoundingInfo().boundingBox.vectorsWorld) {
+        const local = Vector3.TransformCoordinates(corner, inv);
+        min = Vector3.Minimize(min, local);
+        max = Vector3.Maximize(max, local);
+      }
+    }
+    // Rear = min Z; nudge slightly forward so the glow sits at the nozzle plane
+    // rather than poking out behind. Centered in X, mid-height in Y.
+    return [
+      { x: (min.x + max.x) * 0.5, y: (min.y + max.y) * 0.5, z: min.z + 0.15 },
+    ];
+  }
+
+  /**
+   * Build an AI fighter mesh + Ship for a faction (defaults to the enemy
+   * profile). If `template` is given, the fighter is a CLONE of that loaded GLB
+   * (two-tier root like the player's, so gameplay drives the outer root while
+   * the clone carries the model's alignment); otherwise it gets the procedural
+   * faction-themed FighterMesh.
+   */
   private makeFighter(
     faction: Faction,
     movement: ShipMovementConfig = GameConfig.enemy,
     maxHp: number = GameConfig.combat.enemyMaxHp,
+    template: TransformNode | null = null,
   ): Ship {
-    const root = buildFighterMesh(this.scene, this.glowLayer, faction);
+    let root: TransformNode;
+    if (template) {
+      root = new TransformNode(`fighter_${faction}_root`, this.scene);
+      template.instantiateHierarchy(root, { doNotInstantiate: true });
+      // The template is disabled so it never renders as a stray ship; force the
+      // clone's whole subtree back on (clones can inherit the disabled flag).
+      root.setEnabled(true);
+      for (const n of root.getDescendants()) n.setEnabled(true);
+    } else {
+      root = buildFighterMesh(this.scene, this.glowLayer, faction);
+    }
     return new Ship(root, {
       faction,
       maxHp,

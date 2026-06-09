@@ -79,6 +79,15 @@ export const GameConfig = {
     shipDesign: "viper" as "classic" | "viper",
 
     /**
+     * Filename of the GLB to load from /public/models/ for the player ship
+     * (and, by extension, the player's wingmen — they clone it). Per-model
+     * orientation/scale lives in `GameConfig.shipModels`. If the file is
+     * missing or fails to load, AssetLoader falls back to the procedural
+     * `shipDesign` above. Set to null to always use the fallback.
+     */
+    shipModel: "spitfire.glb" as string | null,
+
+    /**
      * Which faction the human pilot flies for. The player is simply the one
      * Ship wearing a LocalInputController; this flag decides which side that
      * is and which mothership is "home". Flip to "machines" to fly the red
@@ -163,8 +172,12 @@ export const GameConfig = {
     length: 1.2,
     /** Visual half-thickness in X and Y. */
     radius: 0.08,
-    /** Offset from ship origin where the laser spawns (along ship forward). */
-    spawnOffset: 1.2,
+    /**
+     * How far forward of the muzzle (along the bolt's heading) the bolt spawns.
+     * The bolt mesh is centered on its position, so ~half its `length` seats the
+     * rear tip at the muzzle and the streak reads as emanating from the gun.
+     */
+    spawnOffset: 0.6,
   },
 
   missile: {
@@ -533,20 +546,22 @@ export const GameConfig = {
 
   secondaryThrusters: {
     // Nozzle positions in ship-local space (outer shipRoot frame, nose = +Z).
+    // Tuned for the spitfire (≈2.38 wide × 1.83 long, centered): nose ≈ +0.9,
+    // tail ≈ -0.9, body sides ≈ ±0.55.
     /** Local Z of the reverse/nose thruster (forward of ship centre). */
-    noseZ: 1.3,
+    noseZ: 0.78,
     /** Absolute local X of the port/starboard strafe thrusters. */
-    sideX: 0.65,
+    sideX: 0.55,
     /** Local Z of the strafe thruster nozzles (roughly mid-body). */
-    sideZ: -0.2,
+    sideZ: 0.0,
 
     // Mesh dimensions.
     /** Diameter of each nozzle glow sphere. */
-    coreDiameter: 0.18,
+    coreDiameter: 0.16,
     /** Length of the jet plume along the ejection axis (world units). */
-    plumeLength: 1.55,
+    plumeLength: 1.05,
     /** Width / thickness of the plume ellipsoid (world units). */
-    plumeWidth: 0.13,
+    plumeWidth: 0.12,
 
     // Animation rates (per-second exponential).
     /** How fast a nozzle fades IN on input. Snappy — matches button press. */
@@ -566,8 +581,22 @@ export const GameConfig = {
   },
 
   engineGlow: {
+    /**
+     * FALLBACK nozzle positions (ship OUTER-root frame: +x = starboard, +z =
+     * forward, so aft is negative z), one glow core + trail per entry. This is
+     * only used when a ship provides no thruster positions of its own: the
+     * player's spitfire supplies them from its `thruster.*` model markers, and
+     * GLB enemies derive theirs from the mesh bounds (Game.rearEmitters). So
+     * this is just a generic single center-rear glow for a marker-less /
+     * procedural fallback ship.
+     */
+    emitters: [
+      { x: 0, y: 0, z: -0.9 },
+    ] as ReadonlyArray<{ x: number; y: number; z: number }>,
+    /** Diameter of each glow core sphere. */
+    coreDiameter: 0.28,
     /** Trail tube diameter. */
-    trailDiameter: 0.3,
+    trailDiameter: 0.22,
     /** Number of trail segments — longer = smoother but more vertices. */
     trailLength: 40,
     /** How fast the glow intensity catches up to the target thrust state. */
@@ -590,6 +619,29 @@ export const GameConfig = {
     mainTextureRatio: 0.5,
   },
 
+  /**
+   * Per-model orientation + scale correction for imported GLBs, keyed by
+   * filename in /public/models/. AssetLoader applies these to the inner model
+   * root (the two-tier root pattern) so each ship's nose points along local
+   * +Z at a size consistent with the fleet. Rotations are RADIANS.
+   *
+   * A model not listed here loads at identity (rotation 0, scale 1).
+   *
+   * HOW TO TUNE: see the header comment in AssetLoader.ts — open the Inspector
+   * (`I`), select the inner model root, dial rotation/scaling until the nose
+   * points "north" at the right size, then copy the values here (Inspector
+   * shows DEGREES; multiply by π/180 for these RADIAN fields).
+   */
+  shipModels: {
+    // The renamed lancer — flat gunship, already nose-along-+Z; ~8u long so
+    // scaled to ~2.3u to sit alongside the procedural fighters.
+    "wraith.glb": { rotX: 0, rotY: 0, rotZ: 0, scale: 0.28 },
+    // Player fighter (Kenney craft_speederD). ~2.8u wide at native scale;
+    // brought down to fleet size. Authored facing the opposite way, so the
+    // glTF RHS→LHS Z-flip leaves it nose-aft — rotY = π turns it nose-forward.
+    "spitfire.glb": { rotX: 0, rotY: Math.PI, rotZ: 0, scale: 0.7 },
+  } as Record<string, { rotX: number; rotY: number; rotZ: number; scale: number }>,
+
   combat: {
     /** Hit radius for ship vs. laser tests (units). */
     shipHitRadius: 1.2,
@@ -606,6 +658,13 @@ export const GameConfig = {
   },
 
   enemy: {
+    /**
+     * Filename of the GLB every enemy fighter flies, loaded once and cloned
+     * per fighter. Per-model orientation/scale lives in
+     * `GameConfig.shipModels`. Set to null to use the procedural faction-themed
+     * fighter mesh (FighterMesh) instead of a model.
+     */
+    shipModel: "wraith.glb" as string | null,
     /** How many enemy fighters share the arena at once. */
     count: 10,
     /**
@@ -617,13 +676,13 @@ export const GameConfig = {
      */
     strikeCount: 3,
     /** Forward acceleration (units / sec^2). Matches player. */
-    thrust: 48,
+    thrust: 38,
     /** Velocity cap. Matches player. */
-    maxSpeed: 35,
+    maxSpeed: 25,
     /** No drag — matches player's zero-drag profile. */
     dragRate: 0,
     /** Angular speed (rad / sec). Matches player. */
-    rotationSpeed: 4.5,
+    rotationSpeed: 3.5,
 
     // --- Movement fields so this block satisfies Ship's movement config.
     // AI fighters don't strafe or reverse (their controller never sets those

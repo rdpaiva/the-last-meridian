@@ -33,6 +33,12 @@ export interface ShipOptions {
   startMissileAmmo: number;
   /** Movement/weapon tuning (GameConfig.player or GameConfig.enemy). */
   movement: ShipMovementConfig;
+  /**
+   * Optional per-ship muzzle positions (ship-local), overriding
+   * `movement.muzzles`. Fed from the model's `muzzle*` markers when present;
+   * falls back to the movement config's muzzles otherwise.
+   */
+  muzzles?: ReadonlyArray<{ x: number; y: number; z: number }>;
   /** Sound played when this ship fires. Maps ship type to audio cue. */
   fireSound: FireSoundKey;
 }
@@ -94,6 +100,9 @@ export class Ship implements DamageTarget {
   /** Next muzzle index for "alternate" fire mode; reset on respawn. */
   private nextMuzzleIdx = 0;
 
+  /** Muzzle positions (ship-local): model markers if given, else the config's. */
+  private readonly muzzles: ReadonlyArray<{ x: number; y: number; z: number }>;
+
   constructor(
     readonly root: TransformNode,
     opts: ShipOptions,
@@ -106,6 +115,7 @@ export class Ship implements DamageTarget {
     this.startMissileAmmo = opts.startMissileAmmo;
     this.missileAmmo = opts.startMissileAmmo;
     this.cfg = opts.movement;
+    this.muzzles = opts.muzzles ?? opts.movement.muzzles;
   }
 
   // ---------- DamageTarget ----------
@@ -249,17 +259,17 @@ export class Ship implements DamageTarget {
     if (this.fireCooldownRemainingMs > 0) return [];
     this.fireCooldownRemainingMs = this.cfg.fireCooldownMs;
 
-    const cfg = this.cfg;
-    if (cfg.muzzles.length === 0) return [];
+    const muzzles = this.muzzles;
+    if (muzzles.length === 0) return [];
 
     const positions: Vector3[] = [];
-    if (cfg.fireMode === "salvo") {
-      for (const m of cfg.muzzles) {
+    if (this.cfg.fireMode === "salvo") {
+      for (const m of muzzles) {
         positions.push(this.worldFromLocal(m.x, m.y, m.z, new Vector3()));
       }
     } else {
-      const m = cfg.muzzles[this.nextMuzzleIdx];
-      this.nextMuzzleIdx = (this.nextMuzzleIdx + 1) % cfg.muzzles.length;
+      const m = muzzles[this.nextMuzzleIdx];
+      this.nextMuzzleIdx = (this.nextMuzzleIdx + 1) % muzzles.length;
       positions.push(this.worldFromLocal(m.x, m.y, m.z, new Vector3()));
     }
     return positions;
