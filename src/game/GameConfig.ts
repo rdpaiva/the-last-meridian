@@ -154,12 +154,14 @@ export const GameConfig = {
   },
 
   arena: {
-    halfWidth: 600,
     /**
-     * Extended to 600 (from 400) so the player's post-launch glide path from
-     * z≈-540 (pod exit) into the combat zone isn't instantly clamped.
-     * Both motherships sit at ±700, safely outside these bounds.
+     * The arena is UNBOUNDED — ships are no longer position-clamped (the AI
+     * leash + player piloting keep the action in the corridor). halfWidth/
+     * halfDepth now only size the reference grid and seed scenery + fighter
+     * spawn scatter; they don't wall anything in. Kept at 600 so spawns still
+     * fan out across the ~±700 carrier-to-carrier corridor.
      */
+    halfWidth: 600,
     halfDepth: 600,
     /** Show the wireframe reference grid floor. Off for now. */
     showGrid: false,
@@ -533,8 +535,20 @@ export const GameConfig = {
     wanderRetargetSec: 1.4,
     /** Magnitude of a wander nudge (radians). */
     wanderJitter: 0.9,
-    /** Bias strength pulling the wander heading back toward arena center. */
-    centerBias: 0.35,
+    /**
+     * Bias strength (0..1) pulling an idle fighter's wander heading toward its
+     * leash anchor — its opponent mothership (see AIController). Now that the
+     * arena is unbounded, this is what keeps fighters pressing the front line
+     * instead of drifting off into empty space.
+     */
+    leashBias: 0.35,
+    /**
+     * Distance (world units) from the leash anchor at which the bias reaches
+     * full strength. Inside it fighters roam freely; beyond it the pull ramps
+     * up to leashBias so they turn back toward the fight. Sized to span the
+     * ~700-unit gap between a fighter at world center and the enemy carrier.
+     */
+    leashRadius: 700,
   },
 
   explosion: {

@@ -311,7 +311,7 @@ export class Game {
     const home = this.motherships[this.playerFaction];
     const launchStart = home.getLaunchStartPosition();
     this.playerShip.respawn(launchStart.x, launchStart.z, home.root.rotation.y);
-    this.launchSequence = new LaunchSequence(home.getLaunchExitZ());
+    this.launchSequence = this.makeLaunchSequence(home);
     this.state = "launching";
 
     // Scatter the enemy fighters into the arena, away from the player.
@@ -454,7 +454,7 @@ export class Game {
           }
 
           const input = c.controller.update(deltaSeconds, ship, this.worldByFaction[ship.faction]);
-          ship.update(deltaSeconds, input, this.arena.halfWidth, this.arena.halfDepth);
+          ship.update(deltaSeconds, input);
 
           if (ship.isAlive && input.fire) {
             const positions = ship.tryFire();
@@ -583,6 +583,22 @@ export class Game {
     else this.sound.playEnemyLaser();
   }
 
+  /**
+   * Build a catapult sequence for the given carrier, derived from its facing so
+   * either mothership launches correctly (humans fire +Z, machines fire -Z).
+   */
+  private makeLaunchSequence(home: Mothership, skipIntro = false): LaunchSequence {
+    const fwd = home.getLaunchForward();
+    return new LaunchSequence(
+      fwd.x,
+      fwd.z,
+      home.position.x,
+      home.position.z,
+      home.getLaunchExitDistance(),
+      skipIntro,
+    );
+  }
+
   /** Respawn a dead ship: player relaunches from its pad, fighters scatter. */
   private respawnShip(ship: Ship, isPlayer: boolean): void {
     if (isPlayer) {
@@ -592,7 +608,7 @@ export class Game {
       const start = home.getLaunchStartPosition();
       ship.respawn(start.x, start.z, home.root.rotation.y);
       // Streamlined catapult — skip the wide shot + countdown on a respawn.
-      this.launchSequence = new LaunchSequence(home.getLaunchExitZ(), true);
+      this.launchSequence = this.makeLaunchSequence(home, true);
       return;
     }
     const avoid = this.playerShip?.position ?? ship.position;

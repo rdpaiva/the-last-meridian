@@ -25,8 +25,21 @@ export class LaunchSequence {
   private kickPending = false;
 
   constructor(
-    /** World-space Z the ship must pass to mark the sequence complete. */
-    private readonly exitZ: number,
+    /**
+     * Unit launch direction (world X/Z) — the carrier's facing. The ship is
+     * catapulted along this axis, so the launch works for either mothership
+     * (humans fire +Z, machines fire -Z).
+     */
+    private readonly dirX: number,
+    private readonly dirZ: number,
+    /** Carrier center (world X/Z); the exit test is measured relative to it. */
+    private readonly originX: number,
+    private readonly originZ: number,
+    /**
+     * Distance along the launch axis (from the carrier center) the ship must
+     * travel to fully clear the bow and hand back to normal control.
+     */
+    private readonly exitDistance: number,
     /**
      * Skip the wide establishing shot + 3-2-1 countdown and catapult
      * immediately at normal zoom. Used on respawn so the player doesn't sit
@@ -112,7 +125,8 @@ export class LaunchSequence {
     if (this.kickPending) {
       this.kickPending = false;
       this._justLaunched = true;
-      ship.velocity.set(0, 0, GameConfig.launch.launchSpeed);
+      const s = GameConfig.launch.launchSpeed;
+      ship.velocity.set(this.dirX * s, 0, this.dirZ * s);
     }
 
     this.elapsedSec += deltaSeconds;
@@ -134,21 +148,28 @@ export class LaunchSequence {
       if (this.elapsedSec >= launchTime) {
         this.phase = "launching";
         this._justLaunched = true;
-        ship.velocity.set(0, 0, cfg.launchSpeed);
+        ship.velocity.set(this.dirX * cfg.launchSpeed, 0, this.dirZ * cfg.launchSpeed);
       }
       return;
     }
 
     if (this.phase === "launching") {
-      // Override physics: maintain constant catapult speed.
-      ship.velocity.set(0, 0, GameConfig.launch.launchSpeed);
-      ship.position.z += GameConfig.launch.launchSpeed * deltaSeconds;
+      // Override physics: maintain constant catapult speed along the launch axis.
+      const s = GameConfig.launch.launchSpeed;
+      ship.velocity.set(this.dirX * s, 0, this.dirZ * s);
+      ship.position.x += this.dirX * s * deltaSeconds;
+      ship.position.z += this.dirZ * s * deltaSeconds;
       ship.root.position.copyFrom(ship.position);
 
-      if (ship.position.z >= this.exitZ) {
+      // Distance travelled past the carrier center, projected onto the launch axis.
+      const proj =
+        (ship.position.x - this.originX) * this.dirX +
+        (ship.position.z - this.originZ) * this.dirZ;
+      if (proj >= this.exitDistance) {
         // Hand off to normal control. Clamp to maxSpeed so the first
         // player-controlled frame isn't in an over-speed state.
-        ship.velocity.set(0, 0, GameConfig.player.maxSpeed);
+        const ms = GameConfig.player.maxSpeed;
+        ship.velocity.set(this.dirX * ms, 0, this.dirZ * ms);
         this.phase = "complete";
       }
     }

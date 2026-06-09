@@ -4,7 +4,7 @@ import type { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { GameConfig } from "./GameConfig";
 import type { DamageTarget, InputState } from "./types";
 import type { Faction } from "./Faction";
-import { clamp, exponentialMultiplier } from "./math";
+import { exponentialMultiplier } from "./math";
 
 /**
  * Movement + weapon tuning a Ship reads each frame. Both GameConfig.player and
@@ -169,12 +169,7 @@ export class Ship implements DamageTarget {
     return this.rightScratch;
   }
 
-  update(
-    deltaSeconds: number,
-    input: InputState,
-    arenaHalfX: number,
-    arenaHalfZ: number,
-  ): void {
+  update(deltaSeconds: number, input: InputState): void {
     if (!this.isAlive) return; // frozen while dead; Game handles respawn.
 
     const cfg = this.cfg;
@@ -220,8 +215,9 @@ export class Ship implements DamageTarget {
     // --- Integrate position ---
     this.position.x += this.velocity.x * deltaSeconds;
     this.position.z += this.velocity.z * deltaSeconds;
-    this.position.x = clamp(this.position.x, -arenaHalfX, arenaHalfX);
-    this.position.z = clamp(this.position.z, -arenaHalfZ, arenaHalfZ);
+    // The arena is unbounded — no position clamp. Ships are kept in the combat
+    // corridor by piloting (the player) and the AIController's leash bias
+    // toward its objective mothership (the AI fighters), not by walls.
 
     // --- Sync visuals ---
     this.root.position.copyFrom(this.position);

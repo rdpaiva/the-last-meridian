@@ -11,7 +11,9 @@ import type { ShipController, ControllerWorld } from "./ShipController";
  *
  * Behavior (unchanged from the original duel):
  *   - No live opponent in engagement range → wander: pick a heading
- *     periodically, biased back toward arena center, with jitter.
+ *     periodically, biased back toward its objective (the opponent mothership),
+ *     with jitter. This leash replaces the old arena-center bias now that the
+ *     arena is unbounded.
  *   - Opponent inside engagementRange → steer to face the nearest one.
  *   - Opponent inside fireRange AND inside the fire cone → hold fire. The
  *     Ship's own fireCooldownMs paces the actual shots (same as the player).
@@ -116,19 +118,28 @@ export class AIController implements ShipController {
     return best;
   }
 
-  /** Picks a new wander heading with center-bias plus jitter (as before). */
+  /**
+   * Picks a new wander heading with leash-bias plus jitter. The leash anchor is
+   * the fighter's objective — its opponent mothership — so idle fighters press
+   * toward the enemy carrier instead of milling at world center. With the arena
+   * now unbounded this bias (not a wall) is what keeps fighters in the fight:
+   * the further a fighter strays from the anchor, the harder its wander heading
+   * is pulled back toward it.
+   */
   private retargetWander(self: Ship, world: ControllerWorld): void {
     const cfg = GameConfig.enemy;
-    const angleToCenter = Math.atan2(-self.position.x, -self.position.z);
-    const distFromCenter = Math.hypot(self.position.x, self.position.z);
-    const arenaRadius = Math.min(world.arenaHalfX, world.arenaHalfZ);
-    const centerPull =
-      clamp(distFromCenter / arenaRadius, 0, 1) * cfg.centerBias;
+    const anchorX = world.opponentMothership?.position.x ?? 0;
+    const anchorZ = world.opponentMothership?.position.z ?? 0;
+    const dx = anchorX - self.position.x;
+    const dz = anchorZ - self.position.z;
+    const angleToAnchor = Math.atan2(dx, dz); // matches forward convention
+    const distFromAnchor = Math.hypot(dx, dz);
+    const leashPull = clamp(distFromAnchor / cfg.leashRadius, 0, 1) * cfg.leashBias;
 
     const jitter = (Math.random() * 2 - 1) * cfg.wanderJitter;
     const naiveTarget = self.rotationY + jitter;
     this.wanderTargetHeading = wrapAngle(
-      naiveTarget * (1 - centerPull) + angleToCenter * centerPull,
+      naiveTarget * (1 - leashPull) + angleToAnchor * leashPull,
     );
 
     this.wanderTimerSec = cfg.wanderRetargetSec * (0.6 + Math.random() * 0.8);

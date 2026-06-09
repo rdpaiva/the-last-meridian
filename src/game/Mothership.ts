@@ -92,8 +92,8 @@ export class Mothership implements DamageTarget {
 
   /**
    * World-space start position inside the starboard launch tube (near the aft
-   * wall). Y is forced to 0 so the fighter sits on the gameplay plane.
-   * Only meaningful for a player-faction ship (rotationY=0).
+   * wall). Y is forced to 0 so the fighter sits on the gameplay plane. Works
+   * for either carrier — the local pod offset is rotated by the root's facing.
    */
   getLaunchStartPosition(): Vector3 {
     const lx = Mothership.STARBOARD_X;
@@ -108,12 +108,21 @@ export class Mothership implements DamageTarget {
   }
 
   /**
-   * World-space Z that the player ship must pass (heading +Z) to have fully
-   * cleared the bow. Only valid for rotationY=0 (player mothership).
+   * Unit forward direction (world X/Z) the catapult fires along — the carrier's
+   * facing. Humans (rotationY=0) launch toward +Z; machines (rotationY=π) toward
+   * -Z. Pairs with getLaunchExitDistance() so the launch works for either side.
    */
-  getLaunchExitZ(): number {
+  getLaunchForward(): { x: number; z: number } {
+    return { x: Math.sin(this.root.rotation.y), z: Math.cos(this.root.rotation.y) };
+  }
+
+  /**
+   * Distance (world units) along the launch-forward axis, measured from the
+   * carrier center, that a fighter must travel to fully clear the bow.
+   */
+  getLaunchExitDistance(): number {
     // Bridge cap overhangs to roughly localZ = +148; add a margin.
-    return this.root.position.z + Mothership.HULL_HALF_DEPTH + 25;
+    return Mothership.HULL_HALF_DEPTH + 25;
   }
 
   // ─── Central hull ─────────────────────────────────────────────────────────

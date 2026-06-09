@@ -33,6 +33,15 @@ and explicitly skipped. Update this when you finish or start work.
 - **Radar** (`Radar.ts`): player-centered north-up canvas minimap, bottom-right;
   faction blips for fighters + both motherships, out-of-range contacts clamped
   to the rim (bearing to the objective)
+- **Unbounded arena** (Phase 4): the X/Z position clamp is gone from `Ship`
+  (`arena.halfWidth/halfDepth` now only size the reference grid + seed spawn
+  scatter — no walls). `AIController` is re-leashed: idle fighters bias their
+  wander toward their objective mothership (`enemy.leashBias`/`leashRadius`),
+  not arena center, so they press the front line instead of drifting off.
+  Launch geometry generalized to the carrier's facing
+  (`Mothership.getLaunchForward()` + `getLaunchExitDistance()` →
+  `LaunchSequence` along an arbitrary axis), so `"machines"` launches correctly
+  from the north pod.
 
 ### Player
 - `Ship` simulation (was `PlayerShip`): thrust, reverse thrust, drag, rotation, speed cap
@@ -168,9 +177,6 @@ Things that have come up in conversation as good ideas but haven't been
 implemented yet. Roughly ordered by gameplay value.
 
 **Agreed next phases (battle build, continuing from the faction spine):**
-- **Unbounded arena** — drop the X/Z position clamps in `Ship`; re-leash
-  `AIController` toward the combat zone / enemy mothership instead of
-  arena-center bias. Match still ends only via mothership destruction.
 - **Carriers launch fighters** — both motherships spawn fighters from their pods
   over time (wave cadence + max-alive cap in `GameConfig`); human-side AI
   wingmen fall out for free.
@@ -181,14 +187,12 @@ implemented yet. Roughly ordered by gameplay value.
   alongside `LocalInputController`/`AIController`; `InputState` is already a
   boolean wire format.
 
-> **Carry-over to fix along the way:** the catapult launch is still
-> humans/south-oriented. `Mothership.getLaunchExitZ()` and `LaunchSequence`
-> drive the ship along world **+Z** and test `position.z >= exitZ`, which only
-> holds for the humans mothership (rotationY 0). Flipping
-> `GameConfig.player.faction` to `"machines"` mirrors combat/colors/targeting
-> correctly, but the launch from the north pod would look wrong. Generalize the
-> launch direction/exit to the mothership's facing when the arena opens up
-> (Phase 4) or carriers start launching fighters (Phase 5).
+> **Carry-over (FIXED in Phase 4):** the catapult launch is now oriented to the
+> carrier's facing. `Mothership.getLaunchForward()` + `getLaunchExitDistance()`
+> drive `LaunchSequence` along the mothership's forward axis (humans +Z, machines
+> -Z), and the exit test projects travel onto that axis instead of testing world
+> Z. Flipping `GameConfig.player.faction` to `"machines"` now launches correctly
+> from the north pod.
 
 - **Score + combo multiplier** — kills earn points; quick consecutive
   kills build a multiplier. Persist best score to localStorage.
