@@ -31,7 +31,7 @@ export class MusicSystem {
   private shuffledQueue: string[] = [];
   private queueIndex = 0;
 
-  constructor(scene: Scene, baseUrl = "/music") {
+  constructor(scene: Scene, baseUrl = `${import.meta.env.BASE_URL}music`) {
     this.scene = scene;
     this.baseUrl = baseUrl;
   }
