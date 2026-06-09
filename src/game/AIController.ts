@@ -20,7 +20,9 @@ export type AIOrder =
   /** Escort the leader in a slot; break to engage threats near the leader, reform. */
   | "cover"
   /** Hold the slot on the leader's wing; fire only at targets in the cone. */
-  | "formation";
+  | "formation"
+  /** Loiter near the friendly mothership; intercept any enemy that enters defendRadius. */
+  | "defend";
 
 export interface AIControllerOptions {
   /** Standing order (default "patrol" = original enemy fighter behavior). */
@@ -150,7 +152,7 @@ export class AIController implements ShipController {
     // (patrol/strike) re-evaluate heading + target only on the reaction timer so
     // they have realistic lag instead of perfect-reflex tracking.
     const perFrame =
-      this.order === "cover" || this.order === "formation" || this.order === "hunt";
+      this.order === "cover" || this.order === "formation" || this.order === "hunt" || this.order === "defend";
     let useCachedPlan = false;
     if (!perFrame) {
       this.reactionTimer -= deltaSeconds;
@@ -239,6 +241,31 @@ export class AIController implements ShipController {
         reverse = cmd.reverse;
         strafeDir = cmd.strafeDir;
         aim = this.nearestLiveOpponent(self, world, Infinity);
+        break;
+      }
+
+      case "defend": {
+        const home = world.homeMothership;
+        const homeX = home?.position.x ?? 0;
+        const homeZ = home?.position.z ?? 0;
+        // Intercept any enemy inside the defense perimeter around the home carrier.
+        const intruder = this.nearestLiveOpponentToPoint(world, homeX, homeZ, cfg.defendRadius);
+        if (intruder) {
+          steerHeading = this.headingTo(self, intruder.position.x, intruder.position.z);
+          aim = intruder;
+        } else {
+          const distFromHome = Math.hypot(
+            self.position.x - homeX,
+            self.position.z - homeZ,
+          );
+          if (distFromHome > cfg.defendOrbitRadius) {
+            // Drifted too far — head straight back to the carrier.
+            steerHeading = this.headingTo(self, homeX, homeZ);
+          } else {
+            // Within orbit — wander freely, leashed to home.
+            steerHeading = this.wander(deltaSeconds, self, world, homeX, homeZ);
+          }
+        }
         break;
       }
 
@@ -473,24 +500,26 @@ export class AIController implements ShipController {
   }
 
   /** Advance the wander timer and return the current leashed wander heading. */
-  private wander(deltaSeconds: number, self: Ship, world: ControllerWorld): number {
+  private wander(
+    deltaSeconds: number,
+    self: Ship,
+    world: ControllerWorld,
+    anchorX = world.opponentMothership?.position.x ?? 0,
+    anchorZ = world.opponentMothership?.position.z ?? 0,
+  ): number {
     this.wanderTimerSec -= deltaSeconds;
-    if (this.wanderTimerSec <= 0) this.retargetWander(self, world);
+    if (this.wanderTimerSec <= 0) this.retargetWander(self, anchorX, anchorZ);
     return this.wanderTargetHeading;
   }
 
   /**
-   * Picks a new wander heading with leash-bias plus jitter. The leash anchor is
-   * the fighter's objective — its opponent mothership — so idle fighters press
-   * toward the enemy carrier instead of milling at world center. With the arena
-   * unbounded this bias (not a wall) is what keeps fighters in the fight: the
-   * further a fighter strays from the anchor, the harder its heading is pulled
-   * back toward it.
+   * Picks a new wander heading with leash-bias plus jitter. The leash anchor
+   * is caller-supplied: patrol/strike use the opponent mothership so idle
+   * fighters press toward the enemy carrier; defend uses the home mothership
+   * so defenders orbit their own carrier.
    */
-  private retargetWander(self: Ship, world: ControllerWorld): void {
+  private retargetWander(self: Ship, anchorX: number, anchorZ: number): void {
     const cfg = GameConfig.ai;
-    const anchorX = world.opponentMothership?.position.x ?? 0;
-    const anchorZ = world.opponentMothership?.position.z ?? 0;
     const dx = anchorX - self.position.x;
     const dz = anchorZ - self.position.z;
     const angleToAnchor = Math.atan2(dx, dz); // matches forward convention

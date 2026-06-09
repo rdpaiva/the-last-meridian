@@ -287,6 +287,7 @@ export class Game {
       humans: {
         opponents: this.shipsByFaction.machines,
         opponentMothership: this.motherships.machines,
+        homeMothership: this.motherships.humans,
         leader: null, // set to the player ship in start() if humans is the player side
         arenaHalfX: this.arena.halfWidth,
         arenaHalfZ: this.arena.halfDepth,
@@ -294,6 +295,7 @@ export class Game {
       machines: {
         opponents: this.shipsByFaction.humans,
         opponentMothership: this.motherships.humans,
+        homeMothership: this.motherships.machines,
         leader: null, // set to the player ship in start() if machines is the player side
         arenaHalfX: this.arena.halfWidth,
         arenaHalfZ: this.arena.halfDepth,
@@ -347,7 +349,7 @@ export class Game {
       });
       const controller = new AIController({
         order: wcfg.orders[i % wcfg.orders.length],
-        slot: wcfg.slots[i % wcfg.slots.length],
+        slot: wcfg.formationSlot(i),
       });
       this.combatants.push({ ship, controller, launch: null, bayIndex: 0 });
       // Each wingman gets its own engine glow + RCS plumes on its outer root, so

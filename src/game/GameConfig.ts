@@ -109,10 +109,12 @@ export const GameConfig = {
      *                 (ignores the mothership); loiter on the leader if none.
      *   "strike"    — press the enemy mothership and fire on it; engage fighters
      *                 only in close self-defense.
+     *   "defend"    — loiter near the friendly mothership; intercept any enemy
+     *                 that enters `ai.defendRadius` of the carrier.
      */
     wingmen: {
       /** How many AI wingmen launch on the player's side. 0 disables the wing. */
-      count: 3,
+      count: 20,
       /**
        * Wingmen fly the PLAYER's ship — the SAME movement/weapon profile
        * (GameConfig.player: thrust, drag, maxSpeed, turn rate, reverse/strafe,
@@ -129,18 +131,26 @@ export const GameConfig = {
        * what each one's standing order + slot is.
        */
       /** Per-wingman standing order (wraps if shorter than count). */
-      orders: ["cover", "cover", "hunt"] as ReadonlyArray<
-        "cover" | "formation" | "hunt" | "strike"
+      orders: ["defend"] as ReadonlyArray<
+        "cover" | "formation" | "hunt" | "strike" | "defend"
       >,
       /**
-       * Per-wingman formation slot, in LEADER-LOCAL units (+x = starboard,
-       * +z = ahead; negative z trails the leader). Used by cover/formation.
+       * Returns the formation slot for wingman `index` in leader-local units
+       * (+x = starboard, -z = behind). Generates an expanding V so any count
+       * produces a reasonable layout without manual slot entries:
+       *
+       *   index 0,1 → close flanks  (±10, -6)
+       *   index 2,3 → mid flanks    (±15, -14)
+       *   index 4,5 → far flanks    (±20, -22)
+       *   …and so on
+       *
+       * Override this function if you want hand-tuned positions instead.
        */
-      slots: [
-        { x: -10, z: -6 },
-        { x: 10, z: -6 },
-        { x: 0, z: -12 },
-      ] as ReadonlyArray<{ x: number; z: number }>,
+      formationSlot(index: number): { x: number; z: number } {
+        const row = Math.floor(index / 2);
+        const side = index % 2 === 0 ? -1 : 1;
+        return { x: side * (10 + row * 5), z: -6 - row * 8 };
+      },
     },
   },
 
@@ -606,28 +616,31 @@ export const GameConfig = {
      * Set 0 for the old behavior (no enemy ever attacks the mothership).
      */
     strikeCount: 3,
-    /** Forward acceleration (units / sec^2). Lower than the player. */
-    thrust: 18,
-    /** Velocity cap. */
-    maxSpeed: 22,
-    /** Drag rate as in player. */
-    dragRate: 1.4,
-    /** Angular speed (rad / sec). */
-    rotationSpeed: 2.0,
+    /** Forward acceleration (units / sec^2). Matches player. */
+    thrust: 48,
+    /** Velocity cap. Matches player. */
+    maxSpeed: 35,
+    /** No drag — matches player's zero-drag profile. */
+    dragRate: 0,
+    /** Angular speed (rad / sec). Matches player. */
+    rotationSpeed: 4.5,
 
     // --- Movement fields so this block satisfies Ship's movement config.
     // AI fighters don't strafe or reverse (their controller never sets those
-    // inputs), so these stay 0; they fire a single nose cannon in salvo mode.
+    // inputs), so these stay 0; they fire dual wing cannons in alternate mode.
     /** Reverse acceleration — unused by AI (kept for Ship config shape). */
     reverseThrust: 0,
     /** Lateral acceleration — unused by AI (kept for Ship config shape). */
     strafeThrust: 0,
-    /** Single nose muzzle (ship-local; +Z = forward). */
-    muzzles: [{ x: 0, y: 0, z: 0.9 }],
-    /** All muzzles fire at once (only one here). */
-    fireMode: "salvo" as "alternate" | "salvo",
-    /** Minimum time between shots. Slower than the player's 120ms. */
-    fireCooldownMs: 700,
+    /** Dual wing muzzles — matches player layout. */
+    muzzles: [
+      { x: -0.85, y: 0, z: 0.1 },
+      { x: 0.85, y: 0, z: 0.1 },
+    ],
+    /** Alternate muzzles — same DPS as the player's alternate dual setup. */
+    fireMode: "alternate" as "alternate" | "salvo",
+    /** Matches player's fire rate. */
+    fireCooldownMs: 120,
   },
 
   /**
@@ -750,6 +763,19 @@ export const GameConfig = {
      * of the LEADER (not of themselves), then return to slot once it is clear.
      */
     coverBreakRange: 45,
+    /**
+     * Radius around the friendly mothership within which a "defend" wingman
+     * will break off its loiter and engage an enemy fighter. Outside this
+     * radius the defender patrols near the carrier; inside it, it intercepts.
+     */
+    defendRadius: 80,
+    /**
+     * How far a "defend" wingman may drift from the home carrier before it
+     * turns back. Within this radius it wanders freely; beyond it, it heads
+     * straight back. Keep below defendRadius so defenders don't loiter so far
+     * out that they miss intruders slipping past.
+     */
+    defendOrbitRadius: 50,
     /**
      * Where a "hunt" wingman loiters when there's no prey AND it has no
      * configured formation slot: this far (world units) directly behind the
