@@ -393,11 +393,6 @@ export class Game {
       markers.rcs,
     );
     this.playerDamageFlash = new DamageFlash(this.scene, loaded.root, this.glowLayer);
-    this.hud.setModelLabel(
-      loaded.usingFallback
-        ? "fallback"
-        : GameConfig.player.shipModel ?? "fallback",
-    );
 
     this.playerCombatant = {
       ship: this.playerShip,

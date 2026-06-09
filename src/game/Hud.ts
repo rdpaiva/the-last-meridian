@@ -19,7 +19,6 @@ export class Hud {
   private readonly lasersEl: Element | null;
   private readonly missilesEl: HTMLElement | null;
   private readonly lockEl: HTMLElement | null;
-  private readonly modelEl: Element | null;
   private readonly zoomEl: Element | null;
   private readonly sfxEl: HTMLElement | null;
   private readonly launchOverlayEl: HTMLElement | null;
@@ -39,7 +38,6 @@ export class Hud {
       <div><span class="label">lasers</span><span id="hud-lasers">0</span></div>
       <div><span class="label">missiles</span><span id="hud-missiles">0</span></div>
       <div><span class="label">lock</span><span id="hud-lock">---</span></div>
-      <div><span class="label">model</span><span id="hud-model">-</span></div>
       <div><span class="label">zoom</span><span id="hud-zoom">1.00</span></div>
       <div><span class="label">sfx</span><span id="hud-sfx">on</span></div>
     `;
@@ -49,7 +47,6 @@ export class Hud {
     this.lasersEl = root.querySelector("#hud-lasers");
     this.missilesEl = root.querySelector<HTMLElement>("#hud-missiles");
     this.lockEl = root.querySelector<HTMLElement>("#hud-lock");
-    this.modelEl = root.querySelector("#hud-model");
     this.zoomEl = root.querySelector("#hud-zoom");
     this.sfxEl = root.querySelector<HTMLElement>("#hud-sfx");
 
@@ -124,9 +121,6 @@ export class Hud {
     this.endBannerEl.className = `end-banner ${outcome}`;
   }
 
-  setModelLabel(label: string): void {
-    if (this.modelEl) this.modelEl.textContent = label;
-  }
 
   /**
    * Show or hide the centered launch countdown overlay. Pass null to hide.
