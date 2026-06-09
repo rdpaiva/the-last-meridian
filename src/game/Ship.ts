@@ -4,7 +4,7 @@ import type { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { GameConfig } from "./GameConfig";
 import type { DamageTarget, FireSoundKey, InputState } from "./types";
 import type { Faction } from "./Faction";
-import { clamp, exponentialMultiplier } from "./math";
+import { clamp, exponentialDecay, exponentialMultiplier } from "./math";
 
 /**
  * Movement + weapon tuning a Ship reads each frame. Both GameConfig.player and
@@ -93,6 +93,8 @@ export class Ship implements DamageTarget {
    */
   explosionFired = false;
 
+  private bankAngle = 0;
+
   private fireCooldownRemainingMs = 0;
   private readonly forwardScratch = new Vector3();
   private readonly rightScratch = new Vector3();
@@ -156,8 +158,10 @@ export class Ship implements DamageTarget {
     this.missileCooldownRemainingMs = 0;
     this.missileAmmo = this.startMissileAmmo;
     this.nextMuzzleIdx = 0;
+    this.bankAngle = 0;
     this.root.position.copyFrom(this.position);
     this.root.rotation.y = this.rotationY;
+    this.root.rotation.z = 0;
     this.root.setEnabled(true);
   }
 
@@ -194,7 +198,12 @@ export class Ship implements DamageTarget {
     let turn = input.turn;
     if (input.rotateRight) turn += 1;
     if (input.rotateLeft) turn -= 1;
-    this.rotationY += clamp(turn, -1, 1) * cfg.rotationSpeed * deltaSeconds;
+    const turnRate = clamp(turn, -1, 1);
+    this.rotationY += turnRate * cfg.rotationSpeed * deltaSeconds;
+
+    // Visual bank: smoothly roll toward the turn direction (cosmetic only).
+    const targetBank = turnRate * GameConfig.bank.maxAngle;
+    this.bankAngle += (targetBank - this.bankAngle) * exponentialDecay(GameConfig.bank.rate, deltaSeconds);
 
     // --- Acceleration ---
     const fwd = this.forward();
@@ -240,6 +249,7 @@ export class Ship implements DamageTarget {
     // --- Sync visuals ---
     this.root.position.copyFrom(this.position);
     this.root.rotation.y = this.rotationY;
+    this.root.rotation.z = -this.bankAngle;
 
     // --- Fire cooldowns ---
     if (this.fireCooldownRemainingMs > 0) {

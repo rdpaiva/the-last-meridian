@@ -980,6 +980,13 @@ export const GameConfig = {
     refDistance: 40,
   },
 
+  bank: {
+    /** Peak roll angle (radians) when turning at full rate. ~0.35 ≈ 20°. */
+    maxAngle: 0.35,
+    /** Smoothing rate (1/sec) for the bank lerp — higher = snappier response. */
+    rate: 6,
+  },
+
   scene: {
     clearColor: { r: 0.02, g: 0.03, b: 0.06 },
     /**
