@@ -1,4 +1,5 @@
 import { Sound } from "@babylonjs/core/Audio/sound";
+import { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine";
 import type { Scene } from "@babylonjs/core/scene";
 
 // Side-effect imports — same audio engine wiring as SoundSystem.
@@ -17,10 +18,13 @@ import { GameConfig } from "./GameConfig";
  * full pass so the same track never leads two cycles in a row (when there
  * are more than one tracks).
  *
- * Playback is deferred until the WebAudio context is running — Babylon
- * internally queues the play() call and fires it once the context resumes
- * after the first user gesture, so no explicit unlock coordination with
- * SoundSystem is needed.
+ * Locked-context caveat: Babylon only re-queues a play() blocked by a
+ * suspended AudioContext when the sound is loop/autoplay — for plain
+ * one-shot sounds like our tracks it shows the unmute icon and DROPS the
+ * play() permanently. So if the engine isn't unlocked yet we queue the
+ * play ourselves on onAudioUnlockedObservable. (Game.start() also unlocks
+ * the context inside the Start-click gesture, so normally we never hit
+ * the locked path at all.)
  */
 export class MusicSystem {
   private readonly scene: Scene;
@@ -85,10 +89,19 @@ export class MusicSystem {
       url,
       this.scene,
       () => {
-        // Ready callback: audio buffer decoded, safe to play. Babylon queues
-        // this internally if the WebAudio context is still suspended and fires
-        // it automatically on the first user-gesture unlock.
-        track.play();
+        // Ready callback: audio buffer decoded, safe to play. If the audio
+        // engine is still locked, defer the play to the unlock event —
+        // Babylon would otherwise discard a locked play() for a
+        // non-loop/non-autoplay sound (see class doc).
+        const ae = AbstractEngine.audioEngine;
+        if (ae && !ae.unlocked) {
+          ae.onAudioUnlockedObservable.addOnce(() => {
+            // Skip if this track was stop()ed/disposed while locked.
+            if (this.currentTrack === track) track.play();
+          });
+        } else {
+          track.play();
+        }
       },
       {
         volume: GameConfig.music.volume,

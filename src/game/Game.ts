@@ -317,6 +317,14 @@ export class Game {
     if (this.started) return;
     this.started = true;
 
+    // start() is called from the splash Start-button click, so this runs
+    // inside a user gesture — resume the WebAudio context NOW. Waiting for
+    // the first gameplay keypress (the tick() unlock) leaves the context
+    // suspended when the music's play() fires, and Babylon drops a locked
+    // play() for non-loop/non-autoplay sounds instead of queueing it,
+    // showing the unmute icon and silencing music for the whole match.
+    this.sound.unlock();
+
     const loader = new AssetLoader(this.scene);
     const loaded = await loader.loadPlayerShip();
     // Enemy fighters clone this template (null → procedural FighterMesh).
