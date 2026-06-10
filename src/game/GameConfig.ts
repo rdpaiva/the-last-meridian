@@ -436,11 +436,20 @@ export const GameConfig = {
      * Seconds between consecutive catapult firings within one fleet's launch
      * queue. At match start a whole wing streams out of the carrier one ship at
      * a time at this cadence — the player first, then each wingman; the enemy
-     * fleet likewise from its own carrier. Because the queue alternates bays
-     * (see mothership.launchBays), two tubes fire in parallel, so each bay
-     * actually fires every 2× this. Smaller = a tighter, faster stream.
+     * fleet likewise from its own carrier. Smaller = a tighter, faster stream.
      */
     staggerSec: 0.4,
+    /**
+     * How many ships fill a launch bay before the queue spills to the next one.
+     * Ships are assigned to bays in contiguous blocks (the first `shipsPerBay`
+     * launch from bay 0, the next `shipsPerBay` from bay 1, …) rather than
+     * alternating, so a small wing — the player and their wingmen — all stream
+     * out of the SAME tube and arrive together instead of one wingman peeling
+     * off the far side of the carrier and having to catch up. Set high enough to
+     * keep a faction's whole fleet in one bay; the extra bay is used only when a
+     * fleet exceeds this count (e.g. the 6-strong enemy wing → 5 + 1).
+     */
+    shipsPerBay: 5,
     /**
      * Distance (world units) before the bow over which the catapult eases the
      * ship from launchSpeed down to its OWN cruise speed (its maxSpeed), so

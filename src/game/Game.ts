@@ -968,16 +968,19 @@ export class Game {
 
   /**
    * Stage a fleet `queue` in the bays of `home` and give each ship a launch
-   * sequence. Ships alternate bays so the wing streams out in parallel, and
-   * each launches `staggerSec` after the previous (the first at `baseHoldSec`,
-   * which for the player side is the cinematic countdown). The player's own
-   * launch is the cinematic one.
+   * sequence. Bays fill in contiguous blocks of `shipsPerBay` (the first block
+   * launches from bay 0, the next from bay 1, …) so a small wing all streams out
+   * of the same tube and arrives together instead of one ship peeling off the
+   * far bay. Each ship launches `staggerSec` after the previous (the first at
+   * `baseHoldSec`, which for the player side is the cinematic countdown). The
+   * player's own launch is the cinematic one.
    */
   private launchFleet(queue: Combatant[], home: Mothership, baseHoldSec: number): void {
     const bays = home.getLaunchBayCount();
+    const perBay = GameConfig.launch.shipsPerBay;
     const stagger = GameConfig.launch.staggerSec;
     queue.forEach((c, i) => {
-      const bayIndex = i % bays;
+      const bayIndex = Math.min(Math.floor(i / perBay), bays - 1);
       c.bayIndex = bayIndex;
       const start = home.getLaunchStartPosition(bayIndex);
       c.ship.respawn(start.x, start.z, home.root.rotation.y);
