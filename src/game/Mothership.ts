@@ -16,15 +16,20 @@ import type { Faction } from "./Faction";
  *
  * Viewed from above the structure is:
  *
- *   [bridge cap]
- *   [== bridge =]
- *   |=== hull ==|   ← central spine (24 wide, 280 long along Z)
+ *   [conning tower]   ← angular command bridge at the bow; viewport faces +Z
+ *   [== decks ===]    ← stacked 2-tier deckhouse amidships (multiple decks)
+ *   |=== hull ==|     ← central spine (24 wide, 280 long along Z)
  *   [= stern =  ]
  *
  *   ....necks....   ← 4 strut pairs spanning the gap each side
  *
  *   [==== starboard pod (38 wide, 220 long) ====]   x = +65 center
  *   [==== port pod      (38 wide, 220 long) ====]   x = -65 center
+ *
+ * Rows of warm amber portholes run the hull flanks, deck sides, and pod outer
+ * edges (faction-NEUTRAL "crew aboard" detail); faction color stays on the hull
+ * and running lights. The command bridge has a forward-raked glowing viewport
+ * band so the crew "looks out onto the battlefield" (the enemy is at +Z).
  *
  * At rotationY=0 (player) the bow faces world +Z.
  * At rotationY=π (enemy) the bow faces world -Z.
@@ -65,10 +70,14 @@ export class Mothership implements DamageTarget {
     const accentMat = this.makeAccentMat(scene, faction);
     const engineMat = this.makeEngineMat(scene);
     const lightMat = this.makeLightMat(scene, faction);
+    const windowMat = this.makeWindowMat(scene);
+    const viewportMat = this.makeViewportMat(scene);
 
-    this.buildCentralHull(scene, hullMat, accentMat, engineMat, glowLayer);
-    this.buildPod(scene, hullMat, accentMat, lightMat, glowLayer, +Mothership.STARBOARD_X, "sb");
-    this.buildPod(scene, hullMat, accentMat, lightMat, glowLayer, -Mothership.STARBOARD_X, "pt");
+    this.buildCentralHull(scene, hullMat, engineMat, windowMat, glowLayer);
+    this.buildDecks(scene, accentMat, windowMat);
+    this.buildBridge(scene, accentMat, viewportMat, windowMat, glowLayer);
+    this.buildPod(scene, hullMat, accentMat, lightMat, windowMat, glowLayer, +Mothership.STARBOARD_X, "sb");
+    this.buildPod(scene, hullMat, accentMat, lightMat, windowMat, glowLayer, -Mothership.STARBOARD_X, "pt");
     this.buildNecks(scene, accentMat);
   }
 
@@ -137,8 +146,8 @@ export class Mothership implements DamageTarget {
   private buildCentralHull(
     scene: Scene,
     hullMat: StandardMaterial,
-    accentMat: StandardMaterial,
     engineMat: StandardMaterial,
+    windowMat: StandardMaterial,
     glowLayer: GlowLayer,
   ): void {
     const L = GameConfig.mothership.hullLength; // 280
@@ -151,27 +160,6 @@ export class Mothership implements DamageTarget {
     hull.material = hullMat;
     hull.isPickable = false;
 
-    // Spine ridge on top — gives the hull a raised backbone visible from above.
-    const spine = MeshBuilder.CreateBox("ms_spine", { width: 13, height: 2.5, depth: L * 0.9 }, scene);
-    spine.position.y = 4.25;
-    spine.parent = r;
-    spine.material = accentMat;
-    spine.isPickable = false;
-
-    // Bridge tower at the bow (+Z end).
-    const bridge = MeshBuilder.CreateBox("ms_bridge", { width: 16, height: 10, depth: 28 }, scene);
-    bridge.position.set(0, 7, HD - 6);
-    bridge.parent = r;
-    bridge.material = accentMat;
-    bridge.isPickable = false;
-
-    // Narrow cap on top of the bridge.
-    const bridgeCap = MeshBuilder.CreateBox("ms_bridge_cap", { width: 8, height: 3.5, depth: 12 }, scene);
-    bridgeCap.position.set(0, 13.5, HD + 2);
-    bridgeCap.parent = r;
-    bridgeCap.material = accentMat;
-    bridgeCap.isPickable = false;
-
     // Reinforced stern block at the aft (-Z) end.
     const stern = MeshBuilder.CreateBox("ms_stern", { width: 20, height: 8, depth: 14 }, scene);
     stern.position.set(0, 0, -HD + 4);
@@ -179,15 +167,161 @@ export class Mothership implements DamageTarget {
     stern.material = hullMat;
     stern.isPickable = false;
 
-    // Engine exhausts: 4 glowing amber squares aft of the stern.
+    // Engine block: a mount that bridges the stern to the glowing nozzles, so
+    // the exhausts read as attached to the hull instead of floating behind it.
+    // Its front overlaps the stern (which ends at z=-HD+11=-129 → spans to -143);
+    // depth 8 centered at -141 spans -145..-137, so it ties into the stern.
+    const mount = MeshBuilder.CreateBox("ms_engine_mount", { width: 19, height: 7, depth: 8 }, scene);
+    mount.position.set(0, 0, -(HD + 1));
+    mount.parent = r;
+    mount.material = hullMat;
+    mount.isPickable = false;
+
+    // 4 glowing amber nozzles seated in the mount's aft face (z=-145).
     const exhaustXs = [-7.5, -2.5, 2.5, 7.5];
     for (let i = 0; i < exhaustXs.length; i++) {
       const ex = MeshBuilder.CreateBox(`ms_exhaust_${i}`, { width: 3.8, height: 3.8, depth: 2 }, scene);
-      ex.position.set(exhaustXs[i], 0, -(HD + 9));
+      ex.position.set(exhaustXs[i], 0, -(HD + 5));
       ex.parent = r;
       ex.material = engineMat;
       ex.isPickable = false;
       glowLayer.addIncludedOnlyMesh(ex);
+    }
+
+    // Portholes down both flanks of the hull (mid-height), bow-to-stern.
+    const hullZ = L * 0.42;
+    this.addWindowRow(scene, "hull_sb", 12, 1.5, -hullZ, +hullZ, 22, +1, windowMat);
+    this.addWindowRow(scene, "hull_pt", -12, 1.5, -hullZ, +hullZ, 22, -1, windowMat);
+  }
+
+  // ─── Decks (multi-tier deckhouse) ─────────────────────────────────────────
+
+  /**
+   * Stacked superstructure amidships — replaces the old single spine ridge with
+   * two stepped tiers so the carrier reads as a multi-deck ship from above and
+   * at the launch-intro angle. Each tier carries a porthole row down each flank.
+   */
+  private buildDecks(
+    scene: Scene,
+    accentMat: StandardMaterial,
+    windowMat: StandardMaterial,
+  ): void {
+    const r = this.root;
+
+    // Lower deck: wide, long — sits on the hull top (hull top face ≈ y+3).
+    const lowZ = 120;
+    const low = MeshBuilder.CreateBox("ms_deck_low", { width: 16, height: 4, depth: lowZ }, scene);
+    low.position.set(0, 5, -10); // centered slightly aft of midships
+    low.parent = r;
+    low.material = accentMat;
+    low.isPickable = false;
+    this.addWindowRow(scene, "deck_low_sb", 8, 5, -lowZ * 0.42, +lowZ * 0.42, 12, +1, windowMat);
+    this.addWindowRow(scene, "deck_low_pt", -8, 5, -lowZ * 0.42, +lowZ * 0.42, 12, -1, windowMat);
+
+    // Upper deck: narrower, shorter — stacked on the lower deck.
+    const upZ = 70;
+    const up = MeshBuilder.CreateBox("ms_deck_up", { width: 10, height: 3, depth: upZ }, scene);
+    up.position.set(0, 8.5, -10);
+    up.parent = r;
+    up.material = accentMat;
+    up.isPickable = false;
+    this.addWindowRow(scene, "deck_up_sb", 5, 8.5, -upZ * 0.4, +upZ * 0.4, 8, +1, windowMat);
+    this.addWindowRow(scene, "deck_up_pt", -5, 8.5, -upZ * 0.4, +upZ * 0.4, 8, -1, windowMat);
+  }
+
+  // ─── Command bridge (angular conning tower) ───────────────────────────────
+
+  /**
+   * Faceted stepped conning tower at the bow. The forward (+Z) face carries a
+   * raked, glowing viewport band — the command center looking out onto the
+   * battlefield (the enemy carrier is at +Z). Side faces get porthole rows.
+   */
+  private buildBridge(
+    scene: Scene,
+    accentMat: StandardMaterial,
+    viewportMat: StandardMaterial,
+    windowMat: StandardMaterial,
+    glowLayer: GlowLayer,
+  ): void {
+    const HD = Mothership.HULL_HALF_DEPTH; // 140
+    const r = this.root;
+    const towerZ = HD - 18; // bridge sits just inboard of the bow
+
+    // Base block (widest tier).
+    const base = MeshBuilder.CreateBox("ms_bridge_base", { width: 18, height: 7, depth: 26 }, scene);
+    base.position.set(0, 9.5, towerZ);
+    base.parent = r;
+    base.material = accentMat;
+    base.isPickable = false;
+    this.addWindowRow(scene, "bridge_base_sb", 9, 9.5, towerZ - 9, towerZ + 9, 5, +1, windowMat);
+    this.addWindowRow(scene, "bridge_base_pt", -9, 9.5, towerZ - 9, towerZ + 9, 5, -1, windowMat);
+
+    // Mid tower (narrower).
+    const mid = MeshBuilder.CreateBox("ms_bridge_mid", { width: 13, height: 6, depth: 18 }, scene);
+    mid.position.set(0, 16, towerZ + 1);
+    mid.parent = r;
+    mid.material = accentMat;
+    mid.isPickable = false;
+
+    // Forward viewport band — raked glass slab on the +Z face, glows.
+    const viewport = MeshBuilder.CreateBox("ms_bridge_viewport", { width: 12, height: 3.2, depth: 1.2 }, scene);
+    viewport.position.set(0, 16.5, towerZ + 11);
+    viewport.rotation.x = -0.35; // rake the glass to look down at the battlefield
+    viewport.parent = r;
+    viewport.material = viewportMat;
+    viewport.isPickable = false;
+    glowLayer.addIncludedOnlyMesh(viewport);
+
+    // Small cap + a pair of sensor masts on top.
+    const cap = MeshBuilder.CreateBox("ms_bridge_cap", { width: 8, height: 2.5, depth: 10 }, scene);
+    cap.position.set(0, 20.5, towerZ + 1);
+    cap.parent = r;
+    cap.material = accentMat;
+    cap.isPickable = false;
+
+    for (const mx of [-3, 3]) {
+      const mast = MeshBuilder.CreateBox(`ms_bridge_mast_${mx}`, { width: 0.7, height: 9, depth: 0.7 }, scene);
+      mast.position.set(mx, 26, towerZ);
+      mast.parent = r;
+      mast.material = accentMat;
+      mast.isPickable = false;
+    }
+  }
+
+  // ─── Window helper ────────────────────────────────────────────────────────
+
+  /**
+   * Places `count` thin emissive window panels evenly along Z on one side face,
+   * at local X = `x` (`faceSign` = +1 starboard / -1 port = which way the flank
+   * faces outward). The panels are seated INTO the surface — their lit face is
+   * coplanar with the flank (a hair proud to avoid z-fighting) and the rest is
+   * recessed into the hull, so they read as inset windows rather than protruding
+   * bumps. Emissive-only: the rows are NOT added to the GlowLayer (a dense
+   * glowing row blows out to white).
+   */
+  private addWindowRow(
+    scene: Scene,
+    tag: string,
+    x: number,
+    y: number,
+    z0: number,
+    z1: number,
+    count: number,
+    faceSign: number,
+    windowMat: StandardMaterial,
+  ): void {
+    const panelThickness = 0.25;        // depth into the hull along the flank normal
+    // Center the panel so its outer face sits ~flush with the surface at `x`
+    // (0.02 proud), the rest sunk inward — gives the inset-window look.
+    const wx = x - faceSign * (panelThickness / 2 - 0.02);
+    for (let i = 0; i < count; i++) {
+      const t = count > 1 ? i / (count - 1) : 0.5;
+      const wz = z0 + t * (z1 - z0);
+      const w = MeshBuilder.CreateBox(`ms_win_${tag}_${i}`, { width: panelThickness, height: 0.7, depth: 0.7 }, scene);
+      w.position.set(wx, y, wz);
+      w.parent = this.root;
+      w.material = windowMat;
+      w.isPickable = false;
     }
   }
 
@@ -198,6 +332,7 @@ export class Mothership implements DamageTarget {
     hullMat: StandardMaterial,
     accentMat: StandardMaterial,
     lightMat: StandardMaterial,
+    windowMat: StandardMaterial,
     glowLayer: GlowLayer,
     centerX: number,
     tag: string,
@@ -244,6 +379,13 @@ export class Mothership implements DamageTarget {
       light.isPickable = false;
       glowLayer.addIncludedOnlyMesh(light);
     }
+
+    // Warm portholes along the pod's OUTER flank (the inner edge carries the
+    // faction running lights above) — distinguishes the two and reads as crew
+    // quarters running the length of the pod.
+    const outerX = centerX + (centerX > 0 ? 19 : -19);
+    const outerSign = centerX > 0 ? +1 : -1;
+    this.addWindowRow(scene, `pod_${tag}`, outerX, 1.5, -PD * 0.42, +PD * 0.42, 18, outerSign, windowMat);
   }
 
   // ─── Neck connectors ──────────────────────────────────────────────────────
@@ -308,6 +450,28 @@ export class Mothership implements DamageTarget {
     mat.emissiveColor = faction === "humans"
       ? new Color3(0.7, 0.85, 1.3)   // cool blue-white
       : new Color3(1.2, 0.35, 0.25); // dull red
+    mat.disableLighting = true;
+    return mat;
+  }
+
+  /** Warm amber porthole glow — faction-neutral. Shared by all window rows. */
+  private makeWindowMat(scene: Scene): StandardMaterial {
+    const mat = new StandardMaterial("ms_window_mat", scene);
+    const c = GameConfig.mothership.windowColor;
+    mat.diffuseColor = Color3.Black();
+    mat.specularColor = Color3.Black();
+    mat.emissiveColor = new Color3(c.r, c.g, c.b);
+    mat.disableLighting = true;
+    return mat;
+  }
+
+  /** Brighter warm amber for the command-bridge viewport glass (this one glows). */
+  private makeViewportMat(scene: Scene): StandardMaterial {
+    const mat = new StandardMaterial("ms_viewport_mat", scene);
+    const c = GameConfig.mothership.viewportColor;
+    mat.diffuseColor = Color3.Black();
+    mat.specularColor = Color3.Black();
+    mat.emissiveColor = new Color3(c.r, c.g, c.b);
     mat.disableLighting = true;
     return mat;
   }
