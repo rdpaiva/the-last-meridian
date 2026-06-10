@@ -3,12 +3,14 @@ import { Game } from "./game/Game";
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement | null;
 const hudRoot = document.getElementById("hud") as HTMLDivElement | null;
 const splash = document.getElementById("splash") as HTMLDivElement | null;
+const splashBegin = document.getElementById("splash-begin") as HTMLDivElement | null;
 const splashPoster = document.getElementById("splash-poster") as HTMLImageElement | null;
 const startBtn = document.getElementById("splash-start") as HTMLButtonElement | null;
 
 if (!canvas) throw new Error("Canvas #renderCanvas not found in DOM");
 if (!hudRoot) throw new Error("HUD root #hud not found in DOM");
 if (!splash) throw new Error("#splash not found in DOM");
+if (!splashBegin) throw new Error("#splash-begin not found in DOM");
 if (!splashPoster) throw new Error("#splash-poster not found in DOM");
 if (!startBtn) throw new Error("#splash-start not found in DOM");
 
@@ -20,16 +22,16 @@ const splashMusic = new Audio(`${import.meta.env.BASE_URL}music/Black Star Pursu
 splashMusic.loop = true;
 splashMusic.volume = 0.45;
 
-// Browsers block autoplay without a prior user gesture. Try immediately and,
-// if blocked, retry on the first interaction so music starts as early as possible.
-void splashMusic.play().catch(() => {
-  const unlock = () => { void splashMusic.play(); };
-  document.addEventListener("mousemove", unlock, { once: true });
-  document.addEventListener("keydown", unlock, { once: true });
-  document.addEventListener("click", unlock, { once: true });
-});
-
 const game = new Game(canvas, hudRoot);
+
+// The "click to begin" overlay click is the user gesture the browser requires
+// to allow audio. It starts the music and (via the `begun` class) the
+// cinematic scroll together, so they stay in sync. `once` means there are no
+// stray listeners left to restart the music after the splash is dismissed.
+splashBegin.addEventListener("click", () => {
+  splash.classList.add("begun");
+  void splashMusic.play();
+}, { once: true });
 
 startBtn.addEventListener("click", () => {
   splashMusic.pause();
