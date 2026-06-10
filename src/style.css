@@ -4,39 +4,44 @@
   position: fixed;
   inset: 0;
   z-index: 100;
-  background-color: #000;
-  background-size: cover;
-  background-position: center top;
-  background-repeat: no-repeat;
+  background: #000;
   display: flex;
-  align-items: flex-end;
-  justify-content: center;
+  align-items: stretch;
 }
 
 #splash.hidden {
   display: none;
 }
 
-#splash-content {
-  width: 100%;
-  padding: 0 0 5vh;
-  background: linear-gradient(to top, rgba(2, 4, 12, 0.97) 60%, transparent);
+#splash-poster-wrap {
+  flex: 0 0 auto;
   display: flex;
+  align-items: center;
   justify-content: center;
+  padding: 24px;
 }
 
-#splash-instructions {
-  max-width: 480px;
-  width: 100%;
-  padding: 32px 24px 24px;
+#splash-poster {
+  height: 100%;
+  max-height: calc(100vh - 48px);
+  width: auto;
+  display: block;
+}
+
+#splash-panel {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 20px;
+  justify-content: center;
+  padding: 48px 40px;
+  gap: 24px;
+  border-left: 1px solid rgba(120, 140, 200, 0.12);
 }
 
 #splash-mission {
   margin: 0;
+  max-width: 360px;
   font-size: 14px;
   line-height: 1.65;
   color: #9aa6c8;
@@ -46,6 +51,7 @@
 
 #splash-controls {
   width: 100%;
+  max-width: 360px;
   display: flex;
   flex-direction: column;
   gap: 6px;
