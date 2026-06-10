@@ -1,4 +1,4 @@
-import { Game } from "./game/Game";
+import { Game, RESTART_FLAG } from "./game/Game";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement | null;
 const hudRoot = document.getElementById("hud") as HTMLDivElement | null;
@@ -56,20 +56,30 @@ function stopSplashMusic(): void {
 
 const game = new Game(canvas, hudRoot);
 
-// The "click to begin" overlay click is the user gesture the browser requires
-// to allow audio. It starts the music and (via the `begun` class) the
-// cinematic scroll together, so they stay in sync. `once` means there are no
-// stray handlers left over after the splash is dismissed.
-splashBegin.addEventListener("click", () => {
-  splash.classList.add("begun");
-  void startSplashMusic();
-}, { once: true });
-
-startBtn.addEventListener("click", () => {
-  stopSplashMusic();
+if (sessionStorage.getItem(RESTART_FLAG)) {
+  // This load is the end-of-match restart (Enter on the result banner) —
+  // the player already sat through the splash, so skip it and go straight
+  // back into the game. Audio resumes on their first keypress (a reloaded
+  // page has no user gesture yet, so it can't resume here).
+  sessionStorage.removeItem(RESTART_FLAG);
   splash.classList.add("hidden");
   void game.start();
-});
+} else {
+  // The "click to begin" overlay click is the user gesture the browser requires
+  // to allow audio. It starts the music and (via the `begun` class) the
+  // cinematic scroll together, so they stay in sync. `once` means there are no
+  // stray handlers left over after the splash is dismissed.
+  splashBegin.addEventListener("click", () => {
+    splash.classList.add("begun");
+    void startSplashMusic();
+  }, { once: true });
+
+  startBtn.addEventListener("click", () => {
+    stopSplashMusic();
+    splash.classList.add("hidden");
+    void game.start();
+  });
+}
 
 window.addEventListener("resize", () => {
   game.handleResize();

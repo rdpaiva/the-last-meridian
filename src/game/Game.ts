@@ -44,6 +44,12 @@ import type { DamageTarget } from "./types";
 /** Match lifecycle. The match has a beginning (launch), middle (playing), end. */
 type GameState = "launching" | "playing" | "victory" | "defeat";
 
+/**
+ * sessionStorage flag set just before the end-of-match restart reload.
+ * main.ts checks it on load to skip the splash and start the game directly.
+ */
+export const RESTART_FLAG = "space-duel-restart";
+
 /** A ship plus whatever drives it (keyboard / AI / future network). */
 interface Combatant {
   ship: Ship;
@@ -497,12 +503,19 @@ export class Game {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    // A real keydown is a user gesture, so resuming the audio context here
+    // always succeeds. Covers the restart path, where start() runs on page
+    // load without a gesture. No-op once unlocked.
+    this.sound.unlock();
     if (e.code === "KeyM") {
       this.sound.toggleMute();
       this.hud.setMuted(this.sound.isMuted);
     }
     // Restart after the match ends. Enter isn't a gameplay key, so no conflict.
+    // A full reload is the reset (guaranteed-clean state); the flag tells
+    // main.ts to skip the splash and drop the player straight back in.
     if (e.code === "Enter" && (this.state === "victory" || this.state === "defeat")) {
+      sessionStorage.setItem(RESTART_FLAG, "1");
       window.location.reload();
     }
   };

@@ -61,6 +61,11 @@ class PooledSound {
   }
 
   play(): void {
+    // Drop the shot while the audio engine is still locked: Babylon reacts
+    // to a play() against a suspended context by showing the unmute icon
+    // and discarding the one-shot anyway. Matters on the restart path,
+    // where the game (and its launch SFX) starts before any user gesture.
+    if (AbstractEngine.audioEngine?.unlocked === false) return;
     const s = this.sounds[this.idx];
     this.idx = (this.idx + 1) % this.sounds.length;
     // Sound.play() is a no-op if the buffer isn't ready yet — quiet by
@@ -71,6 +76,7 @@ class PooledSound {
 
   /** Set the 3D position of the next slot and play it (spatial sounds only). */
   playAt(position: Vector3): void {
+    if (AbstractEngine.audioEngine?.unlocked === false) return; // see play()
     const s = this.sounds[this.idx];
     this.idx = (this.idx + 1) % this.sounds.length;
     if (s.isReady()) {
