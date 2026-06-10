@@ -7,6 +7,26 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
+    <div id="splash">
+      <div id="splash-content">
+        <div id="splash-instructions">
+          <p id="splash-mission">
+            Destroy the enemy mothership before yours falls. Protect your
+            carrier—and hunt theirs down.
+          </p>
+          <div id="splash-controls">
+            <div class="ctrl-row"><span class="ctrl-key">W / ↑</span><span class="ctrl-desc">Thrust forward</span></div>
+            <div class="ctrl-row"><span class="ctrl-key">S / ↓</span><span class="ctrl-desc">Reverse thrust</span></div>
+            <div class="ctrl-row"><span class="ctrl-key">A / ← · D / →</span><span class="ctrl-desc">Rotate</span></div>
+            <div class="ctrl-row"><span class="ctrl-key">Q · E</span><span class="ctrl-desc">Strafe left / right</span></div>
+            <div class="ctrl-row"><span class="ctrl-key">Space</span><span class="ctrl-desc">Fire lasers</span></div>
+            <div class="ctrl-row"><span class="ctrl-key">Shift</span><span class="ctrl-desc">Launch missile</span></div>
+            <div class="ctrl-row"><span class="ctrl-key">+ / −</span><span class="ctrl-desc">Zoom</span></div>
+          </div>
+          <button id="splash-start">START GAME</button>
+        </div>
+      </div>
+    </div>
     <canvas id="renderCanvas"></canvas>
     <div id="hud"></div>
     <script type="module" src="/src/main.ts"></script>

@@ -1,3 +1,106 @@
+/* ── Splash screen ─────────────────────────────────────────────────────── */
+
+#splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background-color: #000;
+  background-size: cover;
+  background-position: center top;
+  background-repeat: no-repeat;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+#splash.hidden {
+  display: none;
+}
+
+#splash-content {
+  width: 100%;
+  padding: 0 0 5vh;
+  background: linear-gradient(to top, rgba(2, 4, 12, 0.97) 60%, transparent);
+  display: flex;
+  justify-content: center;
+}
+
+#splash-instructions {
+  max-width: 480px;
+  width: 100%;
+  padding: 32px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+#splash-mission {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.65;
+  color: #9aa6c8;
+  text-align: center;
+  letter-spacing: 0.03em;
+}
+
+#splash-controls {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid rgba(120, 140, 200, 0.18);
+  border-bottom: 1px solid rgba(120, 140, 200, 0.18);
+  padding: 14px 0;
+}
+
+.ctrl-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.ctrl-key {
+  min-width: 150px;
+  text-align: right;
+  color: #89b4fa;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.ctrl-desc {
+  color: #7f8aa6;
+  letter-spacing: 0.02em;
+}
+
+#splash-start {
+  margin-top: 4px;
+  padding: 12px 40px;
+  background: transparent;
+  border: 1px solid rgba(137, 180, 250, 0.55);
+  border-radius: 4px;
+  color: #cdd6f4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, color 0.15s;
+}
+
+#splash-start:hover {
+  background: rgba(137, 180, 250, 0.12);
+  border-color: rgba(137, 180, 250, 0.9);
+  color: #89b4fa;
+  box-shadow: 0 0 18px rgba(137, 180, 250, 0.3);
+}
+
+#splash-start:active {
+  background: rgba(137, 180, 250, 0.22);
+}
+
+/* ── Base ───────────────────────────────────────────────────────────────── */
+
 html,
 body {
   margin: 0;

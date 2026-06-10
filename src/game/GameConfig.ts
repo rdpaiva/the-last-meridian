@@ -181,9 +181,9 @@ export const GameConfig = {
 
   missile: {
     /** Missiles the player starts with; refills to this on respawn. */
-    maxAmmo: 30,
+    maxAmmo: 10,
     /** Travel speed (world units / sec). Constant — no acceleration. */
-    speed: 35,
+    speed: 45,
     /** Time before an in-flight missile self-destructs. */
     lifetimeMs: 4000,
     /**
