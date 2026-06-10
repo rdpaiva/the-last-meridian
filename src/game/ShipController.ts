@@ -3,6 +3,18 @@ import type { Ship } from "./Ship";
 import type { Mothership } from "./Mothership";
 
 /**
+ * Minimal view of a round obstacle (an asteroid) for AI path avoidance.
+ * Structurally satisfied by `Asteroid` — `radius` is its conservative
+ * max-extent collision circle, which is what a pilot should steer clear of
+ * (stable under tumble, errs on the safe side).
+ */
+export interface AvoidObstacle {
+  position: { x: number; z: number };
+  radius: number;
+  isAlive: boolean;
+}
+
+/**
  * Read-only view of the world a controller needs to decide its inputs. Built
  * fresh (cheaply) by Game each frame for each AI ship — a local/keyboard
  * controller ignores it.
@@ -21,6 +33,12 @@ export interface ControllerWorld {
    * can wire it once the async-loaded player ship exists.
    */
   leader: Ship | null;
+  /**
+   * Live asteroids to steer around (the AsteroidField's array, held by
+   * reference so shatter chunks appear automatically). AIController runs an
+   * avoidance pass over these after every order's plan.
+   */
+  obstacles: ReadonlyArray<AvoidObstacle>;
   arenaHalfX: number;
   arenaHalfZ: number;
 }

@@ -246,6 +246,87 @@ export const GameConfig = {
     showGrid: false,
   },
 
+  /**
+   * Drifting asteroid field — the arena's terrain. Rocks are DESTRUCTIBLE
+   * (HP, shatter into smaller chunks) and double as line-of-sight COVER: a
+   * laser/missile that reaches a rock is consumed by it (see LaserSystem /
+   * MissileSystem — asteroids are checked as obstacles BEFORE the ship target
+   * loop, so a bolt can't pass through a rock to the ship behind it). Ships
+   * that ram a rock are hard-bumped to its surface and take damage.
+   */
+  asteroids: {
+    /** How many rocks seed the field at match start. 0 disables the field. */
+    count: 50,
+    /** Visual radius range (world units). Each rock picks one in this band. */
+    radiusMin: 8,
+    radiusMax: 24,
+    /**
+     * Collision radius as a fraction of the visual radius. < 1 so clipping a
+     * rock's jagged silhouette reads as a near-miss rather than a phantom hit.
+     */
+    collisionScale: 0.82,
+    /** Y level — on the gameplay plane so rocks are real cover, not underfoot. */
+    yLevel: 0,
+    /** Drift speed range (units/sec). Slow — rocks creep across the arena. */
+    driftSpeedMin: 1.5,
+    driftSpeedMax: 5,
+    /** Per-axis tumble rate range (rad/sec). */
+    spinRateMin: 0.05,
+    spinRateMax: 0.3,
+    /** HP per unit of visual radius — bigger rocks soak more fire. */
+    hpPerRadius: 15,
+    /** Damage a ship takes when it rams a rock (gated by bumpCooldownSec). */
+    collisionDamage: 22,
+    /** Minimum seconds between ram-damage applications to one ship. */
+    bumpCooldownSec: 0.5,
+    /** Rocks at/below this visual radius vanish on death instead of splitting. */
+    minSplitRadius: 7,
+    /** Child chunks spawned when a splittable rock is destroyed. */
+    splitCount: 2,
+    /** Child visual radius as a fraction of the parent's. */
+    splitRadiusFactor: 0.58,
+    /** Outward speed kick (units/sec) added to each chunk on shatter. */
+    splitSpeed: 6,
+    /** Keep-clear radius around each mothership where rocks won't spawn. */
+    mothershipClearance: 180,
+    /**
+     * Icosphere subdivisions. Higher = more, smaller facets = a rounder, less
+     * pointy silhouette (at more verts). 3 gives a chunky-but-rounded rock; 2 is
+     * sharply faceted, 4 approaches smooth.
+     */
+    meshDetail: 10,
+    /**
+     * Radial displacement as a fraction of radius (silhouette lumpiness). The
+     * displacement is smooth/coherent across the surface (see Asteroid.buildMesh),
+     * so this controls how bumpy the potato is — keep it modest (~0.2-0.3) or
+     * the lobes grow into sharp points. Higher = craggier, lower = rounder.
+     */
+    lumpiness: .28,
+    /**
+     * Each rock squashes two of its three axes by a random factor in
+     * [squashMin, 1] — this is what kills the "ball" silhouette. One axis
+     * always stays at 1 so `visualRadius` remains the true max extent (keeps
+     * the collision-circle derivation honest). 1 disables squash entirely.
+     */
+    squashMin: 0.85,
+    /** How many crater dents each rock gets (random in [min, max]). */
+    craterCountMin: 25,
+    craterCountMax: 75,
+    /** Crater footprint, as an angular radius on the rock's surface (radians). */
+    craterRadiusMin: 0.15,
+    craterRadiusMax: 0.95,
+    /** Crater depth as a fraction of the rock's radius (each crater varies ±40%). */
+    craterDepth: 0.10,
+    /**
+     * Per-face brightness jitter for the flat-shaded facets: each face is
+     * darkened by a random amount in [0, faceTintJitter]. Breaks the uniform
+     * "grey plastic" look into mineral patchiness. 0 disables.
+     */
+    faceTintJitter: 0.3,
+    /** Camera trauma when a rock shatters (distance-scaled like other remote FX). */
+    shatterTrauma: 0.4,
+  },
+
   mothership: {
     /** Z-axis span of the central spine (world units). */
     hullLength: 280,
@@ -731,6 +812,18 @@ export const GameConfig = {
    * `enemy`, which both sides' fighters share so the dogfight stays symmetric).
    */
   ai: {
+    /**
+     * --- Asteroid avoidance (every order, every frame) ---
+     * A pilot scans `avoidLookahead` units ahead along its intended heading;
+     * if a rock's collision circle (plus the ship's radius plus avoidMargin)
+     * straddles that path, the pilot steers for the tangent that clears the
+     * rock on the side it's already offset toward, then resumes its order.
+     */
+    /** How far ahead (world units) a pilot looks for rocks on its path. */
+    avoidLookahead: 55,
+    /** Extra clearance (units) beyond ship + rock radii when passing a rock. */
+    avoidMargin: 6,
+
     /** Range at which a fighter stops wandering and turns toward a target. */
     engagementRange: 35,
     /** Range below which a fighter will fire when its cone is on target. */

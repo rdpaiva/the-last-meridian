@@ -38,6 +38,15 @@ export type MissileSystemOptions = {
   materialName?: string;
   /** Called once per missile that detonates, with the world-space impact point. */
   onHit?: (position: Vector3) => void;
+  /**
+   * Live obstacles (asteroids) a missile detonates against. Checked BEFORE the
+   * target loop, so a rock blocks a missile (cover) and the missile still pops
+   * its explosion on the rock. Damaged on contact (rocks are destructible).
+   * Held by reference — the field mutates it as rocks shatter/are destroyed.
+   * NOTE: the seeker (findSeekerTarget) ignores these, so missiles home on
+   * ships, not rocks — they only detonate on a rock they happen to fly into.
+   */
+  obstacles?: DamageTarget[];
 };
 
 export class MissileSystem {
@@ -50,6 +59,8 @@ export class MissileSystem {
   private readonly onHit: ((position: Vector3) => void) | null;
   /** Targets every missile tests against each frame (all enemies). */
   private readonly targets: DamageTarget[] = [];
+  /** Asteroid cover missiles detonate against (held by reference; may be empty). */
+  private readonly obstacles: DamageTarget[];
 
   constructor(
     private readonly scene: Scene,
@@ -58,6 +69,7 @@ export class MissileSystem {
     this.minDamage = options.minDamage;
     this.maxDamage = options.maxDamage;
     this.onHit = options.onHit ?? null;
+    this.obstacles = options.obstacles ?? [];
 
     const name = options.materialName ?? "missile_mat";
 
@@ -220,6 +232,31 @@ export class MissileSystem {
         const found = this.findSeekerTarget(missile);
         if (found) missile.acquire(found);
       }
+
+      // Cover: a rock in the way detonates the missile (and chips the rock).
+      // Checked before targets so a missile can't punch through cover.
+      let blocked = false;
+      for (const rock of this.obstacles) {
+        if (!rock.isAlive) continue;
+        const dx = missile.mesh.position.x - rock.position.x;
+        const dz = missile.mesh.position.z - rock.position.z;
+        const distSq = dx * dx + dz * dz;
+        // Broad phase vs. the conservative circle, then the exact directional
+        // silhouette (see LaserSystem — squashed rocks shouldn't detonate a
+        // missile that visibly cleared them).
+        if (distSq > rock.hitRadius * rock.hitRadius) continue;
+        const r = rock.surfaceRadiusToward
+          ? rock.surfaceRadiusToward(dx, dz)
+          : rock.hitRadius;
+        if (distSq <= r * r) {
+          rock.takeDamage(this.rollDamage());
+          this.onHit?.(missile.mesh.position);
+          missile.kill();
+          blocked = true;
+          break;
+        }
+      }
+      if (blocked) continue;
 
       // Collision: X/Z distance vs. each live target (Y ignored — single
       // plane). First overlap detonates the missile.

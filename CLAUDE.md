@@ -164,6 +164,8 @@ src/
     math.ts                clamp, lerp, exponentialDecay, exponentialMultiplier
     InputManager.ts        keyboard tracker with blur-safe key clearing
     Arena.ts               wireframe grid plane + position clamping helper
+    Asteroid.ts            single destructible drifting rock (faceted icosphere; DamageTarget + line-of-sight cover obstacle)
+    AsteroidField.ts       rock collection: spawn/drift/wrap + shatter-into-chunks; exposes obstacles[] (held by reference by the weapon systems for cover)
     AssetLoader.ts         GLB importer with procedural fallback (two-tier root); fallback has two designs (classic/viper) via GameConfig.player.shipDesign
     Faction.ts             humans|machines type + opposing() + FACTION_THEME (colors/labels)
     Ship.ts                unified ship sim + HP + DamageTarget + muzzle/fire (config-injected; merges old PlayerShip/EnemyShip)

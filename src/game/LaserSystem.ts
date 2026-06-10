@@ -39,6 +39,14 @@ export type LaserSystemOptions = {
    * the "you landed a hit" jolt only for the player, not every AI wingman shot.
    */
   onHit?: (target: DamageTarget, fromPlayer: boolean) => void;
+  /**
+   * Live obstacles (asteroids) that block bolts as line-of-sight cover. Checked
+   * BEFORE the target loop each frame, so a bolt entering a rock is consumed
+   * there and can't pass through to a ship behind it. Damaged on contact (rocks
+   * are destructible). Held by reference — the field mutates this array as rocks
+   * shatter/are destroyed, and the system sees the changes for free.
+   */
+  obstacles?: DamageTarget[];
 };
 
 export class LaserSystem {
@@ -46,6 +54,8 @@ export class LaserSystem {
   private readonly material: Material;
   private readonly damage: number;
   private readonly onHit: ((target: DamageTarget, fromPlayer: boolean) => void) | null;
+  /** Asteroid cover bolts are blocked by (held by reference; may be empty). */
+  private readonly obstacles: DamageTarget[];
   /**
    * Targets this system's bolts test against each frame. The player system
    * registers every enemy (multi-target); the enemy system registers just
@@ -60,6 +70,7 @@ export class LaserSystem {
   ) {
     this.damage = options.damage;
     this.onHit = options.onHit ?? null;
+    this.obstacles = options.obstacles ?? [];
 
     const mat = new StandardMaterial(
       options.materialName ?? "laser_mat",
@@ -129,10 +140,36 @@ export class LaserSystem {
 
   update(deltaSeconds: number, deltaMs: number): void {
     const targets = this.targets;
+    const obstacles = this.obstacles;
 
     for (const laser of this.lasers) {
       laser.update(deltaSeconds, deltaMs);
       if (laser.isExpired) continue;
+
+      // Cover: asteroids block bolts. Checked BEFORE targets, so a rock between
+      // the gun and a ship eats the bolt (line-of-sight blocking) and chips the
+      // rock (destructible). Same X/Z point-in-circle test as targets.
+      let blocked = false;
+      for (const rock of obstacles) {
+        if (!rock.isAlive) continue;
+        const dx = laser.mesh.position.x - rock.position.x;
+        const dz = laser.mesh.position.z - rock.position.z;
+        const distSq = dx * dx + dz * dz;
+        // Broad phase vs. the conservative circle, then the exact directional
+        // silhouette (asteroids are squashed ellipsoids — a bolt skimming a
+        // rock's short axis should pass, not vanish into empty space).
+        if (distSq > rock.hitRadius * rock.hitRadius) continue;
+        const r = rock.surfaceRadiusToward
+          ? rock.surfaceRadiusToward(dx, dz)
+          : rock.hitRadius;
+        if (distSq <= r * r) {
+          rock.takeDamage(this.damage);
+          laser.kill();
+          blocked = true;
+          break;
+        }
+      }
+      if (blocked) continue;
 
       // Collision: simple X/Z sphere test against each live target. Y axis is
       // ignored — gameplay is on one plane. First overlap consumes the bolt.

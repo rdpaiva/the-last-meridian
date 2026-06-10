@@ -26,6 +26,7 @@ import { Starfield } from "./Starfield";
 import { EngineGlow } from "./EngineGlow";
 import { SecondaryThrusters } from "./SecondaryThrusters";
 import { CapitalShips } from "./CapitalShips";
+import { AsteroidField } from "./AsteroidField";
 import { Nebulas } from "./Nebulas";
 import { Backdrop } from "./Backdrop";
 import { ExplosionSystem } from "./ExplosionSystem";
@@ -87,6 +88,7 @@ export class Game {
   private readonly glowLayer: GlowLayer;
   private readonly input: InputManager;
   private readonly arena: Arena;
+  private readonly asteroids: AsteroidField;
   private readonly playerMissiles: MissileSystem;
   private readonly explosions: ExplosionSystem;
   private readonly sound: SoundSystem;
@@ -151,6 +153,13 @@ export class Game {
    * camera (so shake animates) and renders.
    */
   private hitstopUntilMs = 0;
+
+  /**
+   * Per-ship wall-clock timestamp of the last asteroid ram-damage, so a ship
+   * pinned against a rock takes damage on a cooldown (asteroids.bumpCooldownSec)
+   * instead of every frame.
+   */
+  private readonly lastBumpMs = new Map<Ship, number>();
 
   constructor(canvas: HTMLCanvasElement, hudRoot: HTMLDivElement) {
     this.engine = new Engine(
@@ -248,6 +257,19 @@ export class Game {
       ),
     };
 
+    // Drifting destructible asteroid field — the arena terrain. Rocks keep
+    // clear of both carriers at spawn so nobody launches into one. Its obstacle
+    // list is handed to the weapon systems below for line-of-sight cover.
+    this.asteroids = new AsteroidField(
+      this.scene,
+      this.arena.halfWidth,
+      this.arena.halfDepth,
+      [
+        { x: this.motherships.humans.position.x, z: this.motherships.humans.position.z, radius: GameConfig.asteroids.mothershipClearance },
+        { x: this.motherships.machines.position.x, z: this.motherships.machines.position.z, radius: GameConfig.asteroids.mothershipClearance },
+      ],
+    );
+
     this.sound = new SoundSystem(this.scene);
     this.music = new MusicSystem(this.scene);
 
@@ -260,12 +282,14 @@ export class Game {
       emissive: FACTION_THEME.humans.laserEmissive,
       materialName: FACTION_THEME.humans.laserMaterialName,
       onHit: (target, fromPlayer) => this.onLaserHit(target, fromPlayer),
+      obstacles: this.asteroids.obstacles,
     });
     const machinesLasers = new LaserSystem(this.scene, {
       damage: GameConfig.combat.laserDamage,
       emissive: FACTION_THEME.machines.laserEmissive,
       materialName: FACTION_THEME.machines.laserMaterialName,
       onHit: (target, fromPlayer) => this.onLaserHit(target, fromPlayer),
+      obstacles: this.asteroids.obstacles,
     });
     this.factionLasers = { humans: humansLasers, machines: machinesLasers };
 
@@ -277,6 +301,7 @@ export class Game {
       finColor: new Color3(0.78, 0.16, 0.16),
       trailEmissive: new Color3(2.2, 0.7, 0.1),
       materialName: "player_missile_mat",
+      obstacles: this.asteroids.obstacles,
       onHit: (pos) => {
         this.explosions.spawn(pos);
         this.sound.playExplosion(pos);
@@ -286,6 +311,16 @@ export class Game {
     });
 
     this.explosions = new ExplosionSystem(this.scene, this.glowLayer);
+
+    // Pop an explosion + sound + (distance-scaled) trauma when a rock shatters.
+    this.asteroids.onShatter = (pos, radius) => {
+      this.explosions.spawn(pos);
+      this.sound.playExplosion(pos);
+      this.cameraRig.addTrauma(
+        this.traumaAtDistance(GameConfig.asteroids.shatterTrauma, pos) *
+          Math.min(1, radius / GameConfig.asteroids.radiusMax),
+      );
+    };
 
     // Enemy AI fighters are built in start(), not here: they clone a GLB
     // template (GameConfig.enemy.shipModel) that has to be loaded async first,
@@ -305,6 +340,7 @@ export class Game {
         opponentMothership: this.motherships.machines,
         homeMothership: this.motherships.humans,
         leader: null, // set to the player ship in start() if humans is the player side
+        obstacles: this.asteroids.asteroids,
         arenaHalfX: this.arena.halfWidth,
         arenaHalfZ: this.arena.halfDepth,
       },
@@ -313,6 +349,7 @@ export class Game {
         opponentMothership: this.motherships.humans,
         homeMothership: this.motherships.machines,
         leader: null, // set to the player ship in start() if machines is the player side
+        obstacles: this.asteroids.asteroids,
         arenaHalfX: this.arena.halfWidth,
         arenaHalfZ: this.arena.halfDepth,
       },
@@ -574,6 +611,64 @@ export class Game {
     return best;
   }
 
+  /**
+   * Hard-bump any ship overlapping a rock back to the rock's surface, kill the
+   * inward velocity component (so it doesn't keep boring in), and deal ram
+   * damage on a per-ship cooldown. Ships still in the launch tube are exempt
+   * (their catapult drives them past the carrier's keep-clear zone anyway).
+   */
+  private resolveAsteroidCollisions(nowMs: number): void {
+    const cfg = GameConfig.asteroids;
+    const bumpCooldownMs = cfg.bumpCooldownSec * 1000;
+    for (const c of this.combatants) {
+      const ship = c.ship;
+      if (!ship.isAlive) continue;
+      if (c.launch && !c.launch.isComplete) continue;
+      for (const rock of this.asteroids.asteroids) {
+        if (!rock.isAlive) continue;
+        const dx = ship.position.x - rock.position.x;
+        const dz = ship.position.z - rock.position.z;
+        const distSq = dx * dx + dz * dz;
+        // Broad phase vs. the conservative max-extent circle, then the exact
+        // directional silhouette — a squashed rock's short axis shouldn't
+        // bump a ship that's visibly clear of it.
+        const maxDist = ship.hitRadius + rock.radius;
+        if (distSq >= maxDist * maxDist) continue;
+        const minDist = ship.hitRadius + rock.surfaceRadiusToward(dx, dz);
+        if (distSq >= minDist * minDist) continue;
+
+        const dist = Math.sqrt(distSq) || 0.0001;
+        const nx = dx / dist;
+        const nz = dz / dist;
+        // Shove the ship out to the rock's surface and re-sync its visual.
+        ship.position.x = rock.position.x + nx * minDist;
+        ship.position.z = rock.position.z + nz * minDist;
+        ship.root.position.copyFrom(ship.position);
+        // Cancel the velocity component pointing INTO the rock (vn < 0 = inward).
+        const vn = ship.velocity.x * nx + ship.velocity.z * nz;
+        if (vn < 0) {
+          ship.velocity.x -= vn * nx;
+          ship.velocity.z -= vn * nz;
+        }
+
+        // Ram damage, cooldowned so a ship pinned against a rock isn't shredded.
+        const last = this.lastBumpMs.get(ship) ?? -Infinity;
+        if (nowMs - last >= bumpCooldownMs) {
+          this.lastBumpMs.set(ship, nowMs);
+          ship.takeDamage(cfg.collisionDamage);
+          if (ship === this.playerShip) {
+            this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
+            this.playerDamageFlash?.trigger();
+            this.sound.playHit(ship.position);
+          } else {
+            this.aiDamageFlashes.get(ship)?.trigger();
+          }
+        }
+        break; // one bump per ship per frame
+      }
+    }
+  }
+
   /** Refill the per-faction ship rosters that back the controller world. */
   private refreshRosters(): void {
     this.shipsByFaction.humans.length = 0;
@@ -700,6 +795,9 @@ export class Game {
           }
         }
 
+        // Ships that rammed a rock this frame: hard-bump them off it + damage.
+        this.resolveAsteroidCollisions(nowMs);
+
         // Death FX + respawn, per combatant.
         for (const c of this.combatants) {
           const ship = c.ship;
@@ -725,6 +823,9 @@ export class Game {
         this.factionLasers.humans.update(deltaSeconds, deltaMs);
         this.factionLasers.machines.update(deltaSeconds, deltaMs);
         this.playerMissiles.update(deltaSeconds, deltaMs);
+
+        // Drift/tumble the rocks + process any shattered by the fire above.
+        this.asteroids.update(deltaSeconds);
 
         this.checkObjectives();
       }
@@ -792,7 +893,12 @@ export class Game {
         this.motherships.machines.hp / this.motherships.machines.maxHp,
       );
       if (this.playerShip) {
-        this.radar.update(this.playerShip, this.shipsByFaction, this.motherships);
+        this.radar.update(
+          this.playerShip,
+          this.shipsByFaction,
+          this.motherships,
+          this.asteroids.asteroids,
+        );
       }
       this.hud.setLaunchOverlay(this.playerLaunch?.overlayText ?? null);
       this.hud.setEndBanner(

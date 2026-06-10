@@ -2,7 +2,7 @@ import { GameConfig } from "./GameConfig";
 import { clamp, exponentialDecay, wrapAngle } from "./math";
 import type { InputState } from "./types";
 import type { Ship } from "./Ship";
-import type { ShipController, ControllerWorld } from "./ShipController";
+import type { ShipController, ControllerWorld, AvoidObstacle } from "./ShipController";
 
 /**
  * A standing order for a computer pilot. Assigned once at spawn (Phase 5: the
@@ -85,6 +85,17 @@ export class AIController implements ShipController {
     reverse: false,
     strafeDir: 0,
   };
+
+  /**
+   * Avoidance scratch (reused each frame, render loop stays allocation-free):
+   * threat* hold the most imminent rock found by the scanForThreat passes;
+   * avoid* hold the escape maneuver avoidObstacles computed from it.
+   */
+  private threatRock: AvoidObstacle | null = null;
+  private threatEdge = Infinity;
+  private threatLateral = 0;
+  private avoidSteerHeading = 0;
+  private avoidStrafeDir = 0;
 
   private wanderTargetHeading = Math.random() * Math.PI * 2;
   private wanderTimerSec = 0;
@@ -294,6 +305,25 @@ export class AIController implements ShipController {
       }
     }
 
+    // Asteroid avoidance overrides every order's COMMANDS: a pilot about to
+    // fly into a rock steers for the clearing tangent, thrusts along it, and
+    // strafes away — then resumes its order once past. It must own the
+    // thrusters, not just the nose: the formation/cover servo strafes the
+    // ship toward its slot regardless of facing, so a heading-only override
+    // lets the servo push a wingman sideways into a rock with its nose
+    // politely pointed away. Runs per-frame AFTER the plan cache, so even the
+    // slow-thinking orders (patrol/strike) never coast into a rock between
+    // reaction ticks.
+    if (this.avoidObstacles(self, world, steerHeading)) {
+      steerHeading = this.avoidSteerHeading;
+      thrust = true;
+      reverse = false;
+      strafeDir = this.avoidStrafeDir;
+      // Reset the servo's jet latches so it re-decides cleanly after the dodge.
+      this.prevFwdCmd = 0;
+      this.prevLatCmd = 0;
+    }
+
     // --- Shared tail: turn the plan into button presses. ---
     // Steer the nose with PROPORTIONAL control (an analog turn rate), not
     // bang-bang keys. The rate saturates to full beyond steerBand of error and
@@ -327,6 +357,102 @@ export class AIController implements ShipController {
   /** Heading (radians) from `self` toward a world point, in the +Z-forward convention. */
   private headingTo(self: Ship, x: number, z: number): number {
     return Math.atan2(x - self.position.x, z - self.position.z);
+  }
+
+  /**
+   * Steer around asteroids. Scans for the most imminent live rock whose
+   * collision circle — inflated by the ship's radius + avoidMargin — straddles
+   * either travel path within avoidLookahead:
+   *
+   *   - the INTENDED path (the order's steer heading), and
+   *   - the ACTUAL velocity direction.
+   *
+   * The second scan is what saves servo-flown wingmen: holding formation they
+   * strafe and coast in directions their nose never points, so a heading-only
+   * scan is blind to a rock they're sliding into sideways.
+   *
+   * Returns true if a threat was found, with the escape written to
+   * avoidSteerHeading (the tangent past the rock on the side it's already
+   * offset from — the cheaper turn; saturates to a perpendicular break if
+   * already inside the clearance circle) and avoidStrafeDir (jets away from
+   * the rock relative to the ship's current facing).
+   */
+  private avoidObstacles(
+    self: Ship,
+    world: ControllerWorld,
+    steerHeading: number,
+  ): boolean {
+    // Reset the shared threat scratch, then scan both travel directions.
+    // (Reset lives in a helper so TS doesn't narrow threatRock to null here —
+    // it can't see scanForThreat mutate the field.)
+    this.resetThreatScan();
+    // Intended path (+Z-forward convention: x = sin, z = cos).
+    this.scanForThreat(self, world, Math.sin(steerHeading), Math.cos(steerHeading));
+    const speed = Math.hypot(self.velocity.x, self.velocity.z);
+    if (speed > 1) {
+      this.scanForThreat(
+        self, world, self.velocity.x / speed, self.velocity.z / speed,
+      );
+    }
+    const threat = this.threatRock;
+    if (!threat) return false;
+
+    const cfg = GameConfig.ai;
+    const dx = threat.position.x - self.position.x;
+    const dz = threat.position.z - self.position.z;
+    const dist = Math.hypot(dx, dz) || 1;
+    const clear = threat.radius + self.hitRadius + cfg.avoidMargin;
+    const angleToRock = Math.atan2(dx, dz);
+    const offset = Math.asin(clamp(clear / dist, 0, 1));
+    // Rock right of path → pass left (smaller heading); left → pass right.
+    this.avoidSteerHeading = wrapAngle(
+      this.threatLateral >= 0 ? angleToRock - offset : angleToRock + offset,
+    );
+    // Strafe away from the rock relative to current FACING (strafe jets are
+    // body-relative): rock on the starboard side → strafe left, and vice versa.
+    const rightX = Math.cos(self.rotationY);
+    const rightZ = -Math.sin(self.rotationY);
+    this.avoidStrafeDir = dx * rightX + dz * rightZ >= 0 ? -1 : 1;
+    return true;
+  }
+
+  /** Clear the threat scratch before a fresh pair of avoidance scans. */
+  private resetThreatScan(): void {
+    this.threatRock = null;
+    this.threatEdge = Infinity;
+    this.threatLateral = 0;
+  }
+
+  /**
+   * One avoidance scan along a unit direction: finds rocks whose clearance
+   * circle straddles that path within avoidLookahead and keeps the one with
+   * the nearest edge in the threat scratch fields (shared across the two
+   * scans avoidObstacles runs, so the most imminent threat overall wins).
+   */
+  private scanForThreat(
+    self: Ship,
+    world: ControllerWorld,
+    dirX: number,
+    dirZ: number,
+  ): void {
+    const cfg = GameConfig.ai;
+    for (const rock of world.obstacles) {
+      if (!rock.isAlive) continue;
+      const dx = rock.position.x - self.position.x;
+      const dz = rock.position.z - self.position.z;
+      const along = dx * dirX + dz * dirZ; // distance ahead along the path
+      if (along <= 0) continue; // behind us — no threat
+      const edge = along - rock.radius; // distance to the rock's near edge
+      if (edge > cfg.avoidLookahead) continue; // too far ahead to care yet
+      const clear = rock.radius + self.hitRadius + cfg.avoidMargin;
+      const lateral = dx * dirZ - dz * dirX; // signed: rock right(+)/left(-)
+      if (Math.abs(lateral) >= clear) continue; // path already clears it
+      if (edge < this.threatEdge) {
+        this.threatEdge = edge;
+        this.threatRock = rock;
+        this.threatLateral = lateral;
+      }
+    }
   }
 
   /**

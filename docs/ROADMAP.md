@@ -153,6 +153,48 @@ and explicitly skipped. Update this when you finish or start work.
   Hunt now re-plans every frame (like formation/cover) so the escort heading
   stays fresh and the chase tracks tightly.
 
+### Asteroid field (terrain + cover)
+- **`AsteroidField` + `Asteroid`** — a drifting, tumbling field of procedural
+  low-poly rocks (faceted icospheres with jittered verts) on the gameplay plane.
+  Count/size/drift/spin and all combat knobs live in `GameConfig.asteroids`.
+- **Line-of-sight cover** — rocks are registered as `obstacles` on both
+  `LaserSystem`s and the `MissileSystem`, checked BEFORE the ship-target loop. A
+  bolt/missile entering a rock's circle is consumed there, so a rock between a
+  shooter and its target blocks the shot (real cover). The seeker/lock logic
+  ignores rocks, so missiles still home on ships and only detonate on a rock they
+  fly into.
+- **Destructible + shatter** — each rock implements `DamageTarget` with HP scaled
+  by size; weapon fire chips it, and on death it pops an explosion (size-scaled
+  trauma via `AsteroidField.onShatter`) and splits into smaller drifting chunks
+  (down to `minSplitRadius`). Chunks are pushed into the same live `obstacles`
+  array, so the weapon systems pick them up with no extra wiring.
+- **Hard bump + ram damage** — `Game.resolveAsteroidCollisions` shoves any ship
+  overlapping a rock to its surface, cancels the inward velocity component, and
+  deals ram damage on a per-ship cooldown (player gets trauma + damage flash +
+  hit SFX). Ships in the launch tube are exempt.
+- **Drift + wrap** — rocks creep across the arena and wrap at the bounds
+  (`±halfWidth/Depth + radius`) so the field stays populated; spawns keep clear
+  of both carriers (`mothershipClearance`). Neutral grey blips on the radar.
+- **Rock realism** — each rock is squashed into a random ellipsoid
+  (`squashMin`), dented with craters, noise-displaced, and flat-shaded with
+  per-face tonal jitter; fully matte material (specular reads as plastic).
+- **Silhouette-accurate collision** — `Asteroid.surfaceRadiusToward` returns
+  the radial extent of the rock's TOP-DOWN SHADOW (the tumbling ellipsoid
+  projected onto the X/Z plane, via Schur complement; refreshed per frame).
+  Ship bumps, laser cover, and missile cover all test against it, so contact
+  matches what the camera shows: no phantom bumps off empty space (max-extent
+  circle) and no ghost overlaps (y=0 cross-section is narrower than the
+  visible silhouette when the bulk tilts out of plane).
+- **AI asteroid avoidance** — every `AIController` order runs a per-frame
+  avoidance pass (`ai.avoidLookahead` / `ai.avoidMargin`): it scans for rocks
+  straddling both the intended heading AND the actual velocity direction (the
+  latter saves servo-flown wingmen sliding sideways in formation), then takes
+  full control — steers the clearing tangent, thrusts along it, strafes away —
+  until past. Wingmen visibly break formation around rocks and reform.
+- **Not yet (stretch):** AI cover SEEKING — fighters avoid rocks but don't yet
+  path to keep one between themselves and a shooter. The MVP plays well
+  without it.
+
 ### Combat
 - Two `LaserSystem` instances per faction (player → enemy, enemy → player)
 - Per-bolt X/Z sphere collision against a single target

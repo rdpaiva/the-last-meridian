@@ -45,4 +45,13 @@ export interface DamageTarget {
   readonly hitRadius: number;
   readonly isAlive: boolean;
   takeDamage(amount: number): void;
+  /**
+   * Optional directional refinement of `hitRadius` for non-round targets:
+   * the collision radius along the given world X/Z direction FROM this
+   * target's center (need not be normalized). Asteroids implement it from
+   * their squashed, tumbling ellipsoid so collisions match the visible
+   * silhouette; collision code falls back to the circular `hitRadius`
+   * (the conservative max extent) when absent.
+   */
+  surfaceRadiusToward?(dirX: number, dirZ: number): number;
 }

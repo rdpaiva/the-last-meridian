@@ -1,5 +1,6 @@
 import type { Ship } from "./Ship";
 import type { Mothership } from "./Mothership";
+import type { Asteroid } from "./Asteroid";
 import type { Faction } from "./Faction";
 import { GameConfig } from "./GameConfig";
 
@@ -69,6 +70,7 @@ export class Radar {
     player: Ship,
     shipsByFaction: Record<Faction, Ship[]>,
     motherships: Record<Faction, Mothership>,
+    asteroids: Asteroid[],
   ): void {
     const ctx = this.ctx;
     const c = this.center;
@@ -86,6 +88,13 @@ export class Radar {
     ctx.arc(c, c, this.radiusPx * 0.5, 0, Math.PI * 2);
     ctx.strokeStyle = "rgba(120, 140, 200, 0.18)";
     ctx.stroke();
+
+    // Asteroids (terrain — drawn under the contacts). In-range only; clamping
+    // ambient rocks to the rim would clutter the bearing to real contacts.
+    for (const rock of asteroids) {
+      if (!rock.isAlive) continue;
+      this.plotRock(rock, player);
+    }
 
     // Motherships (drawn first so fighters sit on top): faction diamonds.
     this.plotDiamond(motherships.humans, player, "humans");
@@ -129,6 +138,21 @@ export class Radar {
     ctx.globalAlpha = offEdge ? 0.55 : 1;
     ctx.fill();
     ctx.globalAlpha = 1;
+  }
+
+  /** Neutral grey dot for a rock, sized from its radius. In-range only. */
+  private plotRock(rock: Asteroid, player: Ship): void {
+    const { x, y, offEdge } = this.project(
+      rock.position.x - player.position.x,
+      rock.position.z - player.position.z,
+    );
+    if (offEdge) return;
+    const r = Math.max(1.2, rock.radius * this.scale);
+    const ctx = this.ctx;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(150, 144, 134, 0.55)";
+    ctx.fill();
   }
 
   private plotDiamond(ms: Mothership, player: Ship, faction: Faction): void {
