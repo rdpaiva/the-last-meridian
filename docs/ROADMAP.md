@@ -239,6 +239,9 @@ and explicitly skipped. Update this when you finish or start work.
   Respawns: every ship — player, wingmen, and enemy fleet — relaunches (skip-intro)
   from its own carrier's assigned bay, so reinforcements always re-enter from the
   mothership rather than popping into the arena.
+- **Carrier fleet launch** — both motherships launch their full fighter complement
+  from their pod bays at match start; ships respawn back through their carrier bay
+  on death, so reinforcements always re-enter from the mothership
 - `CameraRig.setZoom()` for programmatic zoom override during launch (bypasses
   `maxZoom` upper clamp so the cinematic wide-shot can exceed the player range)
 - Arena `halfDepth` expanded 400→600 to accommodate the post-launch glide path
@@ -281,11 +284,6 @@ Things that have come up in conversation as good ideas but haven't been
 implemented yet. Roughly ordered by gameplay value.
 
 **Agreed next phases (battle build, continuing from the faction spine):**
-- **Carriers launch fighters** — both motherships spawn fighters from their pods
-  over time (wave cadence + max-alive cap in `GameConfig`), instead of the
-  current fixed roster scattered/formed-up at match start. (Player-side AI
-  wingmen themselves are now done — see Phase 5 under Done; this is the
-  remaining carrier-driven *spawn cadence* piece.)
 - **Mothership defenses** — pod-mounted gun turrets + missile launchers as
   sub-emitters; optionally per-part hitboxes so pods/turrets can be shot off.
 - **Multiplayer** — now a planned direction (not out of scope). The
