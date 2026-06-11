@@ -6,6 +6,9 @@ import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
+import { DefaultRenderingPipeline } from "@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline";
+// ACES tone-mapping constant lives on ImageProcessingConfiguration.
+import { ImageProcessingConfiguration } from "@babylonjs/core/Materials/imageProcessingConfiguration";
 // Builds a cube/IBL environment from an equirectangular image — used to light
 // the PBR (metallic) GLB ships, which need an environment to reflect.
 import { EquiRectangularCubeTexture } from "@babylonjs/core/Materials/Textures/equiRectangularCubeTexture";
@@ -189,18 +192,22 @@ export class Game {
     this.glowLayer.intensity = GameConfig.glow.intensity;
 
     // --- Lights ---
+    // Intensities/colors live in GameConfig.lighting — tuned together with
+    // postProcess.exposure so lit hulls stay bright while the frame is pulled
+    // down to keep the background dark.
+    const lcfg = GameConfig.lighting;
     const hemi = new HemisphericLight("hemi", new Vector3(0, 1, 0), this.scene);
-    hemi.intensity = 0.55;
-    hemi.groundColor = new Color3(0.05, 0.05, 0.12);
-    hemi.diffuse = new Color3(0.6, 0.7, 0.95);
+    hemi.intensity = lcfg.hemiIntensity;
+    hemi.groundColor = new Color3(lcfg.hemiGround.r, lcfg.hemiGround.g, lcfg.hemiGround.b);
+    hemi.diffuse = new Color3(lcfg.hemiSky.r, lcfg.hemiSky.g, lcfg.hemiSky.b);
 
     const sun = new DirectionalLight(
       "sun",
-      new Vector3(-0.4, -1, 0.2),
+      new Vector3(lcfg.sunDirection.x, lcfg.sunDirection.y, lcfg.sunDirection.z),
       this.scene,
     );
-    sun.intensity = 0.75;
-    sun.diffuse = new Color3(1, 0.95, 0.85);
+    sun.intensity = lcfg.sunIntensity;
+    sun.diffuse = new Color3(lcfg.sunColor.r, lcfg.sunColor.g, lcfg.sunColor.b);
 
     // --- Environment (IBL) ---
     // The GLB ships use PBR materials — the spitfire's are fully metallic — and
@@ -214,7 +221,7 @@ export class Game {
       this.scene,
       256,
     );
-    this.scene.environmentIntensity = 0.6;
+    this.scene.environmentIntensity = lcfg.environmentIntensity;
 
     // --- Factions ---
     this.playerFaction = GameConfig.player.faction;
@@ -327,6 +334,8 @@ export class Game {
     // the same way the player's wingmen clone the player's loaded ship.
 
     this.cameraRig = new CameraRig(this.scene);
+    // Self-registers with the scene (like Nebulas/CapitalShips) — no handle kept.
+    this.buildPostPipeline();
     this.starfield = new Starfield(this.scene, this.cameraRig.camera);
     this.hud = new Hud(hudRoot);
     this.radar = new Radar();
@@ -354,6 +363,48 @@ export class Game {
         arenaHalfZ: this.arena.halfDepth,
       },
     };
+  }
+
+  /**
+   * Build the full-frame post pipeline: ACES tone mapping + FXAA. Returns null
+   * if disabled in config. HDR target (`true`) so the tone-mapper has float
+   * headroom to roll off the >1.0 emissive highlights instead of clipping. This
+   * runs AFTER the GlowLayer's per-mesh bloom — both passes coexist: glow blooms
+   * individual emissive meshes, this tone-maps + antialiases the composite.
+   *
+   * The pipeline self-registers with the scene's render-pipeline manager, so no
+   * handle is kept (same fire-and-forget pattern as Nebulas/CapitalShips).
+   */
+  private buildPostPipeline(): void {
+    const cfg = GameConfig.postProcess;
+    if (!cfg.enabled) return;
+
+    const pipeline = new DefaultRenderingPipeline(
+      "post",
+      true, // HDR: float texture, needed for tone mapping to have headroom
+      this.scene,
+      [this.cameraRig.camera],
+    );
+
+    // We only want tone mapping + FXAA here; the DefaultRenderingPipeline's own
+    // bloom stays off (the GlowLayer already owns bloom).
+    pipeline.bloomEnabled = false;
+    pipeline.fxaaEnabled = cfg.fxaa;
+
+    const ip = pipeline.imageProcessing;
+    ip.toneMappingEnabled = cfg.toneMapping;
+    ip.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES;
+    // exposure + contrast counter ACES lifting the dark backdrop: pull the
+    // global level down and deepen shadows so the fighters keep their contrast.
+    ip.exposure = cfg.exposure;
+    ip.contrast = cfg.contrast;
+
+    // Black multiply vignette: darkens the frame edges (where the bright nebulas
+    // sit) and frames the action toward center. Multiply blend with the default
+    // black vignetteColor just attenuates the corners.
+    ip.vignetteEnabled = cfg.vignette;
+    ip.vignetteWeight = cfg.vignetteWeight;
+    ip.vignetteBlendMode = ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
   }
 
   async start(): Promise<void> {

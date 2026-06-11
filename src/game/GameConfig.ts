@@ -739,6 +739,38 @@ export const GameConfig = {
     trailFadeOutRate: 3.5,
   },
 
+  /**
+   * Scene lighting for the non-emissive surfaces — ship hulls, the motherships,
+   * asteroids. (Emissive things — lasers, engines, the backdrop/nebulas — ignore
+   * lights and are governed by their own emissive color + the GlowLayer.)
+   *
+   * These are tuned ALONGSIDE postProcess.exposure: the post pipeline pulls the
+   * whole frame down to keep the background dark, so the lights are pushed up to
+   * compensate, keeping the lit objects (the mothership especially) bright. If a
+   * ship/mothership reads too dark, raise the intensities here — NOT the exposure
+   * (that re-brightens the background you darkened).
+   */
+  lighting: {
+    /** Hemispheric ambient fill — the base wash on every surface. */
+    hemiIntensity: 0.9,
+    /** Sky-side fill color (lights surfaces facing up). */
+    hemiSky: { r: 0.6, g: 0.7, b: 0.95 },
+    /** Ground-side fill color (lights surfaces facing down). Cool + dim. */
+    hemiGround: { r: 0.05, g: 0.05, b: 0.12 },
+    /** Key directional "sun" — the main shaping light + shadows/highlights. */
+    sunIntensity: 1.2,
+    /** Sun travel direction (it points roughly straight down for the top view). */
+    sunDirection: { x: -0.4, y: -1, z: 0.2 },
+    /** Warm sun color. */
+    sunColor: { r: 1, g: 0.95, b: 0.85 },
+    /**
+     * IBL reflection strength for PBR (metallic) GLB ships — they're rendered
+     * almost entirely by what they reflect, so this is effectively their
+     * brightness. Raised with the lights so metals don't go flat under exposure.
+     */
+    environmentIntensity: 0.75,
+  },
+
   glow: {
     /** Overall bloom strength. 0.5 = subtle, 1.0 = vivid, 1.5+ = neon. */
     intensity: 0.75,
@@ -746,6 +778,53 @@ export const GameConfig = {
     blurKernelSize: 32,
     /** GlowLayer internal texture scale. 0.5 = half-res = faster. */
     mainTextureRatio: 0.5,
+  },
+
+  /**
+   * Full-screen post-processing (DefaultRenderingPipeline). This is a SEPARATE
+   * pass from the GlowLayer above: the GlowLayer blooms individual emissive
+   * meshes; this pipeline tone-maps and antialiases the final composited frame.
+   *
+   * ACES tone mapping is the point. Without it the >1.0 emissive colors that
+   * lasers/engines/explosions use clip straight to flat white; ACES rolls the
+   * highlights off filmically so a hot bolt keeps its colored core. FXAA then
+   * smooths the low-poly hull and wireframe-grid edges on the composited image.
+   *
+   * Caveat ACES introduces: its S-curve also LIFTS shadows/midtones, which
+   * brightens the (previously near-black) backdrop + nebulas and eats the
+   * foreground/background contrast — the fighters start to blend into the lit
+   * background. exposure (down), contrast (up), and the vignette below exist to
+   * pull that separation back: darken the frame globally + at the edges while
+   * the rolled-off lasers/engines stay hot.
+   */
+  postProcess: {
+    /** Master switch for the whole pipeline (cheap escape hatch if it misbehaves). */
+    enabled: true,
+    /** ACES filmic tone mapping — tames the emissive highlight clipping. */
+    toneMapping: true,
+    /**
+     * Scene exposure feeding the tone-mapper. 1.0 = neutral. Set BELOW 1 to pull
+     * the ACES-lifted background back down toward black: midtones darken roughly
+     * linearly while the highlight rolloff keeps lasers/engines hot, so this buys
+     * foreground/background separation without dimming the bolts. Raise to push
+     * more of the image into the rolloff.
+     */
+    exposure: 0.7,
+    /**
+     * Tonal contrast (1.0 = neutral). Slightly >1 deepens the shadows ACES
+     * lifted — re-darkens the empty space around the fighters so they pop.
+     */
+    contrast: 1.15,
+    /** Fast-approximate antialiasing on the final frame. */
+    fxaa: true,
+    /**
+     * Edge darkening. The brightest nebulas sit at the frame perimeter, so a
+     * gentle black multiply vignette both knocks those down and frames the
+     * dogfight in the center. Disable for a flat, evenly-lit frame.
+     */
+    vignette: true,
+    /** Vignette strength. Higher = darker/wider corners. ~2-3 reads as subtle. */
+    vignetteWeight: 2.0,
   },
 
   /**
