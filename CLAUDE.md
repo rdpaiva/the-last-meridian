@@ -205,7 +205,7 @@ The whole game's tuning lives in `src/game/GameConfig.ts`. Major sections:
 
 | Section | What it controls |
 |---|---|
-| `shipTypes` | THE SHIP CATALOG: one complete profile per type (spitfire / breaker / wraith) — movement, muzzles, fireMode, `maxHp`, per-bolt `laserDamage`, `missileAmmo`, `hitRadius`, GLB `model`, fire sound. Add a ship = add an entry (see `docs/RECIPES.md` → "Add a new ship type") |
+| `shipTypes` | THE SHIP CATALOG: one complete profile per type (spitfire / breaker / wraith / reaver) — movement, muzzles, fireMode, `maxHp`, per-bolt `laserDamage`, `missileAmmo`, `hitRadius`, GLB `model`, fire sound. Add a ship = add an entry (see `docs/RECIPES.md` → "Add a new ship type") |
 | `player` | `shipType` (which catalog entry the pilot — and the wingmen — fly), faction, procedural fallback `shipDesign` |
 | `enemy` | `fleet` composition (list of `{ type, count }` catalog picks) + `strikeCount` (how many attack the player mothership) |
 | `ai` | Shared AI decision knobs: engage/fire ranges, fire cone, wander, leash, formation gains |

@@ -92,3 +92,33 @@ pods, spinal four-barrel battery, twin ribbed engine nacelles. Flown via the
 `File → Export → glTF 2.0 (.glb)`, format **GLB**, **+Y up**, apply
 modifiers, selection = the `Breaker` collection (keeps the preview
 camera/lights out).
+
+## `reaver.blend` → `public/models/reaver.glb`
+
+Low-poly Reaver heavy gunship (the Novari strike craft — see the story
+bible). Dark gunmetal faceted hull with violet emissives: lofted
+diamond-section fuselage, glowing violet canopy lens + bright core orb,
+two crescent scythe wings raking forward, triple-barrel gun pod under each
+wing, twin long chin cannons reaching past the nose, twin aft engines with
+glowing nozzle discs. Flown via the `reaver` entry in `GameConfig.shipTypes`.
+
+### Conventions baked into the model
+- **Axes (FIGHTER convention, same as the breaker):** nose along **-Y**, up
+  **+Z** → lands nose-+Z in Babylon, so `GameConfig.shipModels["reaver.glb"]`
+  needs no rotation correction, only `scale: 0.35` (~9.1u long, 12.1u blade
+  span native).
+- **Root:** everything parented to the `Reaver_Gunship` empty in the
+  `Reaver` collection; origin centered, hull midline at z≈0.
+- **Marker empties** (read by `AssetLoader.extractMarkers` — keep on
+  re-export): `muzzle.NL/NR` (chin cannon tips), `muzzle.WL/WR` (wing gun
+  pod tips), `thruster.L/R` (engine nozzles), `rcs.nose/port/stbd`. The
+  `reaver` catalog entry's `muzzles` list mirrors these × 0.35 — keep both
+  in sync (enemy fleet clones read only the config list).
+- **Naming:** meshes prefixed `Reaver_`. Emissive parts (canopy, core orb,
+  nozzle glow discs, trim slits) use modest strengths (~2.5-3) per the
+  GlowLayer/ACES blow-out gotcha; engine THRUST glow still comes from the
+  runtime `EngineGlow` via the thruster markers.
+
+### Export settings
+Same as the Breaker — GLB, +Y up, apply modifiers (bakes the wing
+Solidify), selection = the `Reaver` collection.

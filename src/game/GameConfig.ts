@@ -140,6 +140,49 @@ const shipTypes = {
     hitRadius: 1.2,
     fireSound: "laserGun",
   },
+
+  /**
+   * Reaver — the Novari HEAVY GUNSHIP (story bible: the machines' answer to
+   * the Breaker — more aggressive and alien, built to crack the Bastion).
+   * Slow scythe-winged weapons platform: out-hits and out-soaks the Breaker
+   * slightly, carries the biggest missile rack in the catalog, and turns
+   * like a barge. Four muzzles (twin long chin cannons + the two wing gun
+   * pods) ripple in alternate mode. reverse/strafe stay 0 like the Wraith's:
+   * the AIController never sets those inputs.
+   */
+  reaver: {
+    model: "reaver.glb",
+    thrust: 36,
+    reverseThrust: 0,
+    strafeThrust: 0,
+    /** Between the Wraith (20) and Breaker (17) — heavy but Novari-smooth. */
+    maxSpeed: 18,
+    dragRate: 0.9,
+    /** Even more ponderous than the Breaker's 2.9. */
+    rotationSpeed: 2.7,
+    fireCooldownMs: 160,
+    /**
+     * Mirrors the GLB's muzzle.NL/NR (chin cannon tips) + muzzle.WL/WR (wing
+     * gun pod tips) empties at shipModels scale 0.35 — used by fleet clones,
+     * which don't read GLB markers. Keep in sync with art/reaver.blend.
+     */
+    muzzles: [
+      { x: -0.15, y: 0, z: 1.58 },
+      { x: 0.15, y: 0, z: 1.58 },
+      { x: -0.86, y: 0, z: 0.81 },
+      { x: 0.86, y: 0, z: 0.81 },
+    ],
+    fireMode: "alternate",
+    /** The toughest fighter-class hull in the game. */
+    maxHp: 260,
+    /** Heaviest bolts in the catalog — a step above the Breaker's 34. */
+    laserDamage: 38,
+    /** Biggest rack in the game (matters when the player flies one). */
+    missileAmmo: 24,
+    /** Big scythe-winged silhouette, big capture circle. */
+    hitRadius: 1.9,
+    fireSound: "breakerLaser",
+  },
 } satisfies Record<string, ShipTypeConfig>;
 
 /** A key into the ship catalog: "spitfire" | "breaker" | "wraith". */
@@ -990,6 +1033,11 @@ export const GameConfig = {
     // — no rotation correction. ~9.3u long native → ~3.3u at fleet scale,
     // deliberately twice the Spitfire's footprint.
     "breaker.glb": { rotX: 0, rotY: 0, rotZ: 0, scale: 0.35 },
+    // Reaver heavy gunship (Blender source: art/reaver.blend). Same fighter
+    // convention as the breaker (nose-along-Blender--Y, +Y-up export) so no
+    // rotation correction. ~9.1u long / 12.1u blade span native → ~3.2u long
+    // at fleet scale, the widest fighter silhouette in the game.
+    "reaver.glb": { rotX: 0, rotY: 0, rotZ: 0, scale: 0.35 },
   } as Record<string, { rotX: number; rotY: number; rotZ: number; scale: number }>,
 
   combat: {
@@ -1027,7 +1075,12 @@ export const GameConfig = {
      * Each type's GLB is loaded once and cloned per fighter; a type with
      * `model: null` gets the procedural faction-themed FighterMesh instead.
      */
-    fleet: [{ type: "wraith", count: 6 }] as ReadonlyArray<{
+    fleet: [
+      // Reavers FIRST so strikeCount's strike orders land on the heavies —
+      // they press the player's mothership while the wraith swarm escorts.
+      { type: "reaver", count: 2 },
+      { type: "wraith", count: 5 },
+    ] as ReadonlyArray<{
       type: ShipTypeId;
       count: number;
     }>,
