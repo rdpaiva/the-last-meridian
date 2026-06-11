@@ -24,10 +24,14 @@
   a `faction`. `update(dt, input, …)` integrates motion from an `InputState`
   and syncs the visual `root`. `tryFire()` returns world-space muzzle positions
   (0 = on cooldown, 1 = alternate, N = salvo). Movement/weapon tuning is
-  **injected** via `ShipOptions.movement` (a `ShipMovementConfig`); both
-  `GameConfig.player` and `GameConfig.enemy` satisfy that shape, so the same
-  sim drives the human pilot (rich loadout, missiles) and the AI fighters
-  (single nose cannon, 0 missiles). Implements `DamageTarget`.
+  **injected** via `ShipOptions.movement` (a `ShipMovementConfig`); every
+  entry in the `GameConfig.shipTypes` catalog satisfies that shape, so the
+  same sim drives the human pilot and the AI fighters — Game just wires in a
+  different catalog entry. Per-type combat knobs (`maxHp`, `laserDamage`,
+  `missileAmmo`, `hitRadius`, `fireSound`, `model`) ride along in
+  `ShipTypeConfig`; `laserDamage`/`hitRadius` land on the Ship as readonly
+  fields (defaulting to `GameConfig.combat` when absent). Implements
+  `DamageTarget`.
 - **`ShipController`** (`ShipController.ts`) — interface: `update(dt, self,
   world) → InputState`. `ControllerWorld` is a per-faction read-only view
   (opposing ships + opposing mothership + arena bounds + a `leader` ref — the
@@ -79,9 +83,14 @@
     its root (the player's are separate instances), driven from the inputs the
     wingman emits each frame — so it lights its exhaust under thrust instead of
     floating silently.
-  - **They fly the player's EXACT movement/weapon profile** (`movement:
-    GameConfig.player`, no per-wingman overrides), so an ally is mechanically
-    identical to you — same thrust, drag (currently none), top speed, guns, HP.
+  - **By default they fly the player's EXACT ship type** (`movement:
+    GameConfig.shipTypes[player.shipType]`), so an ally is mechanically
+    identical to you — same thrust, drag (currently none), top speed, guns,
+    HP. `player.wingmen.shipTypes` assigns per-wingman types instead (wraps
+    like `orders`); a wingman on a DIFFERENT type than the player's is built
+    like an enemy fleet clone (config muzzles, bounds-derived engine glow,
+    config-position RCS plumes), and one slower than your ship can't hold a
+    slot at your full speed.
     This is deliberate: they can never out-run you, and with the player's zero
     drag a wingman coasts at your velocity once matched and doesn't have to puff
     its engine on an interval just to hold a cruise speed.
@@ -92,7 +101,12 @@
     facing, every nose-twitch would whip the slots sideways and the wing would
     scramble to chase them (the "shake at certain angles while following"). Riding
     the course, a nose-swing with no course change leaves the slots — and the wing
-    — completely still. Each frame the wingman then computes the velocity it needs
+    — completely still. Below `ai.formationHeadingMinSpeed` velocity stops
+    defining a course, so the servo **holds the last well-defined course**
+    (`lastCourse`) rather than falling back to the leader's facing — a slow
+    leader pivoting in place (a hovering Breaker lining up a shot) would
+    otherwise sweep the slots around itself faster than a wingman can fly and
+    send the wing orbiting through the leader's position. Each frame the wingman then computes the velocity it needs
     (`leaderVel + speed-capped approach to the slot`), points its nose along *that*
     (`steerHeading = atan2(desiredVel)`), and
     flies there like a pilot, trimming cross-track error with strafe. Because it
@@ -163,9 +177,12 @@ friendly-fire-free without per-bolt faction checks.
   the opposing mothership (`addTarget` supports many targets).
 - Shared material per system; one `Laser` instance per bolt with its
   own mesh.
-- `spawn(origin, rotationY, fromPlayer?)` creates a bolt with velocity along
-  forward. `fromPlayer` tags bolts the human pilot fired (vs. an AI wingman
-  sharing the same faction system).
+- `spawn(origin, rotationY, fromPlayer?, damage?)` creates a bolt with velocity
+  along forward. `fromPlayer` tags bolts the human pilot fired (vs. an AI
+  wingman sharing the same faction system). `damage` is carried **per bolt**
+  (the firing ship's `shipTypes[*].laserDamage`) because one faction system
+  serves mixed ship types — a Breaker's bolts hit harder than a Spitfire's;
+  omitted = the system's default (`combat.laserDamage`).
 - `update()` advances bolts, runs a **swept** X/Z segment-vs-target collision
   (the bolt's pre-move→post-move path is tested against each circle, not just
   its end position), calls `onHit(target, fromPlayer)` on impact — the struck
@@ -180,7 +197,7 @@ friendly-fire-free without per-bolt faction checks.
   projectile homes and carries its own exhaust trail. One instance, registers
   every enemy as a target.
 - **Ammo + cooldown live on `PlayerShip`**, not the system: `missileAmmo`
-  (starts at `GameConfig.missile.maxAmmo`, refilled in `respawn()`) and a
+  (starts at the ship type's `missileAmmo`, refilled in `respawn()`) and a
   `fireCooldownMs` gate so a held key can't dump the pool in one frame.
   `PlayerShip.tryFireMissile()` returns the nose spawn point or `null`.
 - **Lock is computed in `Game.computeLockTarget()`** (once per tick, shared by

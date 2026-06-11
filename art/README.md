@@ -63,3 +63,32 @@ stern with four cyan exhausts.
   `Bay*` parts are likewise emissive-only.
 - **Export:** same as the Bastion — GLB, +Y up, apply modifiers, selection =
   the `Choirship` collection.
+
+## `breaker.blend` → `public/models/breaker.glb`
+
+Low-poly Breaker heavy gunship (the human strike craft — see the story bible).
+Faceted prisms + low-seg cylinders, flat-shaded, tan/dark camo: blunt armored
+nose with twin gun mounts, hex canopy, shoulder + wing turrets, tilted rocket
+pods, spinal four-barrel battery, twin ribbed engine nacelles. Flown via the
+`breaker` entry in `GameConfig.shipTypes`.
+
+### Conventions baked into the model
+- **Axes (FIGHTER convention, unlike the carriers):** nose along **-Y**, up
+  **+Z**. With the +Y-up GLB export this lands the nose on glTF +Z, which
+  Babylon imports nose-+Z — so `GameConfig.shipModels["breaker.glb"]` needs
+  **no rotation correction**, only `scale: 0.35` (model is ~9.3u long native).
+- **Root:** everything is parented to the `Breaker_Gunship` empty; origin
+  centered on the X/Y footprint, hull midline shifted to z≈0 so the ship sits
+  on the gameplay plane.
+- **Marker empties** (read by `AssetLoader.extractMarkers` — keep on
+  re-export): `muzzle.FL/FR` (nose gun pairs), `muzzle.WL/WR` (wing turrets),
+  `thruster.L/R` (nozzle exits), `rcs.nose/port/stbd`. The `breaker` catalog
+  entry's `muzzles` list mirrors these × 0.35 — keep both in sync (enemy
+  fleet clones read only the config list).
+- **Naming:** meshes prefixed `Breaker_`. No emissive parts — the engine glow
+  comes from the runtime `EngineGlow` (thruster markers), like the spitfire.
+
+### Export settings
+`File → Export → glTF 2.0 (.glb)`, format **GLB**, **+Y up**, apply
+modifiers, selection = the `Breaker` collection (keeps the preview
+camera/lights out).

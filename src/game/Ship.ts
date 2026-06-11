@@ -7,10 +7,10 @@ import type { Faction } from "./Faction";
 import { clamp, exponentialDecay, exponentialMultiplier } from "./math";
 
 /**
- * Movement + weapon tuning a Ship reads each frame. Both GameConfig.player and
- * GameConfig.enemy satisfy this shape, so the same sim drives the human pilot
- * and the AI fighters — the only difference is which config block (and which
- * Controller) is wired in.
+ * Movement + weapon tuning a Ship reads each frame. Every entry in
+ * `GameConfig.shipTypes` satisfies this shape, so the same sim drives the
+ * human pilot and the AI fighters — the only difference is which ship type
+ * (and which Controller) is wired in.
  */
 export interface ShipMovementConfig {
   thrust: number;
@@ -24,6 +24,28 @@ export interface ShipMovementConfig {
   fireMode: "alternate" | "salvo";
 }
 
+/**
+ * A complete ship TYPE: the movement/weapon profile plus the per-type combat
+ * knobs and the art it flies with. `GameConfig.shipTypes` is a catalog of
+ * these (spitfire, wraith, breaker, …); both the player and the enemy fleet
+ * pick types from it, so adding a new ship = adding one entry + (optionally)
+ * a GLB. See docs/RECIPES.md → "Add a new ship type".
+ */
+export interface ShipTypeConfig extends ShipMovementConfig {
+  /** GLB filename in /public/models/ (null = procedural fallback mesh). */
+  model: string | null;
+  /** Hit points. */
+  maxHp: number;
+  /** Damage per laser bolt THIS ship fires (each bolt carries it). */
+  laserDamage: number;
+  /** Heat-seeker rack size (0 = no missile capability). */
+  missileAmmo: number;
+  /** X/Z collision radius for laser/missile/ram tests (world units). */
+  hitRadius: number;
+  /** Audio cue when this ship fires its primary guns. */
+  fireSound: FireSoundKey;
+}
+
 export interface ShipOptions {
   faction: Faction;
   maxHp: number;
@@ -31,8 +53,16 @@ export interface ShipOptions {
   respawnDelayMs: number;
   /** Missiles to start/refill with. AI fighters get 0; the player gets a full rack. */
   startMissileAmmo: number;
-  /** Movement/weapon tuning (GameConfig.player or GameConfig.enemy). */
+  /** Movement/weapon tuning (a GameConfig.shipTypes entry). */
   movement: ShipMovementConfig;
+  /**
+   * Damage per laser bolt this ship fires. Defaults to the faction-wide
+   * GameConfig.combat.laserDamage when not given (Game fills it from the
+   * ship's type, so a Breaker hits harder than a Spitfire).
+   */
+  laserDamage?: number;
+  /** X/Z collision radius override; defaults to GameConfig.combat.shipHitRadius. */
+  hitRadius?: number;
   /**
    * Optional per-ship muzzle positions (ship-local), overriding
    * `movement.muzzles`. Fed from the model's `muzzle*` markers when present;
@@ -70,7 +100,9 @@ export class Ship implements DamageTarget {
   readonly fireSound: FireSoundKey;
   readonly maxHp: number;
   hp: number;
-  readonly hitRadius: number = GameConfig.combat.shipHitRadius;
+  readonly hitRadius: number;
+  /** Damage each laser bolt this ship fires carries (per-type knob). */
+  readonly laserDamage: number;
 
   /** Remaining heat-seeking missiles. Refills to startMissileAmmo on respawn. */
   missileAmmo: number;
@@ -113,6 +145,8 @@ export class Ship implements DamageTarget {
     this.fireSound = opts.fireSound;
     this.maxHp = opts.maxHp;
     this.hp = opts.maxHp;
+    this.hitRadius = opts.hitRadius ?? GameConfig.combat.shipHitRadius;
+    this.laserDamage = opts.laserDamage ?? GameConfig.combat.laserDamage;
     this.respawnDelayMs = opts.respawnDelayMs;
     this.startMissileAmmo = opts.startMissileAmmo;
     this.missileAmmo = opts.startMissileAmmo;

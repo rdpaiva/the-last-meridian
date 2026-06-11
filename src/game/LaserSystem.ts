@@ -25,7 +25,11 @@ import type { DamageTarget } from "./types";
  * next sweep.
  */
 export type LaserSystemOptions = {
-  /** Bolt damage when it hits the registered target. */
+  /**
+   * DEFAULT bolt damage, used when spawn() isn't given a per-bolt value.
+   * Ships pass their own type's laserDamage per shot, so this is just the
+   * fallback for un-attributed bolts.
+   */
   damage: number;
   /** Emissive RGB of the bolt material (components > 1.0 bloom harder). */
   emissive: Color3;
@@ -104,8 +108,10 @@ export class LaserSystem {
    * Spawn a laser at `origin` with forward direction derived from `rotationY`.
    * `fromPlayer` tags bolts the human pilot fired (vs. an AI wingman on the same
    * faction system) so onHit can scale feedback to the player's own shots.
+   * `damage` is what THIS bolt deals (the firing ship's type knob); omitted =
+   * the system's default.
    */
-  spawn(origin: Vector3, rotationY: number, fromPlayer = false): void {
+  spawn(origin: Vector3, rotationY: number, fromPlayer = false, damage?: number): void {
     const cfg = GameConfig.laser;
 
     const mesh = MeshBuilder.CreateBox(
@@ -135,7 +141,9 @@ export class LaserSystem {
       Math.cos(rotationY) * cfg.speed,
     );
 
-    this.lasers.push(new Laser(mesh, velocity, cfg.lifetimeMs, rotationY, fromPlayer));
+    this.lasers.push(
+      new Laser(mesh, velocity, cfg.lifetimeMs, rotationY, fromPlayer, damage ?? this.damage),
+    );
   }
 
   update(deltaSeconds: number, deltaMs: number): void {
@@ -179,7 +187,7 @@ export class LaserSystem {
           ? rock.surfaceRadiusToward(dx, dz)
           : rock.hitRadius;
         if (distSq <= r * r) {
-          rock.takeDamage(this.damage);
+          rock.takeDamage(laser.damage);
           laser.kill();
           blocked = true;
           break;
@@ -195,7 +203,7 @@ export class LaserSystem {
         const distSq = distSqSegmentToPoint(target.position.x, target.position.z, ax, az, bx, bz);
         const radiusSq = target.hitRadius * target.hitRadius;
         if (distSq <= radiusSq) {
-          target.takeDamage(this.damage);
+          target.takeDamage(laser.damage);
           laser.kill();
           this.onHit?.(target, laser.fromPlayer);
           break;

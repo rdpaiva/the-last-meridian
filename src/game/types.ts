@@ -33,7 +33,7 @@ export type ShipState = {
 };
 
 /** Keys for the per-ship fire sound, dispatched by SoundSystem.playFireSound(). */
-export type FireSoundKey = "playerGuns" | "enemyLaser" | "laserGun";
+export type FireSoundKey = "playerGuns" | "enemyLaser" | "laserGun" | "breakerLaser";
 
 /**
  * Anything a laser can damage. Implemented by PlayerShip and EnemyShip.

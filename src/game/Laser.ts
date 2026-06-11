@@ -27,6 +27,12 @@ export class Laser {
      * heavy "you landed a hit" jolt only for the player, not every wingman shot.
      */
     readonly fromPlayer: boolean = false,
+    /**
+     * Damage this bolt deals on impact. Carried per-bolt because one faction
+     * system serves mixed ship types (a Breaker's bolts hit harder than a
+     * Spitfire's on the same LaserSystem).
+     */
+    readonly damage: number = 0,
   ) {
     mesh.rotation.y = rotationY;
   }

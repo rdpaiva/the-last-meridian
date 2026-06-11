@@ -99,11 +99,22 @@ class PooledSound {
  * All assets are CC0 from freesound.org — see public/sounds/SOURCES.md.
  */
 export class SoundSystem {
+  // Fire sounds come in OWN/SPATIAL pairs over the same asset (one cached
+  // fetch). The own-fire pool is NON-spatial: the player is at the listener,
+  // so their shots play full volume with no 3D source. A spatial Sound played
+  // without a position would emit from the world origin — or from wherever an
+  // AI ship last parked that pool slot — fading out (and panning away) as the
+  // player flies from arena center. The spatial pool is for every other ship,
+  // positioned per shot via playAt().
   private readonly playerLaser: PooledSound;
   private readonly playerGuns: PooledSound;
+  private readonly playerGunsSpatial: PooledSound;
   private readonly missileLaunch: PooledSound;
   private readonly enemyLaser: PooledSound;
   private readonly laserGun: PooledSound;
+  private readonly laserGunOwn: PooledSound;
+  private readonly breakerLaserOwn: PooledSound;
+  private readonly breakerLaserSpatial: PooledSound;
   private readonly hit: PooledSound;
   private readonly explosion: PooledSound;
   private readonly engineHum: Sound;
@@ -129,6 +140,13 @@ export class SoundSystem {
       4,
       { volume: 0.35 },
     );
+    this.playerGunsSpatial = new PooledSound(
+      "sfx_player_guns_spatial",
+      `${baseUrl}/guns.mp3`,
+      scene,
+      4,
+      { volume: 0.3, spatial: true },
+    );
     this.missileLaunch = new PooledSound(
       "sfx_missile_launch",
       `${baseUrl}/missile-launch.mp3`,
@@ -149,6 +167,27 @@ export class SoundSystem {
       scene,
       4,
       { volume: 0.3, spatial: true },
+    );
+    this.laserGunOwn = new PooledSound(
+      "sfx_laser_gun_own",
+      `${baseUrl}/laser-gun.mp3`,
+      scene,
+      4,
+      { volume: 0.35 },
+    );
+    this.breakerLaserOwn = new PooledSound(
+      "sfx_breaker_laser_own",
+      `${baseUrl}/breaker-laser-fire.mp3`,
+      scene,
+      4,
+      { volume: 0.4 },
+    );
+    this.breakerLaserSpatial = new PooledSound(
+      "sfx_breaker_laser_spatial",
+      `${baseUrl}/breaker-laser-fire.mp3`,
+      scene,
+      4,
+      { volume: 0.4, spatial: true },
     );
     this.hit = new PooledSound(
       "sfx_hit",
@@ -263,15 +302,30 @@ export class SoundSystem {
   }
   /**
    * Play the fire sound mapped to a ship's FireSoundKey.
-   * Pass `position` for any ship that isn't the player — those sounds are
-   * spatial and attenuate with distance. Omit it for the player's own fire
-   * (always full volume since the player is at the listener).
+   * Pass `position` for any ship that isn't the player — those play from the
+   * spatial pool and attenuate with distance. Omit it for the player's own
+   * fire, which plays from the non-spatial own-fire pool (always full volume
+   * since the player is at the listener). The same key routes both ways
+   * because a fire sound belongs to a ship TYPE, and any type can be flown
+   * by the player or by an AI.
    */
   playFireSound(key: FireSoundKey, position?: Vector3): void {
     switch (key) {
-      case "playerGuns": this.playerGuns.play(); break;
-      case "enemyLaser": if (position) this.enemyLaser.playAt(position); break;
-      case "laserGun":   if (position) this.laserGun.playAt(position);   break;
+      case "playerGuns":
+        if (position) this.playerGunsSpatial.playAt(position);
+        else this.playerGuns.play();
+        break;
+      case "enemyLaser":
+        if (position) this.enemyLaser.playAt(position);
+        break;
+      case "laserGun":
+        if (position) this.laserGun.playAt(position);
+        else this.laserGunOwn.play();
+        break;
+      case "breakerLaser":
+        if (position) this.breakerLaserSpatial.playAt(position);
+        else this.breakerLaserOwn.play();
+        break;
     }
   }
   /** Play the hit cue at a world position (attenuates with distance). */

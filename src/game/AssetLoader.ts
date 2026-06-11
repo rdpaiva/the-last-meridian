@@ -92,10 +92,11 @@ export class AssetLoader {
   constructor(private readonly scene: Scene) {}
 
   /**
-   * Attempts to load /models/<GameConfig.player.shipModel> (.glb or .gltf
-   * — same loader). If shipModel is null, or the file is missing / fails to
-   * load, builds a fallback ship from primitives so the game still runs.
-   * Always resolves; never rejects.
+   * Attempts to load /models/<modelFile> (.glb or .gltf — same loader) for
+   * the player's ship; the caller resolves the filename from the player's
+   * ship type (GameConfig.shipTypes[player.shipType].model). If modelFile is
+   * null, or the file is missing / fails to load, builds a fallback ship from
+   * primitives so the game still runs. Always resolves; never rejects.
    *
    * Returns a TWO-LEVEL node hierarchy:
    *
@@ -107,12 +108,11 @@ export class AssetLoader {
    * root's rotation.y every frame, which would clobber any alignment
    * fix if both lived on the same node.
    */
-  async loadPlayerShip(): Promise<LoadedShip> {
+  async loadPlayerShip(modelFile: string | null): Promise<LoadedShip> {
     const root = new TransformNode("playerShipRoot", this.scene);
     const modelRoot = new TransformNode("playerShipModel", this.scene);
     modelRoot.parent = root;
 
-    const modelFile = GameConfig.player.shipModel;
     if (modelFile) {
       const markers = await this.importInto(modelRoot, modelFile);
       if (markers) {

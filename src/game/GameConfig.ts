@@ -1,3 +1,7 @@
+// Type-only import — erased at compile time, so no runtime cycle with Ship.ts
+// (which imports the GameConfig value from here).
+import type { ShipTypeConfig } from "./Ship";
+
 /**
  * Central tuning constants. Adjust to tune feel.
  *
@@ -6,70 +10,157 @@
  * in `Rate` should be fed into the helpers in `math.ts` (exponentialDecay /
  * exponentialMultiplier), never multiplied raw per frame.
  */
-export const GameConfig = {
-  player: {
+
+/**
+ * THE SHIP CATALOG — one entry per flyable ship type, each a complete,
+ * self-contained profile: movement, weapons, HP, per-bolt laser damage,
+ * missile rack, collision radius, model file, and fire sound. The player picks
+ * a type via `GameConfig.player.shipType`; the enemy fleet mixes types via
+ * `GameConfig.enemy.fleet`. Adding a ship = adding ONE entry here (plus a GLB
+ * in /public/models/ and its orientation entry in `GameConfig.shipModels`).
+ *
+ * Muzzle coordinates are SHIP-LOCAL (+Z forward, +X starboard). When a type's
+ * GLB carries `muzzle.*` empties, those markers override this list for ships
+ * loaded through `AssetLoader.loadPlayerShip` (the player + wingmen); fleet
+ * CLONES read only this config list, so keep it in sync with the GLB's
+ * empties (scaled by the model's `shipModels` scale).
+ */
+const shipTypes = {
+  /**
+   * Spitfire — the human dogfighter. The baseline profile: fast, agile,
+   * modest punch. (Values were GameConfig.player before the catalog existed.)
+   */
+  spitfire: {
+    model: "spitfire.glb",
     /** Forward acceleration (units / sec^2) while thrust is held. */
     thrust: 48,
     /** Reverse acceleration (units / sec^2) while reverse is held. */
     reverseThrust: 18,
     /**
      * Lateral (sideways) acceleration (units / sec^2) while strafe is held.
-     * Strafe pushes perpendicular to facing without changing heading, so the
-     * pilot can sidestep while keeping the nose — and guns — on the enemy.
      * Tuned below forward thrust so strafing reads as a dodge, not a sprint.
      */
     strafeThrust: 34,
     /** Cap on velocity magnitude (units / sec). */
     maxSpeed: 24,
-    /**
-     * Exponential drag rate (1/sec). With dragRate = 1.5, velocity decays
-     * to ~22% of its value after 1 second of no input.
-     */
+    /** Exponential drag rate (1/sec) — see math.ts helpers. */
     dragRate: 0.9,
     /** Angular speed (radians / sec). */
     rotationSpeed: 4.5,
     /** Minimum time between consecutive laser shots. */
     fireCooldownMs: 120,
-
-    /**
-     * Where laser bolts spawn, in SHIP-LOCAL coordinates.
-     *   +Z = forward (toward the nose)
-     *   +X = right (starboard)
-     *   +Y = up (vertical — usually 0 since we're top-down)
-     *
-     * Add as many entries as you want; fireMode below decides whether
-     * each shot fires from all of them at once or alternates through
-     * the list. Easy weapon archetypes to try:
-     *
-     *   Single nose cannon:   [{ x: 0,     y: 0, z: 1.2 }]
-     *   Dual wing blasters:   [{ x: -0.85, y: 0, z: 0.1 },
-     *                          { x:  0.85, y: 0, z: 0.1 }]   (current default)
-     *   Triple-spread mount:  [{ x: 0,     y: 0, z: 1.2 },
-     *                          { x: -0.6,  y: 0, z: 0.5 },
-     *                          { x:  0.6,  y: 0, z: 0.5 }]
-     *
-     * The fallback ship's wings sit at x≈±0.55 with body width 0.7, so
-     * dual muzzles at ±0.85 are just outside the wing tips. Tune to taste.
-     */
+    /** Dual wing blasters (fallback — the GLB's muzzle.* markers override). */
     muzzles: [
       { x: -0.85, y: 0, z: 0.1 },
       { x: 0.85, y: 0, z: 0.1 },
     ],
-
     /**
-     * "alternate"  — round-robin one muzzle per shot. Visual dual-fire,
-     *                same DPS as a single muzzle (fireCooldownMs governs
-     *                total fire rate). Classic X-wing feel.
-     * "salvo"      — every muzzle fires on the same tryFire(). Doubles
-     *                DPS at 2 muzzles, triples at 3, etc. If you switch
-     *                to "salvo" you'll want to bump fireCooldownMs to
-     *                rebalance the duel.
+     * "alternate" — round-robin one muzzle per shot (same DPS as a single
+     * muzzle; fireCooldownMs governs total rate). "salvo" — every muzzle
+     * fires per shot (multiplies DPS by the muzzle count; rebalance
+     * fireCooldownMs if you flip this).
      */
-    fireMode: "alternate" as "alternate" | "salvo",
+    fireMode: "alternate",
+    maxHp: 100,
+    /** Damage per bolt. */
+    laserDamage: 20,
+    /** Heat-seeker rack size. */
+    missileAmmo: 10,
+    /** X/Z collision radius (world units). */
+    hitRadius: 1.2,
+    fireSound: "playerGuns",
+  },
+
+  /**
+   * Breaker — the human HEAVY GUNSHIP (see the story bible: built to crack
+   * capital ships and mothership subsystems). Slower and far less nimble than
+   * the Spitfire, but it hits much harder per bolt, soaks twice the damage,
+   * and carries double the missile rack. Four gun muzzles (two nose pairs +
+   * two wing turrets) ripple in alternate mode.
+   */
+  breaker: {
+    model: "breaker.glb",
+    thrust: 34,
+    reverseThrust: 14,
+    strafeThrust: 22,
+    /** Noticeably slower than the Spitfire's 24 — a weapons truck, not a racer. */
+    maxSpeed: 17,
+    dragRate: 0.9,
+    /** Ponderous turn — lead your targets. */
+    rotationSpeed: 2.9,
+    /** Slower cadence than the Spitfire; each bolt is much heavier. */
+    fireCooldownMs: 170,
+    /**
+     * Mirrors the GLB's muzzle.FL/FR (nose gun pairs, at the barrel tips) +
+     * muzzle.WL/WR (wing turret barrel tips, slightly aft of center) empties
+     * at shipModels scale 0.35 — used by fleet clones, which don't read GLB
+     * markers.
+     */
+    muzzles: [
+      { x: -0.33, y: 0, z: 1.65 },
+      { x: 0.33, y: 0, z: 1.65 },
+      { x: -0.89, y: 0, z: -0.26 },
+      { x: 0.89, y: 0, z: -0.26 },
+    ],
+    fireMode: "alternate",
+    /** Armored: more than twice the Spitfire's hull. */
+    maxHp: 220,
+    /** Heavy bolts — ~1.7× the fighter guns. */
+    laserDamage: 34,
+    /** Double rack for the strike role. */
+    missileAmmo: 20,
+    /** Physically bigger ship, bigger capture circle. */
+    hitRadius: 1.7,
+    fireSound: "breakerLaser",
+  },
+
+  /**
+   * Wraith — the Novari dogfighter the enemy fleet flies. (Values were
+   * GameConfig.enemy before the catalog existed.) reverse/strafe stay 0:
+   * the AIController never sets those inputs.
+   */
+  wraith: {
+    model: "wraith.glb",
+    thrust: 38,
+    reverseThrust: 0,
+    strafeThrust: 0,
+    maxSpeed: 20,
+    dragRate: 0.9,
+    rotationSpeed: 3.5,
+    fireCooldownMs: 120,
+    /** Dual wing muzzles — matches the Spitfire layout. */
+    muzzles: [
+      { x: -0.85, y: 0, z: 0.1 },
+      { x: 0.85, y: 0, z: 0.1 },
+    ],
+    fireMode: "alternate",
+    maxHp: 60,
+    laserDamage: 20,
+    missileAmmo: 0,
+    hitRadius: 1.2,
+    fireSound: "laserGun",
+  },
+} satisfies Record<string, ShipTypeConfig>;
+
+/** A key into the ship catalog: "spitfire" | "breaker" | "wraith". */
+export type ShipTypeId = keyof typeof shipTypes;
+
+export const GameConfig = {
+  /** The ship catalog (see the `shipTypes` doc above). */
+  shipTypes,
+
+  player: {
+    /**
+     * Which catalog entry (GameConfig.shipTypes) the human pilot flies — and,
+     * by extension, the player's wingmen, who clone the same ship. Flip to
+     * "breaker" to take the heavy gunship out instead of the Spitfire; every
+     * stat (speed, HP, per-bolt damage, missile rack) follows the type.
+     */
+    shipType: "breaker" as ShipTypeId,
 
     /**
-     * Which procedural fallback ship to build (used when no
-     * /models/fighter.glb is present).
+     * Which procedural fallback ship to build (used when the type's GLB is
+     * missing or fails to load).
      *   "classic" — sleek dart: tapered body, flat wings, blue cockpit dome,
      *               canted wingtip fins.
      *   "viper"   — Colonial-Viper silhouette: long nose, triple-engine
@@ -77,15 +168,6 @@ export const GameConfig = {
      * Flip this value to switch between the two designs.
      */
     shipDesign: "viper" as "classic" | "viper",
-
-    /**
-     * Filename of the GLB to load from /public/models/ for the player ship
-     * (and, by extension, the player's wingmen — they clone it). Per-model
-     * orientation/scale lives in `GameConfig.shipModels`. If the file is
-     * missing or fails to load, AssetLoader falls back to the procedural
-     * `shipDesign` above. Set to null to always use the fallback.
-     */
-    shipModel: "spitfire.glb" as string | null,
 
     /**
      * Which faction the human pilot flies for. The player is simply the one
@@ -102,14 +184,14 @@ export const GameConfig = {
      * Orders are STATIC (assigned at spawn, no in-game command UI yet); in a
      * future multiplayer build the wing self-organizes instead.
      *
-     * Wingmen fly the PLAYER's movement/weapon profile (guns, turn rate,
-     * reverse/strafe, HP) with just maxSpeed/thrust/dragRate overridden below.
-     * maxSpeed is CAPPED at the player's so an ally never out-runs you — they
-     * are strong, player-grade fighters, but you stay the one ship that can't
-     * be out-flown.
+     * By DEFAULT wingmen fly the PLAYER's ship TYPE
+     * (GameConfig.shipTypes[player.shipType]) — the same guns, turn rate,
+     * reverse/strafe, and HP, so an ally is mechanically identical to you and
+     * never faster. Set `shipTypes` below to mix the wing instead (e.g. fly
+     * the Breaker with Spitfire escorts).
      *
-     * `orders[i]` and `slots[i]` configure wingman i; if there are more wingmen
-     * than entries the list wraps. Orders:
+     * `orders[i]`, `slots[i]`, and `shipTypes[i]` configure wingman i; if
+     * there are more wingmen than entries the list wraps. Orders:
      *   "cover"     — escort the leader in a slot, break to engage any opponent
      *                 within `ai.coverBreakRange` of the leader, then reform.
      *   "formation" — hold the slot on the leader's wing; fire only at targets
@@ -125,19 +207,24 @@ export const GameConfig = {
       /** How many AI wingmen launch on the player's side. 0 disables the wing. */
       count: 2,
       /**
-       * Wingmen fly the PLAYER's ship — the SAME movement/weapon profile
-       * (GameConfig.player: thrust, drag, maxSpeed, turn rate, reverse/strafe,
-       * guns, HP), just piloted by an AIController instead of the keyboard. There
-       * are deliberately NO per-wingman movement overrides: whatever you tune for
-       * the player applies to the wing too, so an ally is mechanically identical
-       * to you — never faster, and with the same drag (or none) you have.
+       * Per-wingman SHIP TYPE (wraps if shorter than count, like `orders`).
+       * EMPTY = every wingman flies the player's own type, cloning the
+       * player's loaded model — the original behavior, and what keeps the wing
+       * mechanically identical to you (never faster, same drag, quiet slots).
        *
-       * This is what keeps the slot quiet. Wingmen coast at your velocity once
-       * matched and only fire their jets to correct real disturbances. Holding
-       * formation is handled by piloting (the AIController's servo), not by giving
-       * them more thrust/speed than you. The only knobs here are how many fly and
-       * what each one's standing order + slot is.
+       * Non-empty mixes the wing, e.g. fly the Breaker with two Spitfire
+       * escorts:  shipTypes: ["spitfire"]
+       * …or one of each:     shipTypes: ["spitfire", "breaker"]
+       *
+       * Caveats for a wingman whose type differs from the player's:
+       * - It is built like an enemy fleet clone: muzzles come from the type's
+       *   config list (not GLB markers) and the engine glow sits at a nozzle
+       *   derived from the mesh bounds.
+       * - Formation quality depends on relative speed: a wingman SLOWER than
+       *   the leader's ship (e.g. a Breaker escorting a Spitfire) cannot hold
+       *   a slot at your full speed — it will trail when you burn flat-out.
        */
+      shipTypes: ["spitfire"] as ReadonlyArray<ShipTypeId>,
       /** Per-wingman standing order (wraps if shorter than count). */
       orders: ["cover"] as ReadonlyArray<
         "cover" | "formation" | "hunt" | "strike" | "defend"
@@ -147,17 +234,21 @@ export const GameConfig = {
        * (+x = starboard, -z = behind). Generates an expanding V so any count
        * produces a reasonable layout without manual slot entries:
        *
-       *   index 0,1 → close flanks  (±10, -6)
-       *   index 2,3 → mid flanks    (±15, -14)
-       *   index 4,5 → far flanks    (±20, -22)
+       *   index 0,1 → close flanks  (±14, -10)
+       *   index 2,3 → mid flanks    (±19, -18)
+       *   index 4,5 → far flanks    (±24, -26)
        *   …and so on
+       *
+       * Sized for the wing to clear a HEAVY leader (the Breaker is ~3.3 units
+       * long): wide enough that a return-to-slot overshoot or a slot swing
+       * during a leader course change doesn't cross the leader's hull.
        *
        * Override this function if you want hand-tuned positions instead.
        */
       formationSlot(index: number): { x: number; z: number } {
         const row = Math.floor(index / 2);
         const side = index % 2 === 0 ? -1 : 1;
-        return { x: side * (10 + row * 5), z: -6 - row * 8 };
+        return { x: side * (14 + row * 5), z: -10 - row * 8 };
       },
     },
   },
@@ -180,8 +271,7 @@ export const GameConfig = {
   },
 
   missile: {
-    /** Missiles the player starts with; refills to this on respawn. */
-    maxAmmo: 10,
+    // NOTE: rack size (ammo) is PER SHIP TYPE — see shipTypes[*].missileAmmo.
     /** Travel speed (world units / sec). Constant — no acceleration. */
     speed: 45,
     /** Time before an in-flight missile self-destructs. */
@@ -895,16 +985,26 @@ export const GameConfig = {
     // brought down to fleet size. Authored facing the opposite way, so the
     // glTF RHS→LHS Z-flip leaves it nose-aft — rotY = π turns it nose-forward.
     "spitfire.glb": { rotX: 0, rotY: Math.PI, rotZ: 0, scale: 0.7 },
+    // Breaker heavy gunship (Blender source: art/breaker.blend). Authored
+    // nose-along-Blender--Y so the +Y-up glTF export lands nose-+Z in Babylon
+    // — no rotation correction. ~9.3u long native → ~3.3u at fleet scale,
+    // deliberately twice the Spitfire's footprint.
+    "breaker.glb": { rotX: 0, rotY: 0, rotZ: 0, scale: 0.35 },
   } as Record<string, { rotX: number; rotY: number; rotZ: number; scale: number }>,
 
   combat: {
-    /** Hit radius for ship vs. laser tests (units). */
+    /**
+     * FALLBACK hit radius for ship vs. laser tests (units) — used only when a
+     * Ship is built without a type (each shipTypes entry carries its own).
+     */
     shipHitRadius: 1.2,
-    /** Damage dealt per laser hit. Both factions share the same damage. */
+    /**
+     * FALLBACK damage per laser hit — per-bolt damage normally comes from the
+     * firing ship's type (shipTypes[*].laserDamage).
+     */
     laserDamage: 20,
 
-    playerMaxHp: 100,
-    enemyMaxHp: 60,
+    // NOTE: ship HP is PER SHIP TYPE — see shipTypes[*].maxHp.
 
     /** Delay before a dead player ship comes back. */
     playerRespawnDelayMs: 1500,
@@ -914,47 +1014,32 @@ export const GameConfig = {
 
   enemy: {
     /**
-     * Filename of the GLB every enemy fighter flies, loaded once and cloned
-     * per fighter. Per-model orientation/scale lives in
-     * `GameConfig.shipModels`. Set to null to use the procedural faction-themed
-     * fighter mesh (FighterMesh) instead of a model.
+     * Fleet COMPOSITION: how many of each catalog type (GameConfig.shipTypes)
+     * the enemy launches. Entries spawn in order, so the strike ships (below)
+     * are drawn from the first entries. Mix types freely, e.g. to escort two
+     * heavy gunships with four fighters:
+     *
+     *   fleet: [
+     *     { type: "breaker", count: 2 },
+     *     { type: "wraith",  count: 4 },
+     *   ]
+     *
+     * Each type's GLB is loaded once and cloned per fighter; a type with
+     * `model: null` gets the procedural faction-themed FighterMesh instead.
      */
-    shipModel: "wraith.glb" as string | null,
-    /** How many enemy fighters share the arena at once. */
-    count: 6,
+    fleet: [{ type: "wraith", count: 6 }] as ReadonlyArray<{
+      type: ShipTypeId;
+      count: number;
+    }>,
     /**
-     * How many of those enemy fighters fly a "strike" order — pressing the
-     * player's mothership and firing on it — instead of the default "patrol"
-     * (which only wanders toward the carrier and dogfights your fighters). This
-     * is what actually threatens the win/lose objective. The rest patrol/escort.
-     * Set 0 for the old behavior (no enemy ever attacks the mothership).
+     * How many enemy fighters (counted across the whole fleet, in spawn order)
+     * fly a "strike" order — pressing the player's mothership and firing on it
+     * — instead of the default "patrol" (which only wanders toward the carrier
+     * and dogfights your fighters). This is what actually threatens the
+     * win/lose objective. The rest patrol/escort. Set 0 for the old behavior
+     * (no enemy ever attacks the mothership).
      */
     strikeCount: 2,
-    /** Forward acceleration (units / sec^2). Matches player. */
-    thrust: 38,
-    /** Velocity cap. Matches player. */
-    maxSpeed: 20,
-    /** Drag rate matching the player's profile to keep fights compact. */
-    dragRate: 0.9,
-    /** Angular speed (rad / sec). Matches player. */
-    rotationSpeed: 3.5,
-
-    // --- Movement fields so this block satisfies Ship's movement config.
-    // AI fighters don't strafe or reverse (their controller never sets those
-    // inputs), so these stay 0; they fire dual wing cannons in alternate mode.
-    /** Reverse acceleration — unused by AI (kept for Ship config shape). */
-    reverseThrust: 0,
-    /** Lateral acceleration — unused by AI (kept for Ship config shape). */
-    strafeThrust: 0,
-    /** Dual wing muzzles — matches player layout. */
-    muzzles: [
-      { x: -0.85, y: 0, z: 0.1 },
-      { x: 0.85, y: 0, z: 0.1 },
-    ],
-    /** Alternate muzzles — same DPS as the player's alternate dual setup. */
-    fireMode: "alternate" as "alternate" | "salvo",
-    /** Matches player's fire rate. */
-    fireCooldownMs: 120,
   },
 
   /**

@@ -205,15 +205,16 @@ The whole game's tuning lives in `src/game/GameConfig.ts`. Major sections:
 
 | Section | What it controls |
 |---|---|
-| `player` | Thrust, drag, rotation, fire cooldown, muzzles, fireMode, shipDesign |
-| `enemy` | Enemy fighter movement/weapon profile + count + `strikeCount` (how many attack the player mothership) |
+| `shipTypes` | THE SHIP CATALOG: one complete profile per type (spitfire / breaker / wraith) — movement, muzzles, fireMode, `maxHp`, per-bolt `laserDamage`, `missileAmmo`, `hitRadius`, GLB `model`, fire sound. Add a ship = add an entry (see `docs/RECIPES.md` → "Add a new ship type") |
+| `player` | `shipType` (which catalog entry the pilot — and the wingmen — fly), faction, procedural fallback `shipDesign` |
+| `enemy` | `fleet` composition (list of `{ type, count }` catalog picks) + `strikeCount` (how many attack the player mothership) |
 | `ai` | Shared AI decision knobs: engage/fire ranges, fire cone, wander, leash, formation gains |
-| `player.wingmen` | Wing size, per-wingman orders + formation slots; wingmen fly the `player` profile with `maxSpeed`/`thrust`/`dragRate` overridden (drag is needed to hold formation) |
-| `laser` | Bolt speed/lifetime/visuals (shared across both factions) |
-| `missile` | Homing secondary: ammo, speed, turnRate, damage range, lock range/cone, mesh + trail dims |
+| `player.wingmen` | Wing size, per-wingman orders + formation slots + optional per-wingman `shipTypes` (empty = wing clones the player's type) |
+| `laser` | Bolt speed/lifetime/visuals (shared across both factions; per-bolt damage comes from the firing ship's type) |
+| `missile` | Homing secondary: speed, turnRate, damage range, lock range/cone, mesh + trail dims (rack size is per ship type) |
 | `arena` | Half-width, half-depth |
 | `camera` | Offset, smoothing rate, velocity lead, zoom range/rate |
-| `combat` | HP for both ships, laser damage, respawn delays |
+| `combat` | Fallback hit radius / laser damage, respawn delays (ship HP lives in `shipTypes`) |
 | `shake` | Trauma per impact type, decay rate, max offsets |
 | `hitstop` | Pause-frame durations per impact type, stack cap |
 | `damageFlash` | Duration, peak alpha, sphere diameter |

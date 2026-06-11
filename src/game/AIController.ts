@@ -128,6 +128,17 @@ export class AIController implements ShipController {
   private smoothVelZ = 0;
   private smoothVelInit = false;
 
+  /**
+   * Last well-defined leader COURSE (rad), held while the leader is too slow
+   * for velocity to define one. The slot frame rides this instead of snapping
+   * to the leader's FACING at low speed: a slow leader pivoting in place (a
+   * heavy gunship hovering to aim) would otherwise sweep the slots around
+   * itself faster than a wingman can fly, sending the wing orbiting through
+   * the leader's position. Holding the last course leaves the slots still
+   * while the leader turns on the spot. Null until the first stationKeep.
+   */
+  private lastCourse: number | null = null;
+
   constructor(opts: AIControllerOptions = {}) {
     this.order = opts.order ?? "patrol";
     this.slot = opts.slot ?? { x: 0, z: 0 };
@@ -494,13 +505,18 @@ export class AIController implements ShipController {
     const lvX = this.smoothVelX;
     const lvZ = this.smoothVelZ;
 
-    // Slot in world space, oriented by the leader's COURSE (falling back to its
-    // facing only when it's too slow for velocity to define a direction).
+    // Slot in world space, oriented by the leader's COURSE. When the leader is
+    // too slow for velocity to define a direction, HOLD the last course (see
+    // the lastCourse field doc — snapping to the leader's facing here lets a
+    // slow, pivoting leader whip the slots around itself). Before any course
+    // exists (first frames out of the tube), seed from the leader's facing.
     const leaderSpeed = Math.hypot(lvX, lvZ);
-    const course =
-      leaderSpeed > cfg.formationHeadingMinSpeed
-        ? Math.atan2(lvX, lvZ)
-        : leader.rotationY;
+    if (leaderSpeed > cfg.formationHeadingMinSpeed) {
+      this.lastCourse = Math.atan2(lvX, lvZ);
+    } else if (this.lastCourse === null) {
+      this.lastCourse = leader.rotationY;
+    }
+    const course = this.lastCourse;
     const cosT = Math.cos(course);
     const sinT = Math.sin(course);
     const sx = leader.position.x + cosT * slotX + sinT * slotZ;

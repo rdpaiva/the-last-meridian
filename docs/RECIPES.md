@@ -36,15 +36,36 @@ observer (see `Missile.dispose` / `SUBSYSTEMS.md`). No dedicated missile SFX
 yet — launch reuses `playPlayerLaser`, impact reuses `playExplosion`; add CC0
 assets + `SoundSystem` methods if you want distinct audio.
 
-## Adding a new enemy type
+## Add a new ship type
 
-1. New file `EnemyShipBomber.ts` (or whatever). Same `DamageTarget` impl,
-   different AI in `update()`, different mesh.
-2. Game holds an array of enemies instead of a single one. LaserSystem's
-   single-target API needs to become multi-target (pick closest? or a
-   `targets` array iterated per bolt).
-3. Reshape `playerLasers.setTarget` → `addTarget`/`removeTarget` if you
-   want true multi-targeting.
+Ships are catalog entries — no new class needed. The catalog
+(`GameConfig.shipTypes`) holds one complete profile per type (movement,
+weapons, `maxHp`, per-bolt `laserDamage`, `missileAmmo`, `hitRadius`,
+`model`, `fireSound`); the Breaker heavy gunship is the worked example.
+
+1. **Model** (optional): author a GLB in Blender (source in `art/`, export to
+   `public/models/`). Convention: nose along Blender **-Y**, up **+Z**, +Y-up
+   GLB export → lands nose-+Z in Babylon with no rotation correction (the
+   spitfire needs `rotY: π` because it's authored the other way). Parent
+   everything to a root empty, origin at the footprint center. Add marker
+   empties: `muzzle.*` (laser spawn points), `thruster.L/R` (engine glow),
+   `rcs.nose/port/stbd` (maneuvering jets). `model: null` = procedural
+   fallback mesh.
+2. **Orientation entry**: add the filename to `GameConfig.shipModels` with
+   rotation/scale (tune via the Inspector recipe below).
+3. **Catalog entry**: add the type to `GameConfig.shipTypes`. Keep the
+   config `muzzles` list in sync with the GLB's `muzzle.*` empties (× the
+   `shipModels` scale): the player path reads the GLB markers, but enemy
+   fleet CLONES read only the config list.
+4. **Fly it / fight it**:
+   - Player: set `GameConfig.player.shipType` (wingmen clone it by default;
+     `player.wingmen.shipTypes` assigns per-wingman types for a mixed wing).
+   - Enemy: add `{ type, count }` to `GameConfig.enemy.fleet` — mixed fleets
+     are fine; entries spawn in order and the first `enemy.strikeCount` ships
+     across the whole fleet fly the "strike" order.
+
+Per-bolt damage rides each laser (`LaserSystem.spawn(..., damage)`), so mixed
+types on one faction system just work.
 
 ## Tuning juice
 
