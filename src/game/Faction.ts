@@ -1,17 +1,21 @@
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 
 /**
- * The two warring sides. Everything that used to be hardcoded as
- * "player" (blue, south) vs "enemy" (red, north) is now keyed off this so
- * either side can be flown by a human, an AI, or — eventually — a remote
- * network peer. The "player" is simply whichever Ship carries a
- * LocalInputController; it is NOT baked into the faction.
+ * The two warring sides of *The Last Meridian* (see
+ * docs/The-Last-Meridian-Story-Bible.md for the canon). Everything that used
+ * to be hardcoded as "player" (blue, south) vs "enemy" (red, north) is now
+ * keyed off this so either side can be flown by a human, an AI, or —
+ * eventually — a remote network peer. The "player" is simply whichever Ship
+ * carries a LocalInputController; it is NOT baked into the faction.
  *
- *   humans   — the original, unaugmented humanity. Cool blue hulls, hot-pink
- *              lasers. Player flies for this side by default
- *              (GameConfig.player.faction).
- *   machines — humans who chose to merge with AI. Crimson hulls, electric-
- *              green lasers.
+ * The string keys stay `humans`/`machines` (they thread through GameConfig,
+ * save state, and every subsystem); the canon names live in FACTION_THEME.
+ *
+ *   humans   — the Meridian Commonwealth: surviving baseline humanity. Cool
+ *              blue hulls, hot-pink lasers. Player flies for this side by
+ *              default (GameConfig.player.faction).
+ *   machines — the Novari Ascendancy: enhanced humans bound to the Loom-built
+ *              Thread. Crimson hulls, electric-green lasers.
  */
 export type Faction = "humans" | "machines";
 
@@ -28,8 +32,18 @@ export function opposing(faction: Faction): Faction {
  * AI fighters — the human player's own ship still comes from AssetLoader).
  */
 export interface FactionTheme {
-  /** Human-readable name for the HUD. */
+  /** Short all-caps label for the HUD (e.g. mothership objective bars). */
   label: string;
+  /** Full canon faction name (story bible §2). */
+  fullName: string;
+  /** Canon mothership class (e.g. "Bastion Carrier"). */
+  mothershipClass: string;
+  /** Canon named flagship of this faction (e.g. "MCS Aegis"). */
+  mothershipName: string;
+  /** Canon dogfighter type — the procedural fighter this faction fields. */
+  fighterClass: string;
+  /** Canon heavy strike craft type (story bible §8). */
+  gunshipClass: string;
   /** Emissive RGB of this faction's laser bolts (components > 1 bloom harder). */
   laserEmissive: Color3;
   /** Material name for this faction's laser bolts (inspector aid). */
@@ -46,7 +60,12 @@ export interface FactionTheme {
 
 export const FACTION_THEME: Record<Faction, FactionTheme> = {
   humans: {
-    label: "HUMANS",
+    label: "COMMONWEALTH",
+    fullName: "The Meridian Commonwealth",
+    mothershipClass: "Bastion Carrier",
+    mothershipName: "MCS Aegis",
+    fighterClass: "Spitfire Interceptor",
+    gunshipClass: "Breaker Gunship",
     laserEmissive: new Color3(2.0, 0.6, 0.9), // hot pink (old player)
     laserMaterialName: "humans_laser_mat",
     bodyColor: new Color3(0.16, 0.24, 0.5),
@@ -55,7 +74,12 @@ export const FACTION_THEME: Record<Faction, FactionTheme> = {
     eyeEmissive: new Color3(0.6, 0.9, 1.8),
   },
   machines: {
-    label: "MACHINES",
+    label: "NOVARI",
+    fullName: "The Novari Ascendancy",
+    mothershipClass: "Choirship",
+    mothershipName: "The Silent Choir",
+    fighterClass: "Wraith Interceptor",
+    gunshipClass: "Reaver Gunship",
     laserEmissive: new Color3(0.3, 2.0, 0.6), // electric green (old enemy)
     laserMaterialName: "machines_laser_mat",
     bodyColor: new Color3(0.5, 0.12, 0.14),

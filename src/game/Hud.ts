@@ -1,5 +1,6 @@
 import type { Ship } from "./Ship";
 import type { LaserSystem } from "./LaserSystem";
+import { FACTION_THEME } from "./Faction";
 
 /**
  * Plain DOM debug HUD. DOM updates are throttled to 10 Hz — the HUD doesn't
@@ -60,13 +61,14 @@ export class Hud {
     // Mothership objective bars — top center, one per faction.
     const msBars = document.createElement("div");
     msBars.id = "mothership-bars";
+    // Objective-bar labels carry the canon flagship names (story bible §8).
     msBars.innerHTML = `
       <div class="ms-bar ms-humans">
-        <span class="ms-label">HUMANS MOTHERSHIP</span>
+        <span class="ms-label">${FACTION_THEME.humans.mothershipName.toUpperCase()}</span>
         <div class="ms-track"><div class="ms-fill" id="ms-fill-humans"></div></div>
       </div>
       <div class="ms-bar ms-machines">
-        <span class="ms-label">MACHINES MOTHERSHIP</span>
+        <span class="ms-label">${FACTION_THEME.machines.mothershipName.toUpperCase()}</span>
         <div class="ms-track"><div class="ms-fill" id="ms-fill-machines"></div></div>
       </div>
     `;
