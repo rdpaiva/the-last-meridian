@@ -554,17 +554,17 @@ export class Game {
     }
     this.playerMissiles.addTarget(this.motherships[this.enemyFaction]);
 
-    // Upgrade both carriers from the procedural box build to the Blender GLB
-    // (the launch bays are read from `launch.*` empties authored into the
+    // Upgrade both carriers from the procedural box build to their faction's
+    // Blender GLB — Bastion Carrier for the humans, Choirship for the Novari
+    // (the launch bays are read from `launch.*` empties authored into each
     // model). Awaited BEFORE assigning launches so the fleet stages in the
-    // model's bays. Falls back to the procedural carrier if the file is missing.
-    const carrierModel = GameConfig.mothership.model.file;
-    if (carrierModel) {
-      await Promise.all([
-        this.motherships.humans.applyModel(carrierModel),
-        this.motherships.machines.applyModel(carrierModel),
-      ]);
-    }
+    // model's bays. Falls back to the procedural carrier if a file is missing.
+    await Promise.all(
+      (["humans", "machines"] as Faction[]).map((f) => {
+        const file = GameConfig.mothership.model.file[f];
+        return file ? this.motherships[f].applyModel(file) : Promise.resolve(false);
+      }),
+    );
 
     // Both fleets launch from their carriers (the player runs the full
     // cinematic; everyone else holds and streams out behind them). This freezes

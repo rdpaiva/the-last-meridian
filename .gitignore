@@ -15,3 +15,6 @@ npm-debug.log*
 
 # Vite cache
 .vite/
+
+# Blender auto-backups (the .blend sources in art/ ARE tracked)
+*.blend1

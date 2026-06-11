@@ -34,3 +34,32 @@ Loaded at runtime by `src/game/Mothership.applyModel()`.
 selection = the `Bastion_Carrier` collection (so the Camera/Light stay out).
 The model needs `GameConfig.mothership.model.rotY = Math.PI` so the bay mouths
 face the launch axis — set empirically in-game, not derived.
+
+## `choirship.blend` → `public/models/choirship.glb`
+
+Low-poly Choirship — the Novari (machines) mothership. Same conventions as
+the Bastion Carrier above (bow +Y, up +Z, root empty `Choir_Ship` in the
+`Choirship` collection, ~27 Blender units long so the shared
+`GameConfig.mothership.model` scale/rotY apply unchanged). Loaded per-faction
+by `Mothership.applyModel()` via `GameConfig.mothership.model.file.machines`.
+
+Design language (vs. the boxy human carrier): dark petrol-teal hull, faceted
+pointed prow, a glowing cyan "spine ladder" of paired cells down the
+midline, twin engine nacelles with red accent rings, and a flared angular
+stern with four cyan exhausts.
+
+### Choirship-specific notes
+- **Launch bays:** open-front tunnels through the FORWARD section of each
+  side sponson (channel x ±3.4–4.4, mouth at Y 4.2, glowing rim + floor
+  rails). `launch.0` / `launch.1` empties sit at (±3.9, 2.2, 0) — keep them
+  on re-export. The exit lane forward of each mouth (|x| 3.4–4.4) must stay
+  clear of geometry all the way past the bow: the bridge cheeks stop at
+  |x| 2.6 and the prow tapers inward, so don't widen anything past |x| 3.4
+  forward of Y 4.
+- **Naming/glow:** meshes prefixed `Choir_`; only `Engine` / `Viewport` /
+  `RunLight` names reach the GlowLayer. The spine/cheek cells are named
+  `SpineCell`/`CheekCell` ON PURPOSE — they face the top-down camera, so
+  they're emissive-only (GlowLayer bloom straight at the lens would wash out).
+  `Bay*` parts are likewise emissive-only.
+- **Export:** same as the Bastion — GLB, +Y up, apply modifiers, selection =
+  the `Choirship` collection.

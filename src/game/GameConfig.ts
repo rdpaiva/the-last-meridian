@@ -392,10 +392,11 @@ export const GameConfig = {
     ] as ReadonlyArray<{ x: number; z: number }>,
 
     /**
-     * Detailed carrier MODEL (Blender → GLB) that replaces the procedural box
+     * Detailed carrier MODELS (Blender → GLB) that replace the procedural box
      * build at runtime. Loaded once per carrier in Game.start(); on success the
-     * procedural meshes are disposed and the GLB takes over. Set `file` to null
-     * to keep the procedural carrier.
+     * procedural meshes are disposed and the GLB takes over. `file` is
+     * PER-FACTION — the humans fly the Bastion Carrier, the Novari the
+     * Choirship — set an entry to null to keep that side's procedural carrier.
      *
      * Orientation/scale correction (same convention as `shipModels`). The model
      * is authored bow-along Blender +Y; EMPIRICALLY (verified in-game, not by
@@ -413,7 +414,10 @@ export const GameConfig = {
      * the `launchBays` offsets above are only the procedural-fallback positions.
      */
     model: {
-      file: "bastion_carrier.glb" as string | null,
+      file: {
+        humans: "bastion_carrier.glb",
+        machines: "choirship.glb",
+      } as Record<import("./Faction").Faction, string | null>,
       rotX: 0,
       rotY: Math.PI, // bays/bridge must face the launch axis (see note above)
       rotZ: 0,
