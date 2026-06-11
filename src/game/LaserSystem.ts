@@ -143,17 +143,33 @@ export class LaserSystem {
     const obstacles = this.obstacles;
 
     for (const laser of this.lasers) {
+      // Capture the bolt's position BEFORE it moves, then sweep the segment
+      // from there to its new position against every circle this frame. A point
+      // test at only the new position tunnels: at 95 u/s a single 60Hz step is
+      // ~1.6 units and a 30Hz (delta-clamped) step is ~3.2 — larger than a
+      // ship's 2.4-unit capture diameter — so a target sitting between the two
+      // sample points is skipped entirely. The swept test makes hits
+      // frame-rate-independent: any circle the path crosses is caught.
+      const ax = laser.mesh.position.x;
+      const az = laser.mesh.position.z;
       laser.update(deltaSeconds, deltaMs);
       if (laser.isExpired) continue;
+      const bx = laser.mesh.position.x;
+      const bz = laser.mesh.position.z;
 
       // Cover: asteroids block bolts. Checked BEFORE targets, so a rock between
       // the gun and a ship eats the bolt (line-of-sight blocking) and chips the
-      // rock (destructible). Same X/Z point-in-circle test as targets.
+      // rock (destructible). Swept-segment X/Z test, same as targets.
       let blocked = false;
       for (const rock of obstacles) {
         if (!rock.isAlive) continue;
-        const dx = laser.mesh.position.x - rock.position.x;
-        const dz = laser.mesh.position.z - rock.position.z;
+        // Closest point on the bolt's path segment to the rock center; the
+        // squared distance there is what we test the silhouette against.
+        const t = closestTOnSegment(rock.position.x, rock.position.z, ax, az, bx, bz);
+        const cx = ax + (bx - ax) * t;
+        const cz = az + (bz - az) * t;
+        const dx = cx - rock.position.x;
+        const dz = cz - rock.position.z;
         const distSq = dx * dx + dz * dz;
         // Broad phase vs. the conservative circle, then the exact directional
         // silhouette (asteroids are squashed ellipsoids — a bolt skimming a
@@ -171,14 +187,14 @@ export class LaserSystem {
       }
       if (blocked) continue;
 
-      // Collision: simple X/Z sphere test against each live target. Y axis is
-      // ignored — gameplay is on one plane. First overlap consumes the bolt.
+      // Collision: swept X/Z test of the path segment against each live target.
+      // Y axis is ignored — gameplay is on one plane. First overlap consumes
+      // the bolt.
       for (const target of targets) {
         if (!target.isAlive) continue;
-        const dx = laser.mesh.position.x - target.position.x;
-        const dz = laser.mesh.position.z - target.position.z;
+        const distSq = distSqSegmentToPoint(target.position.x, target.position.z, ax, az, bx, bz);
         const radiusSq = target.hitRadius * target.hitRadius;
-        if (dx * dx + dz * dz <= radiusSq) {
+        if (distSq <= radiusSq) {
           target.takeDamage(this.damage);
           laser.kill();
           this.onHit?.(target, laser.fromPlayer);
@@ -199,4 +215,52 @@ export class LaserSystem {
   get count(): number {
     return this.lasers.length;
   }
+}
+
+/**
+ * Clamped parameter `t` in [0, 1] of the point on segment a→b nearest to
+ * point p, in the X/Z plane. `t = 0` is at `a`, `t = 1` is at `b`. Used to
+ * resolve where along a bolt's per-frame path it passes closest to a circle
+ * center (degenerate zero-length segments — e.g. a bolt's spawn frame, where
+ * it hasn't moved yet — return 0).
+ */
+function closestTOnSegment(
+  px: number,
+  pz: number,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+): number {
+  const abx = bx - ax;
+  const abz = bz - az;
+  const lenSq = abx * abx + abz * abz;
+  if (lenSq <= 0) return 0;
+  let t = ((px - ax) * abx + (pz - az) * abz) / lenSq;
+  if (t < 0) t = 0;
+  else if (t > 1) t = 1;
+  return t;
+}
+
+/**
+ * Squared distance from point p to the nearest point on segment a→b, in the
+ * X/Z plane. This is the swept collision primitive: comparing it to a target's
+ * squared hit radius tells us whether the bolt's path THIS FRAME crossed the
+ * target's circle, regardless of how far the bolt stepped — closing the
+ * tunneling gap a point-at-new-position test leaves open.
+ */
+function distSqSegmentToPoint(
+  px: number,
+  pz: number,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+): number {
+  const t = closestTOnSegment(px, pz, ax, az, bx, bz);
+  const cx = ax + (bx - ax) * t;
+  const cz = az + (bz - az) * t;
+  const dx = px - cx;
+  const dz = pz - cz;
+  return dx * dx + dz * dz;
 }

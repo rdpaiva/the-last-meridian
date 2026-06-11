@@ -166,8 +166,10 @@ friendly-fire-free without per-bolt faction checks.
 - `spawn(origin, rotationY, fromPlayer?)` creates a bolt with velocity along
   forward. `fromPlayer` tags bolts the human pilot fired (vs. an AI wingman
   sharing the same faction system).
-- `update()` advances bolts, runs X/Z sphere-vs-target collision, calls
-  `onHit(target, fromPlayer)` on impact — the struck target lets Game scale
+- `update()` advances bolts, runs a **swept** X/Z segment-vs-target collision
+  (the bolt's pre-move→post-move path is tested against each circle, not just
+  its end position), calls `onHit(target, fromPlayer)` on impact — the struck
+  target lets Game scale
   feedback (heavy flash/hitstop for the player's own ship, light cue for a
   mothership), and `fromPlayer` gates the "you landed a hit" jolt + gun SFX to the
   player's OWN shots so 3 wingmen firing don't spam hitstop on the shared system.
@@ -187,8 +189,13 @@ friendly-fire-free without per-bolt faction checks.
   HUD shows green `LOCK` only when a lock exists AND ammo > 0.
 - `spawn(origin, rotationY, target)` — pass the locked enemy to home, or `null`
   to fire ballistic. **A no-lock missile still flies and still detonates** on
-  any enemy it contacts (collision tests all targets, same X/Z sphere check as
-  lasers).
+  any enemy it contacts (collision tests all targets, same X/Z **point**-test as
+  lasers *used* to use).
+- **TODO (known gap):** unlike `LaserSystem`, this still uses a point-at-new-
+  position collision test, which can tunnel through a target on a large step.
+  Missiles are slow (`missile.speed` 45 u/s) and homing, so the gap is tiny in
+  practice — but if missile speed is ever raised, port `LaserSystem`'s swept
+  segment-vs-circle test here.
 - **Homing** (`Missile.update`): while it has a live target it steers
   `rotationY` toward the bearing to that target, capped at `turnRate`/sec (the
   same `wrapAngle` + `turnStep` math as the enemy AI). If the target dies it
