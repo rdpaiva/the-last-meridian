@@ -34,6 +34,8 @@ export class MusicSystem {
   private activePlaylist: string[] = [];
   private shuffledQueue: string[] = [];
   private queueIndex = 0;
+  /** sessionStorage key for the active playlist's saved shuffle + position. */
+  private stateKey = "";
 
   constructor(scene: Scene, baseUrl = `${import.meta.env.BASE_URL}music`) {
     this.scene = scene;
@@ -41,9 +43,16 @@ export class MusicSystem {
   }
 
   /**
-   * Shuffle the given playlist and start playing from the beginning.
-   * Stops any currently playing track first.
+   * Start playing the given playlist. Stops any currently playing track first.
    * Pass an empty array (or call stop()) to silence music.
+   *
+   * Playlist progress (the shuffled order and our position in it) is persisted
+   * to sessionStorage and resumed here, so an end-of-match restart — which is a
+   * full page reload (see Game.onKeyDown / RESTART_FLAG) — continues to the NEXT
+   * track instead of reshuffling from scratch every match. Without this, matches
+   * shorter than a track (the common case) would only ever play track openings,
+   * which reads as "the same song over and over." A fresh tab (sessionStorage
+   * empty) starts a new random shuffle.
    */
   playPlaylist(type: "game" | "menu"): void {
     const tracks =
@@ -55,8 +64,16 @@ export class MusicSystem {
     if (tracks.length === 0) return;
 
     this.activePlaylist = tracks;
-    this.shuffledQueue = this.shuffle([...tracks]);
-    this.queueIndex = 0;
+    this.stateKey = `space-duel-music-${type}`;
+
+    const resumed = this.loadSavedState(tracks);
+    if (resumed) {
+      this.shuffledQueue = resumed.queue;
+      this.queueIndex = resumed.index;
+    } else {
+      this.shuffledQueue = this.shuffle([...tracks]);
+      this.queueIndex = 0;
+    }
     this.playNext();
   }
 
@@ -83,6 +100,9 @@ export class MusicSystem {
 
     const filename = this.shuffledQueue[this.queueIndex++];
     const url = `${this.baseUrl}/${encodeURIComponent(filename)}`;
+    // Persist now (queueIndex points at the NEXT track), so a restart reload
+    // resumes on the track after this one rather than replaying it.
+    this.saveState();
 
     const track = new Sound(
       `music_track`,
@@ -140,5 +160,48 @@ export class MusicSystem {
       [shuffled[0], shuffled[swapIdx]] = [shuffled[swapIdx], shuffled[0]];
     }
     return shuffled;
+  }
+
+  /** Persist the current shuffled order + position for the active playlist. */
+  private saveState(): void {
+    if (!this.stateKey) return;
+    try {
+      sessionStorage.setItem(
+        this.stateKey,
+        JSON.stringify({ queue: this.shuffledQueue, index: this.queueIndex }),
+      );
+    } catch {
+      // sessionStorage can throw (private mode, quota); music continues fine
+      // without persistence — we just fall back to a fresh shuffle next load.
+    }
+  }
+
+  /**
+   * Restore a saved shuffle + position, but only if it's still valid for the
+   * current playlist (same set of tracks — a config change invalidates it).
+   * Returns null when there's nothing usable saved, so the caller reshuffles.
+   */
+  private loadSavedState(
+    tracks: string[],
+  ): { queue: string[]; index: number } | null {
+    try {
+      const raw = sessionStorage.getItem(this.stateKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { queue: string[]; index: number };
+      if (!Array.isArray(parsed.queue) || typeof parsed.index !== "number") {
+        return null;
+      }
+      // The saved queue must be a permutation of the current playlist.
+      const sameSet =
+        parsed.queue.length === tracks.length &&
+        [...parsed.queue].sort().join(" ") ===
+          [...tracks].sort().join(" ");
+      if (!sameSet) return null;
+      // Clamp the index so a malformed/stale value can't break playNext.
+      const index = Math.max(0, Math.min(parsed.index, parsed.queue.length));
+      return { queue: parsed.queue, index };
+    } catch {
+      return null;
+    }
   }
 }
