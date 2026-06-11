@@ -108,15 +108,28 @@ export class AsteroidField {
     const cfg = GameConfig.asteroids;
     if (parent.visualRadius <= cfg.minSplitRadius) return;
 
-    const baseRadius = parent.visualRadius * cfg.splitRadiusFactor;
-    for (let i = 0; i < cfg.splitCount; i++) {
-      // Each chunk varies its size around the base split radius, so a big rock
-      // breaks into a mix of larger and smaller fragments rather than clones.
-      const sizeJitter = 1 + (Math.random() * 2 - 1) * cfg.splitSizeVariance;
-      const childRadius = baseRadius * sizeJitter;
+    // Chunk count scales with the parent's size, clamped — small rocks crack
+    // into a couple of pieces, big boulders burst into a spray of rubble.
+    const chunkCount = Math.max(
+      cfg.splitCountMin,
+      Math.min(
+        cfg.splitCountMax,
+        Math.round(parent.visualRadius * cfg.chunksPerRadius),
+      ),
+    );
+
+    for (let i = 0; i < chunkCount; i++) {
+      // Size rolled across a wide band, biased toward the small end (rand^bias),
+      // so each shatter throws a few large chunks alongside many small fragments
+      // instead of a ring of near-clones.
+      const frac =
+        cfg.splitRadiusMin +
+        (cfg.splitRadiusMax - cfg.splitRadiusMin) *
+          Math.pow(Math.random(), cfg.splitSizeBias);
+      const childRadius = parent.visualRadius * frac;
       // Fan the chunks outward around the parent center with an outward drift
       // kick layered on top of the parent's existing motion.
-      const angle = (i / cfg.splitCount) * Math.PI * 2 + Math.random() * 0.8;
+      const angle = (i / chunkCount) * Math.PI * 2 + Math.random() * 0.8;
       const ox = Math.sin(angle);
       const oz = Math.cos(angle);
       const pos = new Vector3(

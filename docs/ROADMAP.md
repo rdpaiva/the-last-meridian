@@ -166,8 +166,14 @@ and explicitly skipped. Update this when you finish or start work.
 - **Destructible + shatter** — each rock implements `DamageTarget` with HP scaled
   by size; weapon fire chips it, and on death it pops an explosion (size-scaled
   trauma via `AsteroidField.onShatter`) and splits into smaller drifting chunks
-  (down to `minSplitRadius`). Chunks are pushed into the same live `obstacles`
-  array, so the weapon systems pick them up with no extra wiring.
+  (down to `minSplitRadius`). The chunk count scales with the parent's radius
+  (`chunksPerRadius`, clamped `[splitCountMin, splitCountMax]`) and each chunk's
+  size is rolled across a wide band (`splitRadiusMin/Max`) biased toward the
+  small end (`splitSizeBias`), so a big boulder bursts into a few large chunks
+  plus a spray of small fragments rather than a pair of clones. Fragments that
+  land at/below `minSplitRadius` are terminal; larger chunks re-shatter when
+  shot. Chunks are pushed into the same live `obstacles` array, so the weapon
+  systems pick them up with no extra wiring.
 - **Hard bump + ram damage** — `Game.resolveAsteroidCollisions` shoves any ship
   overlapping a rock to its surface, cancels the inward velocity component, and
   deals ram damage on a per-ship cooldown (player gets trauma + damage flash +

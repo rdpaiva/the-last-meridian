@@ -281,16 +281,30 @@ export const GameConfig = {
     bumpCooldownSec: 0.5,
     /** Rocks at/below this visual radius vanish on death instead of splitting. */
     minSplitRadius: 7,
-    /** Child chunks spawned when a splittable rock is destroyed. */
-    splitCount: 2,
-    /** Child visual radius as a fraction of the parent's (the average chunk). */
-    splitRadiusFactor: 0.58,
     /**
-     * Per-chunk size spread around splitRadiusFactor, as a ±fraction. 0.4 means
-     * each chunk's radius is the base ×[0.6, 1.4], so a shattered rock throws a
-     * mix of larger and smaller fragments instead of identical clones. 0 = even.
+     * Chunk count scales with the parent's visual radius (chunksPerRadius ×
+     * radius), then clamps to [splitCountMin, splitCountMax]. So a small rock
+     * cracks into a couple of pieces while a big boulder bursts into a whole
+     * spray of rubble — the count is no longer a flat constant.
      */
-    splitSizeVariance: 0.4,
+    chunksPerRadius: 0.24,
+    splitCountMin: 2,
+    splitCountMax: 8,
+    /**
+     * Each chunk's visual radius is the parent's × a fraction rolled in
+     * [splitRadiusMin, splitRadiusMax]. The band is wide on purpose: a single
+     * shatter throws a few sizeable chunks alongside small fragments. Chunks
+     * that land at/below minSplitRadius are terminal (they vanish, not re-split)
+     * — that's the "fragment" tier; the bigger ones can be shot apart again.
+     */
+    splitRadiusMin: 0.18,
+    splitRadiusMax: 0.62,
+    /**
+     * Bias exponent applied to the size roll (rand^bias). > 1 skews the mix
+     * toward the small end — mostly little fragments with the occasional big
+     * chunk, the way real rubble breaks. 1 = uniform across the size band.
+     */
+    splitSizeBias: 2.0,
     /** Outward speed kick (units/sec) added to each chunk on shatter. */
     splitSpeed: 18,
     /**
