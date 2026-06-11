@@ -39,6 +39,10 @@ export class EngineGlow {
    * while the player is actively burning, then fades out as they coast. */
   private trailIntensity = 0;
 
+  /** When true the glow meshes are disabled (see hide()). update() auto-clears
+   * this and re-shows on its next call. */
+  private hidden = false;
+
   /** Read-only view of the smoothed thrust intensity (0..1) — used by
    * SoundSystem to keep the engine hum's audio level in sync with the
    * visual flare. */
@@ -149,12 +153,39 @@ export class EngineGlow {
     }
   }
 
+  /**
+   * Fully suppress the glow (disable core spheres + trails). Used while a ship
+   * is launching and occluded inside the carrier: the GlowLayer composites
+   * emissive over opaque geometry with no depth test, so the ONLY way to stop
+   * the glow bleeding through the hull is to not render it. update() auto-
+   * re-shows on its next call (with fresh trails), so callers just stop calling
+   * update() and call this instead while the ship is in the tube.
+   */
+  hide(): void {
+    if (this.hidden) return;
+    this.hidden = true;
+    this.intensity = 0;
+    this.trailIntensity = 0;
+    for (const core of this.cores) core.setEnabled(false);
+    for (const trail of this.trails) trail.setEnabled(false);
+  }
+
   update(
     deltaSeconds: number,
     speed: number,
     maxSpeed: number,
     thrusting: boolean,
   ): void {
+    if (this.hidden) {
+      // First update after launch: re-show and flush the trail history so the
+      // 90 u/s catapult run doesn't leave a streak. Intensity restarts at 0
+      // (resetTrails zeroes it), so the engines spool up naturally as the ship
+      // clears the deck rather than snapping to full glow.
+      this.hidden = false;
+      for (const core of this.cores) core.setEnabled(true);
+      this.resetTrails();
+    }
+
     const cfg = GameConfig.engineGlow;
     // Target intensity: 1.0 while thrusting, otherwise scaled by current
     // speed (so coasting at high speed still glows softly).

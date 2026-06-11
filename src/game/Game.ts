@@ -775,16 +775,15 @@ export class Game {
                     : this.traumaAtDistance(GameConfig.launch.launchTrauma, ship.position),
                 );
               }
-              // Light a launching wingman's exhaust during its catapult run (the
-              // player's own glow is handled in the always-on animation block).
+              // Keep the engine glow OFF for the whole launch: while the ship is
+              // in the tube / streaking out it's occluded by the carrier, but the
+              // GlowLayer composites emissive over the hull with no depth test, so
+              // a lit glow would bleed through as "ghost lights" under the carrier.
+              // update() re-shows it (spooling up) on the first frame after the
+              // launch completes. (Idle RCS thrusters are already invisible.)
               const vis = this.aiVisuals.get(ship);
               if (vis) {
-                vis.glow.update(
-                  deltaSeconds,
-                  ship.speed,
-                  ship.maxSpeed,
-                  c.launch.isLaunching,
-                );
+                vis.glow.hide();
                 vis.thrusters?.update(deltaSeconds, false, false, false);
               }
               if (c.launch.isComplete) {
@@ -902,15 +901,19 @@ export class Game {
         this.starfield.update();
         this.backdrop.update(this.cameraRig.camera.getTarget());
         if (!inHitstop) {
-          const thrustActive =
-            this.input.state.thrust ||
-            (playerLaunch?.isLaunching ?? false);
-          this.engineGlow?.update(
-            deltaSeconds,
-            this.playerShip.speed,
-            GameConfig.player.maxSpeed,
-            thrustActive,
-          );
+          // Keep the glow off through the player's launch (it's occluded by the
+          // carrier; a lit glow would bleed through the hull via the GlowLayer).
+          // update() re-shows it the first frame after the catapult completes.
+          if (playerLaunch) {
+            this.engineGlow?.hide();
+          } else {
+            this.engineGlow?.update(
+              deltaSeconds,
+              this.playerShip.speed,
+              GameConfig.player.maxSpeed,
+              this.input.state.thrust,
+            );
+          }
           const alive = this.playerShip.isAlive;
           this.secondaryThrusters?.update(
             deltaSeconds,
