@@ -1,11 +1,18 @@
 import type { Scene } from "@babylonjs/core/scene";
 import type { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
+import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
+import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
 import "@babylonjs/core/Meshes/Builders/boxBuilder";
+// Registers the .glb/.gltf loader plugin used by applyModel() to swap the
+// procedural carrier for the Blender model. AssetLoader also registers it, but
+// importing here too keeps Mothership independent of module load order.
+import "@babylonjs/loaders/glTF";
 
 import { GameConfig } from "./GameConfig";
 import type { DamageTarget } from "./types";
@@ -54,6 +61,26 @@ export class Mothership implements DamageTarget {
   static readonly POD_HALF_DEPTH = 110;  // half of pod Z length
   static readonly STARBOARD_X = 65;      // local X center of the starboard pod
 
+  private readonly scene: Scene;
+  private readonly glowLayer: GlowLayer;
+
+  /**
+   * Meshes of the procedural box carrier, captured at construction. Disposed by
+   * applyModel() once the GLB takes over (the GLB is a sibling under `root`, so
+   * it survives). Empty after a successful model swap.
+   */
+  private proceduralMeshes: AbstractMesh[] = [];
+
+  /**
+   * Launch-bay positions (carrier-LOCAL x/z) read from the GLB's `launch.*`
+   * empties, or null while running the procedural carrier (then the query
+   * helpers fall back to GameConfig.mothership.launchBays). Set by applyModel().
+   */
+  private modelLaunchBays: ReadonlyArray<{ x: number; z: number }> | null = null;
+
+  /** Bow-clearing exit distance derived from the GLB's forward extent, or null. */
+  private modelExitDistance: number | null = null;
+
   constructor(
     scene: Scene,
     glowLayer: GlowLayer,
@@ -61,6 +88,8 @@ export class Mothership implements DamageTarget {
     rotationY: number,
     faction: Faction,
   ) {
+    this.scene = scene;
+    this.glowLayer = glowLayer;
     this.faction = faction;
     this.root = new TransformNode(`mothership_${faction}_root`, scene);
     this.root.position.copyFrom(worldPosition);
@@ -79,6 +108,131 @@ export class Mothership implements DamageTarget {
     this.buildPod(scene, hullMat, accentMat, lightMat, windowMat, glowLayer, +Mothership.STARBOARD_X, "sb");
     this.buildPod(scene, hullMat, accentMat, lightMat, windowMat, glowLayer, -Mothership.STARBOARD_X, "pt");
     this.buildNecks(scene, accentMat);
+
+    // Snapshot the procedural meshes so applyModel() can dispose them after the
+    // GLB loads. The carrier is visible immediately (and is the fallback if the
+    // model is missing or fails to load).
+    this.proceduralMeshes = this.root.getChildMeshes(true);
+  }
+
+  // ─── Detailed model swap (Blender GLB) ────────────────────────────────────
+
+  /**
+   * Replace the procedural box carrier with the Blender GLB named by
+   * `filename` (GameConfig.mothership.model). Imports the model under a
+   * correction node (orientation + scale from config), reads the `launch.*`
+   * empties for the bays, registers the emissive parts with the glow layer, then
+   * disposes the procedural meshes. Returns false — and KEEPS the procedural
+   * carrier — if the model is disabled in config or fails to load. Always
+   * resolves; never rejects. Call once, after construction (see Game.start()).
+   */
+  async applyModel(filename: string): Promise<boolean> {
+    const cfg = GameConfig.mothership.model;
+    if (!cfg || !filename) return false;
+    try {
+      // NOTE: trailing slash on rootUrl is required for SceneLoader.
+      const result = await SceneLoader.ImportMeshAsync(
+        "",
+        `${import.meta.env.BASE_URL}models/`,
+        filename,
+        this.scene,
+      );
+
+      // The glTF loader inserts a "__root__" TransformNode (RHS→LHS handling).
+      // Park it (or any loose meshes) under a correction node we own.
+      const modelRoot = new TransformNode(`ms_model_${this.faction}`, this.scene);
+      const gltfRoot = result.transformNodes.find((n) => n.name === "__root__");
+      if (gltfRoot) {
+        gltfRoot.parent = modelRoot;
+      } else {
+        for (const m of result.meshes) {
+          if (m.parent === null) m.parent = modelRoot;
+        }
+      }
+      modelRoot.rotation.set(cfg.rotX, cfg.rotY, cfg.rotZ);
+      modelRoot.scaling.setAll(cfg.scale);
+      modelRoot.parent = this.root;
+
+      this.captureLaunchMarkers(result.transformNodes);
+      this.captureExitDistance(result.meshes);
+      this.registerModelGlow(result.meshes);
+
+      // The procedural carrier is now redundant — dispose its meshes. The GLB is
+      // a sibling under `root`, so it (and the launch markers we just read) stay.
+      for (const m of this.proceduralMeshes) m.dispose(false, true);
+      this.proceduralMeshes = [];
+      return true;
+    } catch (err) {
+      console.warn(
+        `[Mothership] Failed to load /models/${filename} — keeping the ` +
+          `procedural carrier.`,
+        err,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Reads the GLB's `launch.*` empties into carrier-LOCAL x/z (the same frame
+   * GameConfig.launchBays uses, so getLaunchStartPosition's rotation math is
+   * unchanged). Sorted by X for a deterministic port↔starboard bay order
+   * regardless of node order in the file. No-op (keeps the config fallback) if
+   * the model authored no launch empties.
+   */
+  private captureLaunchMarkers(nodes: TransformNode[]): void {
+    this.root.computeWorldMatrix(true);
+    const inv = this.root.getWorldMatrix().clone().invert();
+    const pts: { x: number; z: number }[] = [];
+    for (const n of nodes) {
+      if (!n.name || !n.name.toLowerCase().startsWith("launch")) continue;
+      n.computeWorldMatrix(true);
+      const p = Vector3.TransformCoordinates(n.getAbsolutePosition(), inv);
+      pts.push({ x: p.x, z: p.z });
+    }
+    if (pts.length === 0) return;
+    pts.sort((a, b) => a.x - b.x);
+    this.modelLaunchBays = pts;
+  }
+
+  /**
+   * Derives the bow-clearing exit distance from the model's forward (+local Z)
+   * extent plus a margin, so a fighter hands back to normal control just after
+   * clearing the bow regardless of the model's scale. Local +Z is the launch
+   * axis for either carrier (getLaunchForward is the root's facing).
+   */
+  private captureExitDistance(meshes: AbstractMesh[]): void {
+    this.root.computeWorldMatrix(true);
+    const inv = this.root.getWorldMatrix().clone().invert();
+    let maxZ = -Infinity;
+    for (const m of meshes) {
+      m.computeWorldMatrix(true);
+      for (const corner of m.getBoundingInfo().boundingBox.vectorsWorld) {
+        const local = Vector3.TransformCoordinates(corner, inv);
+        if (local.z > maxZ) maxZ = local.z;
+      }
+    }
+    if (Number.isFinite(maxZ)) this.modelExitDistance = maxZ + 25;
+  }
+
+  /**
+   * Adds only the EXTERIOR emissive parts to the GlowLayer — engines, the bridge
+   * viewport, and the pod running lights — so they bloom like the procedural build.
+   *
+   * The recessed LAUNCH-BAY emitters (deck / back wall / ceiling strips) are
+   * deliberately NOT registered: the GlowLayer composites emissive over opaque
+   * geometry with NO depth test (see EngineGlow.hide()), so a bright glow buried
+   * inside a pod bleeds straight through the hull and shows as a phantom bay on
+   * the far side. Left off the glow layer they stay normal depth-tested emissive
+   * surfaces — visible (lit) only through the actual bay opening, no bleed. Same
+   * reasoning the dense window rows use (they'd blow out to white).
+   */
+  private registerModelGlow(meshes: AbstractMesh[]): void {
+    const GLOW = ["engine", "viewport", "runlight"]; // exterior emitters only
+    for (const m of meshes) {
+      const nm = m.name.toLowerCase();
+      if (nm.includes("bay")) continue; // recessed → emissive only, never glow
+      if (GLOW.some((g) => nm.includes(g))) this.glowLayer.addIncludedOnlyMesh(m as Mesh);
+    }
   }
 
   // ─── DamageTarget ─────────────────────────────────────────────────────────
@@ -99,20 +253,28 @@ export class Mothership implements DamageTarget {
 
   // ─── Query helpers ────────────────────────────────────────────────────────
 
+  /**
+   * Launch-bay offsets (carrier-LOCAL x/z): the GLB's `launch.*` empties once
+   * the model has loaded, else the GameConfig procedural-fallback positions.
+   */
+  private launchBays(): ReadonlyArray<{ x: number; z: number }> {
+    return this.modelLaunchBays ?? GameConfig.mothership.launchBays;
+  }
+
   /** How many catapult launch bays (tubes) this carrier has. */
   getLaunchBayCount(): number {
-    return GameConfig.mothership.launchBays.length;
+    return this.launchBays().length;
   }
 
   /**
    * World-space start position inside launch bay `bayIndex` (wraps if it runs
-   * past the configured bays). Y is forced to 0 so the fighter sits on the
+   * past the available bays). Y is forced to 0 so the fighter sits on the
    * gameplay plane. Works for either carrier — the local bay offset is rotated
-   * by the root's facing. Bay positions are tunable via
-   * GameConfig.mothership.launchBays.
+   * by the root's facing. Bay positions come from the model's `launch.*` empties
+   * (else GameConfig.mothership.launchBays); see launchBays().
    */
   getLaunchStartPosition(bayIndex = 0): Vector3 {
-    const bays = GameConfig.mothership.launchBays;
+    const bays = this.launchBays();
     const bay = bays[bayIndex % bays.length];
     const sin = Math.sin(this.root.rotation.y);
     const cos = Math.cos(this.root.rotation.y);
@@ -137,8 +299,9 @@ export class Mothership implements DamageTarget {
    * carrier center, that a fighter must travel to fully clear the bow.
    */
   getLaunchExitDistance(): number {
-    // Bridge cap overhangs to roughly localZ = +148; add a margin.
-    return Mothership.HULL_HALF_DEPTH + 25;
+    // From the model's measured forward extent once loaded; else the procedural
+    // hull: bridge cap overhangs to roughly localZ = +148, plus a margin.
+    return this.modelExitDistance ?? Mothership.HULL_HALF_DEPTH + 25;
   }
 
   // ─── Central hull ─────────────────────────────────────────────────────────

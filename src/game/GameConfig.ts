@@ -391,6 +391,35 @@ export const GameConfig = {
       { x: -65, z: -80 }, // port pod
     ] as ReadonlyArray<{ x: number; z: number }>,
 
+    /**
+     * Detailed carrier MODEL (Blender → GLB) that replaces the procedural box
+     * build at runtime. Loaded once per carrier in Game.start(); on success the
+     * procedural meshes are disposed and the GLB takes over. Set `file` to null
+     * to keep the procedural carrier.
+     *
+     * Orientation/scale correction (same convention as `shipModels`). The model
+     * is authored bow-along Blender +Y; EMPIRICALLY (verified in-game, not by
+     * armchair axis math — Babylon's RHS→LHS handling is subtle) it lands bow-aft
+     * with the bay mouths pointing AWAY from the launch axis, so rotY=π spins the
+     * whole assembly 180° to face the bays/bridge down the launch direction. The
+     * correction rotates the launch empties with the geometry, so ships keep
+     * spawning in the bays and now exit through the mouths. `scale` brings the
+     * ~26-unit Blender model up to ~`hullLength` so the existing hitRadius and
+     * launch exit distance still fit. Tune in the Inspector (expand the carrier's
+     * `ms_model_*` node) if a re-export changes the orientation.
+     *
+     * LAUNCH BAYS come from empties named `launch.*` authored into the GLB and
+     * read in the carrier's local frame, so they track the art automatically;
+     * the `launchBays` offsets above are only the procedural-fallback positions.
+     */
+    model: {
+      file: "bastion_carrier.glb" as string | null,
+      rotX: 0,
+      rotY: Math.PI, // bays/bridge must face the launch axis (see note above)
+      rotZ: 0,
+      scale: 10.6,
+    },
+
     // --- Combat: the mothership is the win/lose objective. ---
     /**
      * Hit points. Destroying the enemy mothership wins the match; losing yours
