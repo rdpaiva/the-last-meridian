@@ -108,8 +108,12 @@ export class AsteroidField {
     const cfg = GameConfig.asteroids;
     if (parent.visualRadius <= cfg.minSplitRadius) return;
 
-    const childRadius = parent.visualRadius * cfg.splitRadiusFactor;
+    const baseRadius = parent.visualRadius * cfg.splitRadiusFactor;
     for (let i = 0; i < cfg.splitCount; i++) {
+      // Each chunk varies its size around the base split radius, so a big rock
+      // breaks into a mix of larger and smaller fragments rather than clones.
+      const sizeJitter = 1 + (Math.random() * 2 - 1) * cfg.splitSizeVariance;
+      const childRadius = baseRadius * sizeJitter;
       // Fan the chunks outward around the parent center with an outward drift
       // kick layered on top of the parent's existing motion.
       const angle = (i / cfg.splitCount) * Math.PI * 2 + Math.random() * 0.8;
@@ -120,16 +124,24 @@ export class AsteroidField {
         cfg.yLevel,
         parent.position.z + oz * childRadius,
       );
+      const speed = cfg.splitSpeed + Math.random() * cfg.splitSpeedVariance;
       const drift = new Vector3(
-        parent.drift.x + ox * cfg.splitSpeed,
+        parent.drift.x + ox * speed,
         0,
-        parent.drift.z + oz * cfg.splitSpeed,
+        parent.drift.z + oz * speed,
+      );
+      // Violent blast tumble — far faster than ambient field spin.
+      const spin = new Vector3(
+        AsteroidField.signedRange(cfg.chunkSpinRateMin, cfg.chunkSpinRateMax),
+        AsteroidField.signedRange(cfg.chunkSpinRateMin, cfg.chunkSpinRateMax),
+        AsteroidField.signedRange(cfg.chunkSpinRateMin, cfg.chunkSpinRateMax),
       );
       this.asteroids.push(
         new Asteroid(this.scene, this.material, {
           position: pos,
           drift,
           visualRadius: childRadius,
+          spin,
         }),
       );
     }
@@ -158,6 +170,12 @@ export class AsteroidField {
       if (ok) return new Vector3(x, cfg.yLevel, z);
     }
     return null;
+  }
+
+  /** A value in [min, max] with a random sign — for symmetric chunk spin. */
+  private static signedRange(min: number, max: number): number {
+    const mag = min + Math.random() * (max - min);
+    return Math.random() < 0.5 ? -mag : mag;
   }
 
   private randomDrift(): Vector3 {

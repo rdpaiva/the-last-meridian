@@ -83,6 +83,12 @@ export class Asteroid implements DamageTarget {
       drift: Vector3;
       /** Visual radius; collision radius is derived via collisionScale. */
       visualRadius: number;
+      /**
+       * Per-axis tumble (rad/sec) override. When omitted, an ambient field
+       * spin in [spinRateMin, spinRateMax] is rolled. Shatter chunks pass a
+       * violent spin here so fresh debris tumbles from the blast.
+       */
+      spin?: Vector3;
     },
   ) {
     const cfg = GameConfig.asteroids;
@@ -94,11 +100,13 @@ export class Asteroid implements DamageTarget {
     this.maxHp = Math.max(1, Math.round(opts.visualRadius * cfg.hpPerRadius));
     this.hp = this.maxHp;
 
-    this.spin = new Vector3(
-      Asteroid.signedRange(cfg.spinRateMin, cfg.spinRateMax),
-      Asteroid.signedRange(cfg.spinRateMin, cfg.spinRateMax),
-      Asteroid.signedRange(cfg.spinRateMin, cfg.spinRateMax),
-    );
+    this.spin =
+      opts.spin ??
+      new Vector3(
+        Asteroid.signedRange(cfg.spinRateMin, cfg.spinRateMax),
+        Asteroid.signedRange(cfg.spinRateMin, cfg.spinRateMax),
+        Asteroid.signedRange(cfg.spinRateMin, cfg.spinRateMax),
+      );
 
     this.mesh = this.buildMesh(scene, opts.visualRadius);
     this.mesh.material = material;

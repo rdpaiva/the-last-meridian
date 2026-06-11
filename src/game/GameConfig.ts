@@ -283,10 +283,29 @@ export const GameConfig = {
     minSplitRadius: 7,
     /** Child chunks spawned when a splittable rock is destroyed. */
     splitCount: 2,
-    /** Child visual radius as a fraction of the parent's. */
+    /** Child visual radius as a fraction of the parent's (the average chunk). */
     splitRadiusFactor: 0.58,
+    /**
+     * Per-chunk size spread around splitRadiusFactor, as a ±fraction. 0.4 means
+     * each chunk's radius is the base ×[0.6, 1.4], so a shattered rock throws a
+     * mix of larger and smaller fragments instead of identical clones. 0 = even.
+     */
+    splitSizeVariance: 0.4,
     /** Outward speed kick (units/sec) added to each chunk on shatter. */
-    splitSpeed: 6,
+    splitSpeed: 18,
+    /**
+     * Random extra outward speed (units/sec) layered on top of splitSpeed per
+     * chunk, so the debris fans out at varied velocities instead of a uniform
+     * ring. Each chunk gets splitSpeed + rand(0, splitSpeedVariance).
+     */
+    splitSpeedVariance: 14,
+    /**
+     * Per-axis tumble rate range (rad/sec) for SHATTER CHUNKS — far faster than
+     * the ambient field spin, so fresh debris rolls and tumbles violently from
+     * the blast instead of drifting serenely like the rest of the field.
+     */
+    chunkSpinRateMin: 1.5,
+    chunkSpinRateMax: 4.5,
     /** Keep-clear radius around each mothership where rocks won't spawn. */
     mothershipClearance: 180,
     /**
