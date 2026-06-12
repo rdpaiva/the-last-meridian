@@ -47,7 +47,7 @@ const SHIP_INFO: Record<ShipTypeId, { name: string; role: string; blurb: string 
   wraith: {
     name: "Wraith",
     role: "Interceptor",
-    blurb: "Quick Novari knife-fighter — light hull, no missiles.",
+    blurb: "Novari knife-fighter. Fastest ship there is — light hull, no missiles.",
   },
   reaver: {
     name: "Reaver",

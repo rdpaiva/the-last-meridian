@@ -76,9 +76,11 @@ const shipTypes = {
   /**
    * Breaker — the human HEAVY GUNSHIP (see the story bible: built to crack
    * capital ships and mothership subsystems). Slower and far less nimble than
-   * the Spitfire, but it hits much harder per bolt, soaks twice the damage,
-   * and carries double the missile rack. Four gun muzzles (two nose pairs +
-   * two wing turrets) ripple in alternate mode.
+   * the Spitfire, but it has the best sustained gun DPS in the catalog, soaks
+   * twice the damage, and carries double the missile rack. Versus the Reaver
+   * it's the gunship proper: better guns and handling, smaller target — the
+   * Reaver answers with more armor, heavier alpha, and a bigger rack. Four gun
+   * muzzles (two nose pairs + two wing turrets) ripple in alternate mode.
    */
   breaker: {
     model: "breaker.glb",
@@ -90,8 +92,8 @@ const shipTypes = {
     dragRate: 0.9,
     /** Ponderous turn — lead your targets. */
     rotationSpeed: 2.9,
-    /** Slower cadence than the Spitfire; each bolt is much heavier. */
-    fireCooldownMs: 170,
+    /** Heavy bolts on a brisk cycle — 227 DPS, the catalog's best guns. */
+    fireCooldownMs: 150,
     /**
      * Mirrors the GLB's muzzle.FL/FR (nose gun pairs, at the barrel tips) +
      * muzzle.WL/WR (wing turret barrel tips, slightly aft of center) empties
@@ -117,53 +119,62 @@ const shipTypes = {
   },
 
   /**
-   * Wraith — the Novari dogfighter. (Values were GameConfig.enemy before the
-   * catalog existed.) Carries reverse/strafe authority now that the loadout
-   * menu lets a human fly it (the AI formation servo uses them too); tuned a
-   * touch below the Spitfire's so the two fighters stay distinct.
+   * Wraith — the Novari KNIFE-FIGHTER. The fastest, most agile, hardest-to-hit
+   * ship in the catalog, with the best fighter guns — paid for with the
+   * lightest hull and no missile rack. It out-runs and out-turns the Spitfire;
+   * the Spitfire answers with +30 hull, heat-seekers, and forgiveness.
    */
   wraith: {
     model: "wraith.glb",
-    thrust: 38,
-    reverseThrust: 16,
-    strafeThrust: 28,
-    maxSpeed: 20,
+    /** Hottest engines in the catalog — above the Spitfire's 48. */
+    thrust: 54,
+    reverseThrust: 20,
+    strafeThrust: 38,
+    /** Fastest ship in the game (Spitfire: 24). */
+    maxSpeed: 27,
     dragRate: 0.9,
-    rotationSpeed: 3.5,
-    fireCooldownMs: 120,
+    /** Out-turns everything (Spitfire: 4.5). */
+    rotationSpeed: 5.4,
+    /** Fastest gun cycle in the catalog — 200 DPS to the Spitfire's 167. */
+    fireCooldownMs: 100,
     /** Dual wing muzzles — matches the Spitfire layout. */
     muzzles: [
       { x: -0.85, y: 0, z: 0.1 },
       { x: 0.85, y: 0, z: 0.1 },
     ],
     fireMode: "alternate",
-    maxHp: 60,
+    /** Lightest hull in the game — speed IS the Wraith's armor. */
+    maxHp: 70,
     laserDamage: 20,
+    /** No rack — guns and agility are the whole kit. */
     missileAmmo: 0,
-    hitRadius: 1.2,
+    /** Slim airframe, hardest target in the catalog to hit. */
+    hitRadius: 1.0,
     fireSound: "laserGun",
   },
 
   /**
    * Reaver — the Novari HEAVY GUNSHIP (story bible: the machines' answer to
    * the Breaker — more aggressive and alien, built to crack the Bastion).
-   * Slow scythe-winged weapons platform: out-hits and out-soaks the Breaker
-   * slightly, carries the biggest missile rack in the catalog, and turns
-   * like a barge. Four muzzles (twin long chin cannons + the two wing gun
-   * pods) ripple in alternate mode. Reverse/strafe sit at Breaker-class
-   * authority so a human can fly it off the loadout menu.
+   * The ARMORED MISSILE BARGE: biggest hull, heaviest alpha per bolt, and the
+   * biggest missile rack in the catalog — but the slowest guns, the slowest
+   * hull, and the biggest target. Versus the Breaker it trades gun DPS and
+   * handling for armor and ordnance. Four muzzles (twin long chin cannons +
+   * the two wing gun pods) ripple in alternate mode. Reverse/strafe sit at
+   * Breaker-class authority so a human can fly it off the loadout menu.
    */
   reaver: {
     model: "reaver.glb",
     thrust: 36,
     reverseThrust: 12,
     strafeThrust: 18,
-    /** Between the Wraith (20) and Breaker (17) — heavy but Novari-smooth. */
-    maxSpeed: 18,
+    /** Slowest hull in the catalog (Breaker: 17) — armor over engines. */
+    maxSpeed: 16,
     dragRate: 0.9,
     /** Even more ponderous than the Breaker's 2.9. */
     rotationSpeed: 2.7,
-    fireCooldownMs: 160,
+    /** Slow cycle — 190 DPS, below the Breaker; each bolt hits hardest. */
+    fireCooldownMs: 200,
     /**
      * Mirrors the GLB's muzzle.NL/NR (chin cannon tips) + muzzle.WL/WR (wing
      * gun pod tips) empties at shipModels scale 0.35 — used by fleet clones,
@@ -177,7 +188,7 @@ const shipTypes = {
     ],
     fireMode: "alternate",
     /** The toughest fighter-class hull in the game. */
-    maxHp: 260,
+    maxHp: 280,
     /** Heaviest bolts in the catalog — a step above the Breaker's 34. */
     laserDamage: 38,
     /** Biggest rack in the game (matters when the player flies one). */
