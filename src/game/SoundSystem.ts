@@ -170,7 +170,7 @@ export class SoundSystem {
     // slots replays every ~0.45 s, so a longer file would cut itself off.
     this.missileWarning = new PooledSound(
       "sfx_missile_warning",
-      `${baseUrl}/missile_warning.mp3`,
+      `${baseUrl}/missile-warning.mp3`,
       scene,
       4,
       { volume: 0.4 },
