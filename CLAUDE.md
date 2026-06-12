@@ -394,7 +394,9 @@ These have been considered and deliberately left out. If the user asks
 for one, do it. Otherwise: don't.
 
 - **React or any UI framework.** HUD is plain DOM.
-- **Multiplayer / networking.** No reason to add it for an arcade duel.
+- **Multiplayer / networking — now IN scope, but only via the plan.**
+  Decided 2026-06-12: Colyseus, server-authoritative, co-op first. All
+  work follows `docs/MULTIPLAYER.md` — don't ad-hoc networking outside it.
 - **Physics engine** (cannon, ammo, havok). Motion is hand-rolled.
 - **ECS framework**. The handful of entities don't need it.
 - **Mobile / touch controls**. Keyboard only.
@@ -413,6 +415,8 @@ for one, do it. Otherwise: don't.
 - `docs/RECIPES.md` — step-by-step playbooks for common extensions.
 - `README.md` — project setup for humans, screenshots, contributor notes.
 - `docs/ROADMAP.md` — status of every feature (done / in flight / future).
+- `docs/MULTIPLAYER.md` — multiplayer decisions + phased task list
+  (sim/view split → Colyseus skeleton → netcode feel → match flow/infra).
 - `docs/AGENT_KICKOFF.md` — copy/paste prompt template for starting a
   fresh chat with a coding agent.
 - `public/sounds/SOURCES.md` — CC0 sound asset attribution.
