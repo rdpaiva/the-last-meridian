@@ -141,6 +141,11 @@ export class LoadoutMenu {
   }
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
+    // A focused form control owns the arrow keys (the match-settings overlay
+    // can sit on top of this menu, and its sliders/number fields would be
+    // frozen by the preventDefault below).
+    const target = e.target as HTMLElement | null;
+    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
     switch (e.code) {
       case "ArrowUp":
       case "ArrowDown":
@@ -310,7 +315,7 @@ export class LoadoutMenu {
         ([label, value, max]) => `
           <div class="stat-row">
             <span class="stat-label">${label}</span>
-            <div class="stat-track"><div class="stat-fill" style="width: ${Math.round((value / max) * 100)}%"></div></div>
+            <div class="stat-track"><div class="stat-fill" style="width: ${Math.min(100, Math.round((value / max) * 100))}%"></div></div>
           </div>`,
       )
       .join("");

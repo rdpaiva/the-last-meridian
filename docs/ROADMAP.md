@@ -291,6 +291,19 @@ and explicitly skipped. Update this when you finish or start work.
   into cooldown management) — revisit only if missiles still feel
   uncounterable WITH the warning shipped, and then as a tight-timing parry,
   not immunity.
+- **Match-settings tuning screen (2026-06-12)** — schema-driven GUI over the
+  gameplay-relevant slice of GameConfig (~70 knobs: arena/asteroids, per-ship
+  stats, weapons, fleets, AI/commander, sensors, objective), reachable as
+  splash state `settings` from landing / quick play / faction select. Three
+  pieces: `TuningSchema.ts` (declarative knob list — the GUI renders from it),
+  `ConfigOverrides.ts` (sparse override map under `lastMeridian_tuning`,
+  schema-clamped, written into the live GameConfig at startup before anything
+  constructs), `SettingsMenu.ts` (plain-DOM screen: slider+number per knob,
+  collapsible groups, per-row + arm-to-confirm global reset, COPY/PASTE JSON
+  so testers can share setups). Applies on NEXT launch only (systems copy
+  config at construction; live tuning deliberately out of scope). The
+  override blob doubles as the planned multiplayer host match-config
+  document (`docs/MULTIPLAYER.md`).
 
 ### Explosions
 - `ExplosionSystem` with shared materials (flash + debris)
