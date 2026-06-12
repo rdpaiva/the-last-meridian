@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "baseline": "CAPTURE_BASELINE=1 vitest run tests/sim/smoke.test.ts"
   },
   "dependencies": {
     "@babylonjs/core": "^7.50.0",
@@ -15,7 +18,9 @@
   },
   "devDependencies": {
     "@babylonjs/inspector": "^7.54.3",
+    "@types/node": "^25.9.3",
     "typescript": "^5.4.0",
-    "vite": "^5.4.0"
+    "vite": "^5.4.0",
+    "vitest": "^4.1.8"
   }
 }

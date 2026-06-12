@@ -4,6 +4,10 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 
 import { GameConfig } from "./GameConfig";
+// Field layout/drift/shatter randomness draws from the seeded SIM RNG: rocks
+// are collision hazards + line-of-sight cover, so their placement and motion
+// shape the battle. See src/game/sim/SimRng.ts for the rule.
+import { simRandom } from "./sim/SimRng";
 import { Asteroid } from "./Asteroid";
 import type { DamageTarget } from "./types";
 
@@ -52,7 +56,7 @@ export class AsteroidField {
     for (let i = 0; i < cfg.count; i++) {
       const pos = this.findSpawn(keepClear);
       if (!pos) continue; // arena too crowded with keep-clear zones — skip.
-      const radius = cfg.radiusMin + Math.random() * (cfg.radiusMax - cfg.radiusMin);
+      const radius = cfg.radiusMin + simRandom() * (cfg.radiusMax - cfg.radiusMin);
       this.asteroids.push(
         new Asteroid(scene, this.material, {
           position: pos,
@@ -125,11 +129,11 @@ export class AsteroidField {
       const frac =
         cfg.splitRadiusMin +
         (cfg.splitRadiusMax - cfg.splitRadiusMin) *
-          Math.pow(Math.random(), cfg.splitSizeBias);
+          Math.pow(simRandom(), cfg.splitSizeBias);
       const childRadius = parent.visualRadius * frac;
       // Fan the chunks outward around the parent center with an outward drift
       // kick layered on top of the parent's existing motion.
-      const angle = (i / chunkCount) * Math.PI * 2 + Math.random() * 0.8;
+      const angle = (i / chunkCount) * Math.PI * 2 + simRandom() * 0.8;
       const ox = Math.sin(angle);
       const oz = Math.cos(angle);
       const pos = new Vector3(
@@ -137,7 +141,7 @@ export class AsteroidField {
         cfg.yLevel,
         parent.position.z + oz * childRadius,
       );
-      const speed = cfg.splitSpeed + Math.random() * cfg.splitSpeedVariance;
+      const speed = cfg.splitSpeed + simRandom() * cfg.splitSpeedVariance;
       const drift = new Vector3(
         parent.drift.x + ox * speed,
         0,
@@ -169,8 +173,8 @@ export class AsteroidField {
   private findSpawn(keepClear: KeepClear[]): Vector3 | null {
     const cfg = GameConfig.asteroids;
     for (let tries = 0; tries < 30; tries++) {
-      const x = (Math.random() * 2 - 1) * this.halfWidth;
-      const z = (Math.random() * 2 - 1) * this.halfDepth;
+      const x = (simRandom() * 2 - 1) * this.halfWidth;
+      const z = (simRandom() * 2 - 1) * this.halfDepth;
       let ok = true;
       for (const k of keepClear) {
         const dx = x - k.x;
@@ -187,15 +191,15 @@ export class AsteroidField {
 
   /** A value in [min, max] with a random sign — for symmetric chunk spin. */
   private static signedRange(min: number, max: number): number {
-    const mag = min + Math.random() * (max - min);
-    return Math.random() < 0.5 ? -mag : mag;
+    const mag = min + simRandom() * (max - min);
+    return simRandom() < 0.5 ? -mag : mag;
   }
 
   private randomDrift(): Vector3 {
     const cfg = GameConfig.asteroids;
     const speed =
-      cfg.driftSpeedMin + Math.random() * (cfg.driftSpeedMax - cfg.driftSpeedMin);
-    const angle = Math.random() * Math.PI * 2;
+      cfg.driftSpeedMin + simRandom() * (cfg.driftSpeedMax - cfg.driftSpeedMin);
+    const angle = simRandom() * Math.PI * 2;
     return new Vector3(Math.sin(angle) * speed, 0, Math.cos(angle) * speed);
   }
 

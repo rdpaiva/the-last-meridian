@@ -1,5 +1,9 @@
 import { GameConfig } from "./GameConfig";
 import { clamp, exponentialDecay, wrapAngle } from "./math";
+// All AI decision randomness draws from the seeded SIM RNG, not Math.random():
+// multiplayer needs the sim reproducible from a seed, and the headless smoke
+// harness diffs battles against a committed baseline (docs/MULTIPLAYER.md).
+import { simRandom } from "./sim/SimRng";
 import type { InputState } from "./types";
 import type { Ship } from "./Ship";
 import type { ShipController, ControllerWorld, AvoidObstacle } from "./ShipController";
@@ -110,7 +114,7 @@ export class AIController implements ShipController {
   private avoidSteerHeading = 0;
   private avoidStrafeDir = 0;
 
-  private wanderTargetHeading = Math.random() * Math.PI * 2;
+  private wanderTargetHeading = simRandom() * Math.PI * 2;
   private wanderTimerSec = 0;
   /**
    * Last frame's station-keeping jet commands (-1 / 0 / +1), kept so the
@@ -126,7 +130,7 @@ export class AIController implements ShipController {
    * the first target (see GameConfig.ai "Missiles"). Seeded randomly so a
    * fleet's first volley staggers instead of firing in sync.
    */
-  private missileTimerSec = Math.random() * GameConfig.ai.missileCooldownSec;
+  private missileTimerSec = simRandom() * GameConfig.ai.missileCooldownSec;
   /**
    * The real SHIP behind the contact this pilot just launched at, valid only
    * on a frame where the emitted InputState.fireMissile is true (null = the
@@ -140,8 +144,8 @@ export class AIController implements ShipController {
   // Reaction timer — non-formation orders re-evaluate heading + target only
   // when this reaches zero. Staggered per-ship so pilots don't all think on
   // the same frame. Formation/cover are exempt (servo needs per-frame updates).
-  private reactionTimer = Math.random() * 0.2;
-  private planHeading: number = Math.random() * Math.PI * 2;
+  private reactionTimer = simRandom() * 0.2;
+  private planHeading: number = simRandom() * Math.PI * 2;
   private planAimX = 0;
   private planAimZ = 0;
   private planHasAim = false;
@@ -381,7 +385,7 @@ export class AIController implements ShipController {
         this.planHasAim = aim !== null;
         if (aim) { this.planAimX = aim.position.x; this.planAimZ = aim.position.z; }
         this.planFireRange = fireRange;
-        this.reactionTimer = cfg.reactionSec * (0.85 + Math.random() * 0.3);
+        this.reactionTimer = cfg.reactionSec * (0.85 + simRandom() * 0.3);
       } else {
         steerHeading = this.planHeading;
         aim = this.planHasAim ? { position: { x: this.planAimX, z: this.planAimZ } } : null;
@@ -461,7 +465,7 @@ export class AIController implements ShipController {
   /** Re-arm the missile pacing timer with ±20% per-pilot jitter. */
   private resetMissileTimer(): void {
     this.missileTimerSec =
-      GameConfig.ai.missileCooldownSec * (0.8 + Math.random() * 0.4);
+      GameConfig.ai.missileCooldownSec * (0.8 + simRandom() * 0.4);
   }
 
   /**
@@ -876,12 +880,12 @@ export class AIController implements ShipController {
     const distFromAnchor = Math.hypot(dx, dz);
     const leashPull = clamp(distFromAnchor / cfg.leashRadius, 0, 1) * cfg.leashBias;
 
-    const jitter = (Math.random() * 2 - 1) * cfg.wanderJitter;
+    const jitter = (simRandom() * 2 - 1) * cfg.wanderJitter;
     const naiveTarget = self.rotationY + jitter;
     this.wanderTargetHeading = wrapAngle(
       naiveTarget * (1 - leashPull) + angleToAnchor * leashPull,
     );
 
-    this.wanderTimerSec = cfg.wanderRetargetSec * (0.6 + Math.random() * 0.8);
+    this.wanderTimerSec = cfg.wanderRetargetSec * (0.6 + simRandom() * 0.8);
   }
 }

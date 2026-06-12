@@ -8,6 +8,13 @@ import { VertexBuffer } from "@babylonjs/core/Buffers/buffer";
 import "@babylonjs/core/Meshes/Builders/icoSphereBuilder";
 
 import { GameConfig } from "./GameConfig";
+// SIM-affecting randomness (tumble spin, starting orientation, ellipsoid
+// squash — all feed the collision silhouette) draws from the seeded SIM RNG.
+// The PURELY COSMETIC randomness below (surface noise lobes, crater
+// sculpting, face tint) deliberately stays on Math.random(): it never touches
+// the sim, and keeping it off the seeded stream means later view/sim splits
+// can't shift a seeded battle. See src/game/sim/SimRng.ts for the rule.
+import { simRandom } from "./sim/SimRng";
 import type { DamageTarget } from "./types";
 
 /**
@@ -113,10 +120,11 @@ export class Asteroid implements DamageTarget {
     this.mesh.isPickable = false;
     this.mesh.position.copyFrom(this.position);
     // Random starting orientation so identical chunks don't read as clones.
+    // Sim RNG: the orientation phases the tumbling collision silhouette.
     this.mesh.rotation.set(
-      Math.random() * Math.PI * 2,
-      Math.random() * Math.PI * 2,
-      Math.random() * Math.PI * 2,
+      simRandom() * Math.PI * 2,
+      simRandom() * Math.PI * 2,
+      simRandom() * Math.PI * 2,
     );
     this.refreshCollisionShape();
   }
@@ -252,10 +260,12 @@ export class Asteroid implements DamageTarget {
       // still the true max extent (the tumble randomizes which way it points).
       // Stored on the rock — surfaceRadiusToward rebuilds this ellipsoid for
       // direction-accurate collision.
+      // Sim RNG: squash factors define the collision ellipsoid
+      // (surfaceRadiusToward), not just the visual.
       const sx = (this.squashX =
-        cfg.squashMin + Math.random() * (1 - cfg.squashMin));
+        cfg.squashMin + simRandom() * (1 - cfg.squashMin));
       const sy = (this.squashY =
-        cfg.squashMin + Math.random() * (1 - cfg.squashMin));
+        cfg.squashMin + simRandom() * (1 - cfg.squashMin));
 
       // Crater set: random surface direction + footprint + depth per crater.
       const craterCount =
@@ -332,9 +342,9 @@ export class Asteroid implements DamageTarget {
     return mesh;
   }
 
-  /** A value in [min, max] with a random sign — for symmetric drift/spin. */
+  /** A value in [min, max] with a random sign — for symmetric drift/spin (sim RNG). */
   private static signedRange(min: number, max: number): number {
-    const mag = min + Math.random() * (max - min);
-    return Math.random() < 0.5 ? -mag : mag;
+    const mag = min + simRandom() * (max - min);
+    return simRandom() < 0.5 ? -mag : mag;
   }
 }

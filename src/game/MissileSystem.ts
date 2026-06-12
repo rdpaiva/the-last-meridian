@@ -11,6 +11,9 @@ import "@babylonjs/core/Meshes/Builders/boxBuilder";
 
 import { GameConfig } from "./GameConfig";
 import { wrapAngle } from "./math";
+// Damage rolls draw from the seeded SIM RNG (not Math.random) so battles are
+// reproducible from a seed — see src/game/sim/SimRng.ts for the rule.
+import { simRandom } from "./sim/SimRng";
 import { Missile } from "./Missile";
 import type { DamageTarget } from "./types";
 import type { Ship } from "./Ship";
@@ -362,7 +365,7 @@ export class MissileSystem {
   /** Uniform integer roll in [minDamage, maxDamage]. */
   private rollDamage(): number {
     const span = this.maxDamage - this.minDamage;
-    return this.minDamage + Math.round(Math.random() * span);
+    return this.minDamage + Math.round(simRandom() * span);
   }
 
   get count(): number {
