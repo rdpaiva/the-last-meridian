@@ -337,14 +337,14 @@ export class Game {
       damage: GameConfig.combat.laserDamage,
       emissive: FACTION_THEME.humans.laserEmissive,
       materialName: FACTION_THEME.humans.laserMaterialName,
-      onHit: (target, fromPlayer) => this.onLaserHit(target, fromPlayer),
+      onHit: (target, shooter) => this.onLaserHit(target, shooter),
       obstacles: this.asteroids.obstacles,
     });
     const machinesLasers = new LaserSystem(this.scene, {
       damage: GameConfig.combat.laserDamage,
       emissive: FACTION_THEME.machines.laserEmissive,
       materialName: FACTION_THEME.machines.laserMaterialName,
-      onHit: (target, fromPlayer) => this.onLaserHit(target, fromPlayer),
+      onHit: (target, shooter) => this.onLaserHit(target, shooter),
       obstacles: this.asteroids.obstacles,
     });
     this.factionLasers = { humans: humansLasers, machines: machinesLasers };
@@ -363,13 +363,15 @@ export class Game {
         this.sound.playExplosion(pos);
         this.cameraRig.addTrauma(this.traumaAtDistance(GameConfig.shake.traumaMissileHit, pos));
         this.applyHitstop(GameConfig.hitstop.missileHitMs);
-        // Missiles are player-fired — a fighter killed by one is the player's.
+        // This MissileSystem is the player's rack, so its kills credit the
+        // player ship. (A future per-ship missile capability would carry the
+        // shooter per missile, like lasers do.)
         if (
           struck instanceof Ship &&
           struck.faction === this.enemyFaction &&
           !struck.isAlive
         ) {
-          this.recordKill(struck, true);
+          this.recordKill(struck, this.playerShip);
         }
       },
     });
@@ -722,8 +724,14 @@ export class Game {
 
   // ─── Combat feedback ───────────────────────────────────────────────────────
 
-  /** A laser struck `target`; scale feedback to the hit (and to who fired). */
-  private onLaserHit(target: DamageTarget, fromPlayer: boolean): void {
+  /**
+   * A laser struck `target`; scale feedback to the hit (and to who fired).
+   * `shooter` is the firing SHIP — "is this the local pilot's shot" is
+   * derived here by comparing against the local player ship, so attribution
+   * stays per-pilot (multiplayer-ready) rather than a baked-in boolean.
+   */
+  private onLaserHit(target: DamageTarget, shooter: Ship | null): void {
+    const fromPlayer = shooter !== null && shooter === this.playerShip;
     this.sound.playHit(target.position);
     // Chipping a mothership: light cue only (avoid hitstop spam on the objective).
     if (target === this.motherships.humans || target === this.motherships.machines) {
@@ -749,18 +757,19 @@ export class Game {
         target.faction === this.enemyFaction &&
         !target.isAlive
       ) {
-        this.recordKill(target, fromPlayer);
+        this.recordKill(target, shooter);
       }
     }
   }
 
   /**
-   * Credit a confirmed kill of an enemy fighter. Only the player's own kills
-   * score (and roll the persistent best); wing kills get their own tally so
-   * the HUD can still show the wing pulling its weight.
+   * Credit a confirmed kill of an enemy fighter to `shooter`. Only the LOCAL
+   * pilot's own kills score (and roll the persistent best); other
+   * player-faction shooters tally as wing kills. Attribution is per-SHIP so
+   * a future networked build can credit any human pilot the same way.
    */
-  private recordKill(target: Ship, fromPlayer: boolean): void {
-    if (!fromPlayer) {
+  private recordKill(target: Ship, shooter: Ship | null): void {
+    if (shooter === null || shooter !== this.playerShip) {
       this.wingKills++;
       return;
     }
@@ -1027,9 +1036,9 @@ export class Game {
           if (ship.isAlive && input.fire) {
             const positions = ship.tryFire();
             for (const p of positions) {
-              // Each bolt carries ITS ship's per-type damage (a Breaker's bolts
-              // hit harder than a Spitfire's on the same faction system).
-              this.factionLasers[ship.faction].spawn(p, ship.rotationY, isPlayer, ship.laserDamage);
+              // Each bolt carries ITS shooter + per-type damage (a Breaker's
+              // bolts hit harder than a Spitfire's on the same faction system).
+              this.factionLasers[ship.faction].spawn(p, ship.rotationY, ship, ship.laserDamage);
             }
             // Player fire: no position (always full-volume at the listener).
             // All other ships: spatial — attenuates with distance from player.

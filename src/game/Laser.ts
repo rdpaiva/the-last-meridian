@@ -1,5 +1,6 @@
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import type { Ship } from "./Ship";
 
 /**
  * Single laser bolt. Owned and updated by LaserSystem — do not construct
@@ -22,11 +23,13 @@ export class Laser {
     readonly lifetimeMs: number,
     rotationY: number,
     /**
-     * True if the human pilot's own ship fired this bolt (as opposed to an AI
-     * wingman sharing the same faction system). Lets the hit feedback give the
-     * heavy "you landed a hit" jolt only for the player, not every wingman shot.
+     * The ship that fired this bolt (null = unattributed). Carried as a SHIP
+     * reference, not a "was it the player" boolean, so attribution stays
+     * correct with any number of human pilots (multiplayer-ready): kill
+     * credit goes to the shooter, and "give the local player the landed-hit
+     * jolt" is derived at the edge by comparing against the local ship.
      */
-    readonly fromPlayer: boolean = false,
+    readonly shooter: Ship | null = null,
     /**
      * Damage this bolt deals on impact. Carried per-bolt because one faction
      * system serves mixed ship types (a Breaker's bolts hit harder than a

@@ -227,19 +227,21 @@ friendly-fire-free without per-bolt faction checks.
   the opposing mothership (`addTarget` supports many targets).
 - Shared material per system; one `Laser` instance per bolt with its
   own mesh.
-- `spawn(origin, rotationY, fromPlayer?, damage?)` creates a bolt with velocity
-  along forward. `fromPlayer` tags bolts the human pilot fired (vs. an AI
-  wingman sharing the same faction system). `damage` is carried **per bolt**
-  (the firing ship's `shipTypes[*].laserDamage`) because one faction system
-  serves mixed ship types — a Breaker's bolts hit harder than a Spitfire's;
-  omitted = the system's default (`combat.laserDamage`).
+- `spawn(origin, rotationY, shooter?, damage?)` creates a bolt with velocity
+  along forward. `shooter` is the firing **Ship reference** — per-pilot
+  attribution, deliberately NOT a "was it the player" boolean, so it stays
+  correct with any number of human pilots (multiplayer-ready). `damage` is
+  carried **per bolt** (the firing ship's `shipTypes[*].laserDamage`) because
+  one faction system serves mixed ship types — a Breaker's bolts hit harder
+  than a Spitfire's; omitted = the system's default (`combat.laserDamage`).
 - `update()` advances bolts, runs a **swept** X/Z segment-vs-target collision
   (the bolt's pre-move→post-move path is tested against each circle, not just
-  its end position), calls `onHit(target, fromPlayer)` on impact — the struck
-  target lets Game scale
-  feedback (heavy flash/hitstop for the player's own ship, light cue for a
-  mothership), and `fromPlayer` gates the "you landed a hit" jolt + gun SFX to the
-  player's OWN shots so 3 wingmen firing don't spam hitstop on the shared system.
+  its end position), calls `onHit(target, shooter)` on impact. The struck
+  target lets Game scale feedback (heavy flash/hitstop for the player's own
+  ship, light cue for a mothership); Game derives `fromPlayer` by comparing
+  `shooter === playerShip` at the edge, gating the "you landed a hit" jolt +
+  hitstop to the LOCAL pilot's own shots (3 wingmen firing don't spam hitstop
+  on the shared system) and crediting kills to the shooter (`recordKill`).
 - `Laser.kill()` marks a bolt expired (it'll be swept on the next pass).
 
 ## MissileSystem

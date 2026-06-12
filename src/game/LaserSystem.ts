@@ -10,6 +10,7 @@ import "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { GameConfig } from "./GameConfig";
 import { Laser } from "./Laser";
 import type { DamageTarget } from "./types";
+import type { Ship } from "./Ship";
 
 /**
  * Per-faction collection of laser bolts.
@@ -36,13 +37,15 @@ export type LaserSystemOptions = {
   /** Optional name for the material — handy when debugging in the inspector. */
   materialName?: string;
   /**
-   * Called once per bolt that lands a hit, with the target it struck and
-   * whether the human pilot fired that bolt. The target lets the caller scale
-   * feedback by what was hit (flash + big hitstop when the player's own ship is
-   * hit, light cue when the mothership is chipped); `fromPlayer` lets it give
-   * the "you landed a hit" jolt only for the player, not every AI wingman shot.
+   * Called once per bolt that lands a hit, with the target it struck and the
+   * SHIP that fired the bolt (null = unattributed). The target lets the
+   * caller scale feedback by what was hit (flash + big hitstop when the
+   * player's own ship is hit, light cue when the mothership is chipped); the
+   * shooter drives kill attribution and lets the caller gate the "you landed
+   * a hit" jolt to the LOCAL pilot's own shots by comparing ships — a
+   * comparison that stays correct with any number of human pilots.
    */
-  onHit?: (target: DamageTarget, fromPlayer: boolean) => void;
+  onHit?: (target: DamageTarget, shooter: Ship | null) => void;
   /**
    * Live obstacles (asteroids) that block bolts as line-of-sight cover. Checked
    * BEFORE the target loop each frame, so a bolt entering a rock is consumed
@@ -57,7 +60,9 @@ export class LaserSystem {
   private readonly lasers: Laser[] = [];
   private readonly material: Material;
   private readonly damage: number;
-  private readonly onHit: ((target: DamageTarget, fromPlayer: boolean) => void) | null;
+  private readonly onHit:
+    | ((target: DamageTarget, shooter: Ship | null) => void)
+    | null;
   /** Asteroid cover bolts are blocked by (held by reference; may be empty). */
   private readonly obstacles: DamageTarget[];
   /**
@@ -106,12 +111,17 @@ export class LaserSystem {
 
   /**
    * Spawn a laser at `origin` with forward direction derived from `rotationY`.
-   * `fromPlayer` tags bolts the human pilot fired (vs. an AI wingman on the same
-   * faction system) so onHit can scale feedback to the player's own shots.
-   * `damage` is what THIS bolt deals (the firing ship's type knob); omitted =
-   * the system's default.
+   * `shooter` is the firing SHIP — carried per bolt so onHit can attribute
+   * kills and feedback to a pilot, human or AI, on this shared faction
+   * system. `damage` is what THIS bolt deals (the firing ship's type knob);
+   * omitted = the system's default.
    */
-  spawn(origin: Vector3, rotationY: number, fromPlayer = false, damage?: number): void {
+  spawn(
+    origin: Vector3,
+    rotationY: number,
+    shooter: Ship | null = null,
+    damage?: number,
+  ): void {
     const cfg = GameConfig.laser;
 
     const mesh = MeshBuilder.CreateBox(
@@ -142,7 +152,7 @@ export class LaserSystem {
     );
 
     this.lasers.push(
-      new Laser(mesh, velocity, cfg.lifetimeMs, rotationY, fromPlayer, damage ?? this.damage),
+      new Laser(mesh, velocity, cfg.lifetimeMs, rotationY, shooter, damage ?? this.damage),
     );
   }
 
@@ -205,7 +215,7 @@ export class LaserSystem {
         if (distSq <= radiusSq) {
           target.takeDamage(laser.damage);
           laser.kill();
-          this.onHit?.(target, laser.fromPlayer);
+          this.onHit?.(target, laser.shooter);
           break;
         }
       }

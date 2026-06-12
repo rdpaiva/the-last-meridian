@@ -450,3 +450,26 @@ benefit.
   reuse per pool — negligible.
 - **Procedural fallback ship as the default.** No asset pipeline means
   zero orientation problems and zero file-format questions.
+- **Multiplayer-readiness of the Phase 6 systems** (multiplayer is a planned
+  direction — the seams were chosen for it):
+  - *Sensors*: the picture is computed per FACTION from sim state (no
+    rendering, no local-player references), so a server can compute it
+    authoritatively and clients can render their own side's picture. The
+    radar/HUD are per-client views of it.
+  - *Laser kill attribution is per-SHIP*: bolts carry `shooter: Ship` (not a
+    "was it the player" boolean); "is this the local pilot's shot/kill" is
+    derived at the edge by comparing against the local ship. Any number of
+    human pilots attribute correctly. The player MissileSystem is the
+    remaining single-pilot assumption (one rack, lock fed by the local HUD);
+    per-ship missiles would carry a shooter per missile the same way.
+  - *FleetCommander* is generic over a roster of AI pilots + a faction's
+    ControllerWorld — instantiate one per AI-led faction (or none for a
+    human-led side). It reads only the faction's sensor picture, never
+    ground truth.
+  - *PlayerLoadout* is a plain serializable value (`{faction, shipType}`) —
+    exactly what a client would send at match join.
+  - *Known gap*: `AIController`/`FleetCommander` use unseeded `Math.random()`
+    and per-instance timers — fine for a server-authoritative AI (the only
+    plan that makes sense here), NOT for lockstep determinism. Hitstop,
+    trauma, and damage flash are local presentation and should stay
+    client-side.
