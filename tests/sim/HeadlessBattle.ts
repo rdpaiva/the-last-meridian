@@ -68,7 +68,7 @@ import { AIController, type AIOrder } from "../../src/game/AIController";
 import { FleetCommander, type CommandedPilot } from "../../src/game/FleetCommander";
 import { SensorSystem } from "../../src/game/SensorSystem";
 import { Mothership } from "../../src/game/Mothership";
-import { LaserSystem } from "../../src/game/LaserSystem";
+import { LaserSystem } from "../../src/game/sim/LaserSystem";
 import { MissileSystem } from "../../src/game/MissileSystem";
 import { AsteroidField } from "../../src/game/AsteroidField";
 import { LaunchSequence } from "../../src/game/LaunchSequence";
@@ -227,14 +227,12 @@ export class HeadlessBattle {
 
     // --- Weapon systems (no onHit: feedback/score is view-side) ---
     this.factionLasers = {
-      humans: new LaserSystem(this.scene, {
+      humans: new LaserSystem({
         damage: GameConfig.combat.laserDamage,
-        emissive: FACTION_LASER_EMISSIVE.humans,
         obstacles: this.asteroids.obstacles,
       }),
-      machines: new LaserSystem(this.scene, {
+      machines: new LaserSystem({
         damage: GameConfig.combat.laserDamage,
-        emissive: FACTION_LASER_EMISSIVE.machines,
         obstacles: this.asteroids.obstacles,
       }),
     };
@@ -774,12 +772,8 @@ export class HeadlessBattle {
   }
 }
 
-// Visual-only knobs the weapon systems require in their options: values are
-// irrelevant headless (nothing renders), constants keep construction tidy.
-const FACTION_LASER_EMISSIVE: Record<Faction, Color3> = {
-  humans: new Color3(1, 0, 1),
-  machines: new Color3(0, 1, 0),
-};
+// Visual-only knobs MissileSystem still requires in its options (until its
+// own split): values are irrelevant headless — nothing renders.
 const MISSILE_BODY = new Color3(0.6, 0.6, 0.6);
 const MISSILE_FIN = new Color3(0.7, 0.2, 0.2);
 const MISSILE_TRAIL = new Color3(2, 0.7, 0.1);

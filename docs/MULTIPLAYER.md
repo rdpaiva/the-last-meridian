@@ -174,7 +174,7 @@ timing).
       class, so a network snapshot buffer can feed the same view later.
       Also: `die()` takes `nowMs` as a parameter instead of calling
       `performance.now()` (the server owns sim time).
-- [ ] **`Laser` / `LaserSystem` split** — extract bolt sim state
+- [x] **`Laser` / `LaserSystem` split** — extract bolt sim state
       (position, age, kill flag, collision sweep) from the mesh; views
       pool the meshes.
 - [ ] **`Missile` / `MissileSystem` split** — same surgery; homing

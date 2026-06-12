@@ -20,7 +20,8 @@ import { AssetLoader } from "./AssetLoader";
 import { Ship } from "./sim/Ship";
 import type { ShipTypeConfig } from "./sim/Ship";
 import { ShipView } from "./view/ShipView";
-import { LaserSystem } from "./LaserSystem";
+import { LaserSystem } from "./sim/LaserSystem";
+import { LaserSystemView } from "./view/LaserSystemView";
 import { MissileSystem } from "./MissileSystem";
 import { wrapAngle } from "./math";
 import { CameraRig } from "./CameraRig";
@@ -126,6 +127,8 @@ export class Game {
 
   /** Each faction's own laser bolts (humans fire humansLasers, etc.). */
   private readonly factionLasers: Record<Faction, LaserSystem>;
+  /** Mesh-pooling depictions of the two laser systems (sim/view split). */
+  private readonly factionLaserViews: Record<Faction, LaserSystemView>;
   /** Each faction's heat-seekers — any ship whose type carries a rack fires. */
   private readonly factionMissiles: Record<Faction, MissileSystem>;
   private readonly motherships: Record<Faction, Mothership>;
@@ -347,25 +350,32 @@ export class Game {
     this.sound = new SoundSystem(this.scene);
     this.music = new MusicSystem(this.scene);
 
-    // Faction-keyed laser systems. onHit scales feedback by what was struck:
-    // hitting the player's ship flashes + jolts hard; chipping the (huge,
-    // stationary) mothership only plays a light hit cue so sustained fire on it
-    // doesn't spam hitstop and crawl the whole game.
-    const humansLasers = new LaserSystem(this.scene, {
+    // Faction-keyed laser systems (sim) + their mesh-pooling views. onHit
+    // scales feedback by what was struck: hitting the player's ship flashes +
+    // jolts hard; chipping the (huge, stationary) mothership only plays a
+    // light hit cue so sustained fire on it doesn't spam hitstop and crawl
+    // the whole game.
+    const humansLasers = new LaserSystem({
       damage: GameConfig.combat.laserDamage,
-      emissive: FACTION_THEME.humans.laserEmissive,
-      materialName: FACTION_THEME.humans.laserMaterialName,
       onHit: (target, shooter) => this.onLaserHit(target, shooter),
       obstacles: this.asteroids.obstacles,
     });
-    const machinesLasers = new LaserSystem(this.scene, {
+    const machinesLasers = new LaserSystem({
       damage: GameConfig.combat.laserDamage,
-      emissive: FACTION_THEME.machines.laserEmissive,
-      materialName: FACTION_THEME.machines.laserMaterialName,
       onHit: (target, shooter) => this.onLaserHit(target, shooter),
       obstacles: this.asteroids.obstacles,
     });
     this.factionLasers = { humans: humansLasers, machines: machinesLasers };
+    this.factionLaserViews = {
+      humans: new LaserSystemView(this.scene, humansLasers, {
+        emissive: FACTION_THEME.humans.laserEmissive,
+        materialName: FACTION_THEME.humans.laserMaterialName,
+      }),
+      machines: new LaserSystemView(this.scene, machinesLasers, {
+        emissive: FACTION_THEME.machines.laserEmissive,
+        materialName: FACTION_THEME.machines.laserMaterialName,
+      }),
+    };
 
     // Faction-keyed heat-seeker systems (parallel to the lasers). Each side
     // fires from its own pool — the player and any wingman with a rack on the
@@ -1263,11 +1273,14 @@ export class Game {
         this.checkObjectives();
       }
 
-      // --- Depictions: copy every ship's sim pose into its scene root. Runs
-      // every frame (during hitstop the pose simply hasn't changed) and
+      // --- Depictions: copy every ship's sim pose into its scene root, and
+      // every weapon system's live projectiles onto its mesh pool. Runs
+      // every frame (during hitstop the poses simply haven't changed) and
       // BEFORE the camera/FX below so anything parented to a ship root sees
       // this frame's transform.
       for (const c of this.combatants) c.view.update(c.ship);
+      this.factionLaserViews.humans.update();
+      this.factionLaserViews.machines.update();
 
       // Explosions animate through the end screen (so the death spectacle plays
       // out) but pause during hitstop, like the rest of the sim.
