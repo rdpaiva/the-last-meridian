@@ -22,7 +22,8 @@ import type { ShipTypeConfig } from "./sim/Ship";
 import { ShipView } from "./view/ShipView";
 import { LaserSystem } from "./sim/LaserSystem";
 import { LaserSystemView } from "./view/LaserSystemView";
-import { MissileSystem } from "./MissileSystem";
+import { MissileSystem } from "./sim/MissileSystem";
+import { MissileSystemView } from "./view/MissileSystemView";
 import { wrapAngle } from "./math";
 import { CameraRig } from "./CameraRig";
 import { Hud } from "./Hud";
@@ -131,6 +132,8 @@ export class Game {
   private readonly factionLaserViews: Record<Faction, LaserSystemView>;
   /** Each faction's heat-seekers — any ship whose type carries a rack fires. */
   private readonly factionMissiles: Record<Faction, MissileSystem>;
+  /** Per-round mesh+trail depictions of the two missile systems. */
+  private readonly factionMissileViews: Record<Faction, MissileSystemView>;
   private readonly motherships: Record<Faction, Mothership>;
 
   /** All ships, regardless of side, plus their controllers. */
@@ -377,35 +380,41 @@ export class Game {
       }),
     };
 
-    // Faction-keyed heat-seeker systems (parallel to the lasers). Each side
-    // fires from its own pool — the player and any wingman with a rack on the
-    // player faction's system, the enemy fleet on theirs — and every missile
-    // carries its shooter, so onMissileHit attributes kills and scales
-    // feedback exactly like the laser path. Visuals are faction-themed:
-    // Commonwealth rounds keep the classic gray/red hull with a hot orange
-    // exhaust; Novari rounds fly darker hulls with the Ascendancy's
-    // electric-green exhaust (matching their laser palette).
-    const humansMissiles = new MissileSystem(this.scene, {
+    // Faction-keyed heat-seeker systems (sim, parallel to the lasers) + their
+    // per-round views. Each side fires from its own pool — the player and any
+    // wingman with a rack on the player faction's system, the enemy fleet on
+    // theirs — and every missile carries its shooter, so onMissileHit
+    // attributes kills and scales feedback exactly like the laser path.
+    const humansMissiles = new MissileSystem({
       minDamage: GameConfig.missile.minDamage,
       maxDamage: GameConfig.missile.maxDamage,
-      bodyColor: new Color3(0.62, 0.66, 0.7),
-      finColor: new Color3(0.78, 0.16, 0.16),
-      trailEmissive: new Color3(2.2, 0.7, 0.1),
-      materialName: "humans_missile_mat",
       obstacles: this.asteroids.obstacles,
       onHit: (pos, struck, shooter) => this.onMissileHit(pos, struck, shooter),
     });
-    const machinesMissiles = new MissileSystem(this.scene, {
+    const machinesMissiles = new MissileSystem({
       minDamage: GameConfig.missile.minDamage,
       maxDamage: GameConfig.missile.maxDamage,
-      bodyColor: new Color3(0.4, 0.38, 0.44),
-      finColor: new Color3(0.5, 0.12, 0.14),
-      trailEmissive: new Color3(0.5, 2.2, 0.6),
-      materialName: "machines_missile_mat",
       obstacles: this.asteroids.obstacles,
       onHit: (pos, struck, shooter) => this.onMissileHit(pos, struck, shooter),
     });
     this.factionMissiles = { humans: humansMissiles, machines: machinesMissiles };
+    // Visuals are faction-themed: Commonwealth rounds keep the classic
+    // gray/red hull with a hot orange exhaust; Novari rounds fly darker hulls
+    // with the Ascendancy's electric-green exhaust (matching their lasers).
+    this.factionMissileViews = {
+      humans: new MissileSystemView(this.scene, humansMissiles, {
+        bodyColor: new Color3(0.62, 0.66, 0.7),
+        finColor: new Color3(0.78, 0.16, 0.16),
+        trailEmissive: new Color3(2.2, 0.7, 0.1),
+        materialName: "humans_missile_mat",
+      }),
+      machines: new MissileSystemView(this.scene, machinesMissiles, {
+        bodyColor: new Color3(0.4, 0.38, 0.44),
+        finColor: new Color3(0.5, 0.12, 0.14),
+        trailEmissive: new Color3(0.5, 2.2, 0.6),
+        materialName: "machines_missile_mat",
+      }),
+    };
 
     this.explosions = new ExplosionSystem(this.scene, this.glowLayer);
 
@@ -1281,6 +1290,8 @@ export class Game {
       for (const c of this.combatants) c.view.update(c.ship);
       this.factionLaserViews.humans.update();
       this.factionLaserViews.machines.update();
+      this.factionMissileViews.humans.update();
+      this.factionMissileViews.machines.update();
 
       // Explosions animate through the end screen (so the death spectacle plays
       // out) but pause during hitstop, like the rest of the sim.

@@ -1,7 +1,7 @@
 import type { Ship } from "./sim/Ship";
 import type { Mothership } from "./Mothership";
 import type { Asteroid } from "./Asteroid";
-import type { Missile } from "./Missile";
+import type { Missile } from "./sim/Missile";
 import { opposing, type Faction } from "./Faction";
 import { GameConfig } from "./GameConfig";
 import type { SensorContact, ConcealmentZone } from "./SensorSystem";
@@ -256,8 +256,8 @@ export class Radar {
    */
   private plotMissile(missile: Missile, player: Ship): void {
     const { x, y } = this.project(
-      missile.mesh.position.x - player.position.x,
-      missile.mesh.position.z - player.position.z,
+      missile.position.x - player.position.x,
+      missile.position.z - player.position.z,
     );
     const ctx = this.ctx;
     ctx.beginPath();

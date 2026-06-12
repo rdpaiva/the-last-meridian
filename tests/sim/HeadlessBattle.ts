@@ -53,7 +53,6 @@
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
 import { Scene } from "@babylonjs/core/scene";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
 
 import { GameConfig } from "../../src/game/GameConfig";
@@ -69,7 +68,7 @@ import { FleetCommander, type CommandedPilot } from "../../src/game/FleetCommand
 import { SensorSystem } from "../../src/game/SensorSystem";
 import { Mothership } from "../../src/game/Mothership";
 import { LaserSystem } from "../../src/game/sim/LaserSystem";
-import { MissileSystem } from "../../src/game/MissileSystem";
+import { MissileSystem } from "../../src/game/sim/MissileSystem";
 import { AsteroidField } from "../../src/game/AsteroidField";
 import { LaunchSequence } from "../../src/game/LaunchSequence";
 import { seedSimRng } from "../../src/game/sim/SimRng";
@@ -237,20 +236,14 @@ export class HeadlessBattle {
       }),
     };
     this.factionMissiles = {
-      humans: new MissileSystem(this.scene, {
+      humans: new MissileSystem({
         minDamage: GameConfig.missile.minDamage,
         maxDamage: GameConfig.missile.maxDamage,
-        bodyColor: MISSILE_BODY,
-        finColor: MISSILE_FIN,
-        trailEmissive: MISSILE_TRAIL,
         obstacles: this.asteroids.obstacles,
       }),
-      machines: new MissileSystem(this.scene, {
+      machines: new MissileSystem({
         minDamage: GameConfig.missile.minDamage,
         maxDamage: GameConfig.missile.maxDamage,
-        bodyColor: MISSILE_BODY,
-        finColor: MISSILE_FIN,
-        trailEmissive: MISSILE_TRAIL,
         obstacles: this.asteroids.obstacles,
       }),
     };
@@ -771,9 +764,3 @@ export class HeadlessBattle {
     }
   }
 }
-
-// Visual-only knobs MissileSystem still requires in its options (until its
-// own split): values are irrelevant headless — nothing renders.
-const MISSILE_BODY = new Color3(0.6, 0.6, 0.6);
-const MISSILE_FIN = new Color3(0.7, 0.2, 0.2);
-const MISSILE_TRAIL = new Color3(2, 0.7, 0.1);

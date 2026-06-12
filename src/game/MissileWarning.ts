@@ -1,7 +1,7 @@
 import { GameConfig } from "./GameConfig";
 import { clamp, exponentialMultiplier, lerp } from "./math";
-import type { Missile } from "./Missile";
-import type { MissileSystem } from "./MissileSystem";
+import type { Missile } from "./sim/Missile";
+import type { MissileSystem } from "./sim/MissileSystem";
 import type { Ship } from "./sim/Ship";
 import type { Hud } from "./Hud";
 import type { SoundSystem } from "./SoundSystem";
@@ -94,8 +94,8 @@ export class MissileWarning {
     // rampStartDistance → 1 at/inside rampEndDistance.
     let nearest = Infinity;
     for (const missile of this.threatList) {
-      const dx = missile.mesh.position.x - player.position.x;
-      const dz = missile.mesh.position.z - player.position.z;
+      const dx = missile.position.x - player.position.x;
+      const dz = missile.position.z - player.position.z;
       const dist = Math.hypot(dx, dz);
       if (dist < nearest) nearest = dist;
     }

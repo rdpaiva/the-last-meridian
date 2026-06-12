@@ -177,7 +177,7 @@ timing).
 - [x] **`Laser` / `LaserSystem` split** — extract bolt sim state
       (position, age, kill flag, collision sweep) from the mesh; views
       pool the meshes.
-- [ ] **`Missile` / `MissileSystem` split** — same surgery; homing
+- [x] **`Missile` / `MissileSystem` split** — same surgery; homing
       steering is sim, composite mesh + trail are view. (While in here:
       see the missile tunneling TODO — port LaserSystem's swept test if
       missile speed is ever raised.)
