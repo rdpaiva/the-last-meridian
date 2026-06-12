@@ -1053,6 +1053,32 @@ export const GameConfig = {
   },
 
   /**
+   * Splash-screen ship preview (ShipPreview.ts) — the slowly rotating "hangar"
+   * model on the loadout menu, plus the one-frame ship-card thumbnails. Runs
+   * its own small Babylon engine/scene, lit hotter than the game scene (no
+   * exposure-pulling post pipeline here) so the PBR hulls read against the
+   * dark UI panel.
+   */
+  shipPreview: {
+    /** Camera polar angle (rad) — ~1.1 looks slightly down on the deck. */
+    cameraBeta: 1.12,
+    /** Camera distance = model bounding diagonal × this. */
+    radiusFactor: 1.05,
+    /** Idle turntable spin (rad/sec). */
+    idleRotationSpeed: 0.45,
+    /** Fixed 3/4 pose used for the ship-card thumbnails (rad). */
+    thumbnailYaw: -0.7,
+    /** Hemispheric ambient fill. */
+    hemiIntensity: 1.15,
+    /** Key directional light (the hangar "worklight"). */
+    keyIntensity: 1.6,
+    /** Cool rim/back light — the soft glow behind the hull. */
+    rimIntensity: 0.9,
+    /** IBL strength for the PBR metal hulls (they're mostly reflection). */
+    environmentIntensity: 0.9,
+  },
+
+  /**
    * Full-screen post-processing (DefaultRenderingPipeline). This is a SEPARATE
    * pass from the GlowLayer above: the GlowLayer blooms individual emissive
    * meshes; this pipeline tone-maps and antialiases the final composited frame.

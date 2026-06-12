@@ -1,35 +1,73 @@
 import { Game, RESTART_FLAG } from "./game/Game";
-import { LoadoutMenu } from "./game/LoadoutMenu";
-import { loadSavedLoadout, type PlayerLoadout } from "./game/Loadout";
+import { LoadoutMenu, SHIP_INFO } from "./game/LoadoutMenu";
+import { ShipPreview } from "./game/ShipPreview";
+import { FACTION_THEME } from "./game/Faction";
+import {
+  hasSavedLoadout,
+  hasSeenIntro,
+  loadSavedLoadout,
+  markIntroSeen,
+} from "./game/Loadout";
+
+/**
+ * Entry point: the staged splash flow, then the Game.
+ *
+ * The splash is a small state machine (data-state on #splash drives all the
+ * CSS visibility):
+ *
+ *   landing       THE LAST MERIDIAN · [ENTER THE MERIDIAN] · Skip Intro.
+ *                 First screen for anyone without a saved loadout + seen
+ *                 intro. Skip Intro is ALWAYS visible from second zero.
+ *   intro         The cinematic: color fades up, music starts, the story
+ *                 crawl plays once. Ends (or Skip) → factionSelect.
+ *   factionSelect CHOOSE YOUR SIDE — faction cards, the selected faction's
+ *                 ships, the rotating hangar preview, PLAY.
+ *   quickPlay     Returning players (saved loadout + intro seen): Continue
+ *                 line · [PLAY] · Change Faction / Replay Intro.
+ *
+ * Every button is also a browser audio-unlock gesture (unlockAudio()).
+ */
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement | null;
 const hudRoot = document.getElementById("hud") as HTMLDivElement | null;
 const splash = document.getElementById("splash") as HTMLDivElement | null;
 const splashPoster = document.getElementById("splash-poster") as HTMLImageElement | null;
-const startBtn = document.getElementById("splash-start") as HTMLButtonElement | null;
+const story = document.getElementById("splash-story") as HTMLDivElement | null;
+const primaryBtn = document.getElementById("splash-primary") as HTMLButtonElement | null;
+const skipBtn = document.getElementById("splash-skip") as HTMLButtonElement | null;
+const changeBtn = document.getElementById("splash-change") as HTMLButtonElement | null;
+const replayBtn = document.getElementById("splash-replay") as HTMLButtonElement | null;
+const continueLoadout = document.getElementById("splash-continue-loadout");
 const loadoutRoot = document.getElementById("loadout") as HTMLDivElement | null;
 
 if (!canvas) throw new Error("Canvas #renderCanvas not found in DOM");
 if (!hudRoot) throw new Error("HUD root #hud not found in DOM");
 if (!splash) throw new Error("#splash not found in DOM");
 if (!splashPoster) throw new Error("#splash-poster not found in DOM");
-if (!startBtn) throw new Error("#splash-start not found in DOM");
+if (!story) throw new Error("#splash-story not found in DOM");
+if (!primaryBtn) throw new Error("#splash-primary not found in DOM");
+if (!skipBtn) throw new Error("#splash-skip not found in DOM");
+if (!changeBtn) throw new Error("#splash-change not found in DOM");
+if (!replayBtn) throw new Error("#splash-replay not found in DOM");
+if (!continueLoadout) throw new Error("#splash-continue-loadout not found in DOM");
 if (!loadoutRoot) throw new Error("#loadout not found in DOM");
 
 // Set src via JS so BASE_URL is resolved correctly for GitHub Pages.
 splashPoster.src = `${import.meta.env.BASE_URL}images/The-Last-Meridian-Poster.jpg`;
 
-// Splash music — routed through the Web Audio API, NOT an HTML5 <audio>
-// element. This is the same pipeline the in-game SFX use (Babylon's Sound is
-// Web Audio under the hood). Some browsers/extensions auto-mute <audio>/<video>
-// elements specifically; going through Web Audio means the music plays exactly
-// like the SFX do. The AudioContext is created inside the begin-click handler
-// so the user gesture lets it start in the "running" state.
+// ── Splash music / audio unlock ────────────────────────────────────────────
+// Routed through the Web Audio API, NOT an HTML5 <audio> element. This is the
+// same pipeline the in-game SFX use (Babylon's Sound is Web Audio under the
+// hood). Some browsers/extensions auto-mute <audio>/<video> elements
+// specifically; going through Web Audio means the music plays exactly like
+// the SFX do. The AudioContext is created inside a button-click handler so
+// the user gesture lets it start in the "running" state.
 const musicUrl = `${import.meta.env.BASE_URL}music/Black Star Pursuit 2.mp3`;
 let musicCtx: AudioContext | null = null;
 let musicSource: AudioBufferSourceNode | null = null;
 
 async function startSplashMusic(): Promise<void> {
+  if (musicCtx) return; // already started (idempotent for repeat clicks)
   try {
     musicCtx = new AudioContext();
     const gain = musicCtx.createGain();
@@ -56,14 +94,103 @@ function stopSplashMusic(): void {
   musicSource = null;
 }
 
+/**
+ * Centralized browser audio unlock — called from EVERY splash button (Enter
+ * the Meridian, Skip Intro, Play, Replay Intro, Change Faction). The click
+ * that invokes it is the user gesture browsers require, so the shared
+ * AudioContext starts "running"; the same gesture also satisfies Babylon's
+ * own in-game audio engine unlock once the Game constructs.
+ */
+function unlockAudio(): void {
+  if (musicCtx) {
+    void musicCtx.resume();
+    return;
+  }
+  void startSplashMusic();
+}
+
+// ── Game construction ──────────────────────────────────────────────────────
 // The Game is constructed at launch time (not page load) so it can take the
 // loadout — which side and ship the pilot chose on the splash menu.
 let game: Game | null = null;
+let menu: LoadoutMenu | null = null;
+let preview: ShipPreview | null = null;
 
-function launch(loadout: PlayerLoadout): void {
+function startGame(): void {
   if (game) return;
+  // commit() persists the choice and releases the menu's arrow keys back to
+  // the ship; quick play (no menu constructed) launches the saved loadout.
+  const loadout = menu ? menu.commit() : loadSavedLoadout();
+  stopSplashMusic();
+  preview?.dispose();
+  preview = null;
+  splash!.classList.add("hidden");
   game = new Game(canvas!, hudRoot!, loadout);
   void game.start();
+}
+
+// ── Splash state machine ───────────────────────────────────────────────────
+
+type SplashState = "landing" | "intro" | "factionSelect" | "quickPlay";
+let state: SplashState = "landing";
+
+function setState(next: SplashState): void {
+  state = next;
+  splash!.dataset.state = next;
+
+  // The desaturated "dormant" filter lifts the moment the interface wakes up
+  // (intro or selection); landing and quick play stay gray until touched.
+  if (next === "intro" || next === "factionSelect") {
+    splash!.classList.add("begun");
+  }
+
+  switch (next) {
+    case "landing":
+      primaryBtn!.textContent = "ENTER THE MERIDIAN";
+      break;
+    case "intro":
+      restartCrawl();
+      break;
+    case "quickPlay": {
+      const saved = loadSavedLoadout();
+      const info = SHIP_INFO[saved.shipType];
+      continueLoadout!.textContent =
+        `${FACTION_THEME[saved.faction].fullName.replace(/^The /, "")}` +
+        ` · ${info.name} ${info.role}`;
+      primaryBtn!.textContent = "PLAY";
+      break;
+    }
+    case "factionSelect":
+      // Built lazily on first entry; both survive return visits (e.g. via
+      // Change Faction) with their loaded GLBs and thumbnails intact.
+      if (!preview) preview = new ShipPreview();
+      if (!menu) menu = new LoadoutMenu(loadoutRoot!, preview, startGame);
+      preview.start();
+      break;
+  }
+  if (next !== "factionSelect") preview?.stop();
+}
+
+/**
+ * Reset the story crawl so Replay Intro starts from the top. The animation
+ * is declared in CSS (one iteration, paused outside the intro state);
+ * clearing the inline override after a reflow re-arms it.
+ */
+function restartCrawl(): void {
+  story!.style.animation = "none";
+  void story!.offsetHeight; // force reflow so the reset takes
+  story!.style.animation = "";
+}
+
+function enterMeridian(): void {
+  unlockAudio();
+  setState("intro");
+}
+
+function skipIntro(): void {
+  unlockAudio();
+  markIntroSeen();
+  setState("factionSelect");
 }
 
 if (sessionStorage.getItem(RESTART_FLAG)) {
@@ -73,53 +200,65 @@ if (sessionStorage.getItem(RESTART_FLAG)) {
   // reloaded page has no user gesture yet, so it can't resume here).
   sessionStorage.removeItem(RESTART_FLAG);
   splash.classList.add("hidden");
-  launch(loadSavedLoadout());
+  game = new Game(canvas, hudRoot, loadSavedLoadout());
+  void game.start();
 } else {
-  // Side + ship select, preloaded with the saved choice so Enter-Enter gets
-  // a returning player straight back into the fight.
-  const menu = new LoadoutMenu(loadoutRoot);
+  // Returning players (intro seen + a real saved loadout) get the one-click
+  // quick-play screen; everyone else gets the cinematic landing — which
+  // always offers both ENTER THE MERIDIAN and Skip Intro.
+  setState(hasSeenIntro() && hasSavedLoadout() ? "quickPlay" : "landing");
 
-  // START GAME is a two-press entry — no separate "click to begin" gate. The
-  // first press is the user gesture the browser requires to allow audio: it
-  // starts the music and (via the `begun` class) the cinematic crawl, which
-  // fades in over the poster. The second press launches the chosen loadout.
-  // That gap is what lets the splash music + crawl actually be heard/seen
-  // before the cut to gameplay. Enter mirrors the button exactly.
-  const begin = (): void => {
-    if (splash.classList.contains("begun")) return;
-    // `begun` fades the splash up into color (CSS) and starts the music; the
-    // button relabels to the pulsing PLAY so the launch press reads as a new,
-    // distinct action rather than a second click of the same "START GAME".
-    splash.classList.add("begun");
-    startBtn.textContent = "Play";
-    void startSplashMusic();
-  };
+  primaryBtn.addEventListener("click", () => {
+    if (state === "landing") enterMeridian();
+    else if (state === "quickPlay") {
+      unlockAudio();
+      startGame();
+    }
+  });
 
-  const startGame = (): void => {
-    if (game) return;
-    // commit() persists the choice and releases the menu's arrow keys back
-    // to the ship before the Game's own key handling comes up.
-    const loadout = menu.commit();
-    stopSplashMusic();
-    splash.classList.add("hidden");
-    launch(loadout);
-  };
+  skipBtn.addEventListener("click", skipIntro);
 
-  const advance = (): void => {
-    if (splash.classList.contains("begun")) startGame();
-    else begin();
-  };
+  changeBtn.addEventListener("click", () => {
+    unlockAudio();
+    setState("factionSelect");
+  });
 
-  startBtn.addEventListener("click", advance);
+  replayBtn.addEventListener("click", () => {
+    // Replaying never erases the saved faction/ship — the crawl just runs
+    // again, then lands on faction selection with the save preselected.
+    unlockAudio();
+    setState("intro");
+  });
 
-  // Enter walks the whole splash from the keyboard: first press starts the
-  // music + crawl (the audio user gesture), second press launches.
+  // The crawl finished on its own → remember that and reveal the selection.
+  story.addEventListener("animationend", () => {
+    if (state !== "intro") return;
+    markIntroSeen();
+    setState("factionSelect");
+  });
+
+  // Enter mirrors the current state's primary action so the whole splash
+  // remains keyboard-walkable (landing → intro → [Enter skips] → select →
+  // launch; quick play is a single Enter).
   window.addEventListener("keydown", (e) => {
     if (game || e.code !== "Enter") return;
-    advance();
+    switch (state) {
+      case "landing":
+        enterMeridian();
+        break;
+      case "intro":
+        // Don't trap keyboard users in the crawl — Enter skips ahead.
+        skipIntro();
+        break;
+      case "quickPlay":
+      case "factionSelect":
+        startGame();
+        break;
+    }
   });
 }
 
 window.addEventListener("resize", () => {
   game?.handleResize();
+  preview?.resize();
 });

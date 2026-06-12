@@ -162,7 +162,7 @@ gets clobbered every frame; modifying inner root persists.
 
 ```
 src/
-  main.ts                  entry: splash flow (begin → loadout menu → start) → construct Game with the chosen loadout; handle resize
+  main.ts                  entry: staged splash state machine (landing → intro crawl → faction select | quick play for returning players) → construct Game with the chosen loadout; centralized unlockAudio(); handle resize
   style.css                full-viewport canvas + HUD styling
   game/
     Game.ts                top-level coordinator and render loop
@@ -175,8 +175,9 @@ src/
     AsteroidField.ts       rock collection: spawn/drift/wrap + shatter-into-chunks; exposes obstacles[] (held by reference by the weapon systems for cover)
     AssetLoader.ts         GLB importer with procedural fallback (two-tier root); fallback has two designs (classic/viper) via GameConfig.player.shipDesign
     Faction.ts             humans|machines type + opposing() + FACTION_THEME (colors/labels)
-    Loadout.ts             PlayerLoadout {faction, shipType} + localStorage save/load (validated vs GameConfig.factionShips)
-    LoadoutMenu.ts         splash side/ship select cards (plain DOM, keyboard-driven; stat bars read from shipTypes)
+    Loadout.ts             PlayerLoadout {faction, shipType} + localStorage persistence (lastMeridian_* keys incl. introSeen; validated vs GameConfig.factionShips; hasSavedLoadout gates quick play)
+    LoadoutMenu.ts         splash faction/ship select: faction cards → per-faction ship cards w/ thumbnails → hangar preview + PLAY (plain DOM, keyboard-driven; stats read from shipTypes)
+    ShipPreview.ts         standalone Babylon engine for the splash: rotating selected-ship GLB turntable + cached ship-card thumbnails (disposed at launch)
     SensorSystem.ts        per-faction sensor picture: SensorContacts w/ last-known positions, ghost decay, nebula concealment
     CombatNebulas.ts       gameplay stealth clouds above the fighter plane; zones[] feeds SensorSystem + Radar
     FleetCommander.ts      enemy fleet doctrine (strikers/escorts/dynamic pool) re-tasked ~2s via AIController.setOrder()
@@ -234,6 +235,7 @@ The whole game's tuning lives in `src/game/GameConfig.ts`. Major sections:
 | `hitstop` | Pause-frame durations per impact type, stack cap |
 | `damageFlash` | Duration, peak alpha, sphere diameter |
 | `glow` | Bloom intensity, blur kernel |
+| `shipPreview` | Splash hangar preview: camera framing, turntable speed, lights, IBL strength, thumbnail pose |
 | `starfield`, `scenery` | Counts and Y levels for backdrop layers; `scenery.combatNebulas` = the gameplay stealth clouds (zones + visuals) |
 | `engineGlow` | Trail dims, response rate |
 | `explosion` | Debris count, durations, flash scale |
@@ -391,9 +393,10 @@ for one, do it. Otherwise: don't.
 - **ECS framework**. The handful of entities don't need it.
 - **Mobile / touch controls**. Keyboard only.
 - **Gamepad input**.
-- **A complex menu system**. The splash loadout select (side + ship) is the
-  deliberate ceiling — keyboard-first, saved choice, Enter-Enter into play.
-  Don't grow it into settings screens / pause menus unprompted.
+- **A complex menu system**. The staged splash flow (landing → intro crawl →
+  faction/ship select, with one-click quick play for returning players) is
+  the deliberate ceiling — keyboard-first, saved choice, Enter back into
+  play. Don't grow it into settings screens / pause menus unprompted.
 - **Asset preloading splash screens**.
 
 ---

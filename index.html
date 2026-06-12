@@ -3,11 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Space Duel MVP</title>
+    <title>The Last Meridian</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <div id="splash">
+    <!-- Splash flow — main.ts drives data-state through:
+         landing → intro → factionSelect   (new players)
+         quickPlay → factionSelect/intro   (returning players)
+         CSS keys every element's visibility off data-state. -->
+    <div id="splash" data-state="landing">
       <div id="splash-poster-wrap">
         <img id="splash-poster" alt="The Last Meridian" />
         <div id="splash-story-wrap">
@@ -33,7 +37,18 @@
             <p class="beat">Destroy theirs.</p>
           </div>
         </div>
-        <button id="splash-start">START GAME</button>
+        <div id="splash-actions">
+          <div id="splash-continue">
+            <span class="continue-label">Continue:</span>
+            <span id="splash-continue-loadout"></span>
+          </div>
+          <button id="splash-primary">ENTER THE MERIDIAN</button>
+          <div id="splash-secondary">
+            <button class="splash-link" id="splash-skip">Skip Intro</button>
+            <button class="splash-link" id="splash-change">Change Faction</button>
+            <button class="splash-link" id="splash-replay">Replay Intro</button>
+          </div>
+        </div>
       </div>
       <div id="splash-panel">
         <div id="loadout"></div>

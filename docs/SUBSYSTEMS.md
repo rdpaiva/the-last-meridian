@@ -387,19 +387,57 @@ friendly-fire-free without per-bolt faction checks.
   (hull + spine + tower + engine + 6 running lights). Engines and
   lights are emissive and opt into GlowLayer.
 
-## Loadout + LoadoutMenu (splash side/ship select)
+## Splash flow (landing / intro / faction select / quick play)
+- `main.ts` owns a small state machine; the current state lives in
+  `data-state` on `#splash` and ALL visibility is CSS keyed off that
+  attribute (no JS show/hide). States: `landing` (ENTER THE MERIDIAN +
+  always-visible Skip Intro), `intro` (color fade-up + music + one-iteration
+  story crawl; `animationend` on `#splash-story` advances), `factionSelect`
+  (the right panel reveals), `quickPlay` (returning players: Continue line +
+  PLAY + Change Faction / Replay Intro).
+- Returning-player gate: `hasSeenIntro() && hasSavedLoadout()` → `quickPlay`;
+  otherwise `landing`. Skip Intro is ALWAYS on the landing screen — never
+  assume the game knows whether the player is new.
+- `unlockAudio()` in main.ts is the centralized browser audio unlock; every
+  splash button routes through it (the click is the required user gesture).
+  Splash music goes through a raw Web Audio `AudioContext` (NOT `<audio>`,
+  which extensions auto-mute) and is idempotent across repeat clicks.
+- The `.begun` class still drives the grayscale→color "interface wakes up"
+  fade; `quickPlay` deliberately stays dormant/gray (its PLAY cuts straight
+  to the game).
+- The story crawl runs ONE iteration (`forwards`), paused except in the
+  `intro` state; Replay Intro re-arms it by resetting the inline animation
+  (`restartCrawl()`).
+
+## Loadout + LoadoutMenu + ShipPreview (splash side/ship select)
 - `Loadout.ts`: the `PlayerLoadout {faction, shipType}` type + localStorage
-  load/save, validated against `GameConfig.factionShips` (a saved ship that no
-  longer exists falls back to the faction's first ship). `Game` takes the
-  loadout as a constructor param and copies it — `GameConfig.player.faction/
-  shipType` remain the build-time DEFAULTS only.
-- `LoadoutMenu.ts`: plain-DOM cards injected into `#loadout` on the splash.
-  Two rows (faction, then that faction's ships from `factionShips`), fully
-  keyboard-driven (←/→ select, ↑/↓ row; Enter is owned by main.ts and shares
-  the START button path). Ship stat bars read straight from
-  `GameConfig.shipTypes`, normalized against catalog maxima — no duplicated
-  numbers. `commit()` persists the choice and detaches the key handler before
-  the Game's own keys come up.
-- Fast entry invariants: the saved loadout is preselected (Enter-Enter
-  relaunches the last setup), and the end-of-match restart (`RESTART_FLAG`)
+  persistence under `lastMeridian_faction` / `lastMeridian_ship` /
+  `lastMeridian_introSeen` (the old single-JSON `space-duel-loadout` key is
+  still read as a fallback and removed on save). Loads are validated against
+  `GameConfig.factionShips` (a saved ship that no longer exists falls back to
+  the faction's first ship). `hasSavedLoadout()` ("did the player ever pick?")
+  is deliberately separate from `loadSavedLoadout()` (which falls back to
+  GameConfig defaults) — only a real save unlocks the quick-play screen.
+  `Game` takes the loadout as a constructor param and copies it —
+  `GameConfig.player.faction/shipType` remain the build-time DEFAULTS only.
+- `LoadoutMenu.ts`: plain-DOM progressive reveal injected into `#loadout`:
+  faction cards → selected-faction description → ONLY that faction's ship
+  cards (thumbnail + role + 2 key bars) → the hangar preview panel (live 3D +
+  full stat bars) → PLAY. Fully keyboard-driven (←/→ select, ↑/↓ row; Enter
+  is owned by main.ts and shares the PLAY path). Stats read straight from
+  `GameConfig.shipTypes`, normalized against catalog maxima. Every selection
+  change saves immediately; `commit()` persists + detaches the key handler
+  before the Game's own keys come up.
+- `ShipPreview.ts`: a SECOND, standalone Babylon engine/scene for the splash
+  only — one live rotating GLB ("hangar" turntable) + cached one-frame
+  data-URL thumbnails for the ship cards (never a render loop per card).
+  Reuses `AssetLoader.loadModelTemplate` so the same `GameConfig.shipModels`
+  corrections apply, and the same space-backdrop IBL so the PBR metal hulls
+  don't render flat. Created lazily on first `factionSelect`, `stop()`ed when
+  leaving the state, `dispose()`d at game launch. Its canvas is ONE shared
+  element that LoadoutMenu re-adopts after every innerHTML re-render (engine
+  needs `preserveDrawingBuffer` for the thumbnail readback). Tuning lives in
+  `GameConfig.shipPreview`.
+- Fast entry invariants: the saved loadout is preselected everywhere, quick
+  play is a single click/Enter, and the end-of-match restart (`RESTART_FLAG`)
   skips the splash entirely and replays the saved loadout.

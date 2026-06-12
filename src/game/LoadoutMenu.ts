@@ -1,19 +1,32 @@
 import { GameConfig, type ShipTypeId } from "./GameConfig";
 import { FACTION_THEME, opposing, type Faction } from "./Faction";
 import { loadSavedLoadout, saveLoadout, type PlayerLoadout } from "./Loadout";
+import type { ShipPreview } from "./ShipPreview";
 
 /**
- * Splash-screen loadout select: pick a side, pick a ship, launch. Plain DOM
- * like the HUD (no framework). Built for fast entry:
+ * The faction-select stage of the splash flow: pick a side, pick a ship,
+ * launch. Plain DOM like the HUD (no framework). Shown only after the intro
+ * crawl completes / is skipped (main.ts owns the state machine).
  *
- *   - the saved loadout (localStorage) is preselected, so a returning player
- *     just hits Enter to relaunch their last setup without touching the menu;
+ * Layout (progressive reveal — never everything at once):
+ *   CHOOSE YOUR SIDE
+ *   [faction card] [faction card]      ← headline choice
+ *   selected-faction description
+ *   [ship card] [ship card]            ← only the SELECTED faction's roster
+ *   hangar preview panel               ← live rotating 3D model (ShipPreview)
+ *   [ PLAY ]
+ *
+ * Interaction:
+ *   - the saved loadout (localStorage) is preselected, and every change is
+ *     saved immediately, so quick play always reflects the latest choice;
  *   - fully keyboard-driven: ←/→ select within the active row, ↑/↓ switch
- *     rows. Enter = START (main.ts owns Enter so it shares the button path);
- *   - mouse clicking any card works too.
+ *     rows, Enter = PLAY (main.ts owns Enter so it shares the button path);
+ *   - mouse clicking any card or PLAY works too.
  *
- * Ship stats on the cards are read straight from GameConfig.shipTypes and
- * normalized against the catalog maxima — no duplicated numbers to drift.
+ * Ship stats are read straight from GameConfig.shipTypes and normalized
+ * against the catalog maxima — no duplicated numbers to drift. Ship card
+ * thumbnails + the big preview come from ShipPreview (one live 3D view only;
+ * cards get cached static captures).
  */
 
 /**
@@ -32,27 +45,46 @@ const FACTION_TAG: Record<Faction, string> = {
   machines: "THE ASCENDANCY",
 };
 
+/** One-line pitch for the selected side (story bible §2). */
+const FACTION_DESC: Record<Faction, string> = {
+  humans:
+    "Surviving baseline humanity. Disciplined carrier fleets holding the line of the Severance — fighting to prevent a second collapse.",
+  machines:
+    "Enhanced humans bound by the Thread the Loom wove into them. Cast out as a threat — fighting for their freedom along the Last Meridian.",
+};
+
 /** Display strings per catalog ship (canon naming — story bible §8). */
-const SHIP_INFO: Record<ShipTypeId, { name: string; role: string; blurb: string }> = {
+export const SHIP_INFO: Record<
+  ShipTypeId,
+  { name: string; role: string; summary: string; blurb: string }
+> = {
   spitfire: {
     name: "Spitfire",
     role: "Interceptor",
-    blurb: "Fast and agile — the Commonwealth dogfighter.",
+    summary: "Fast Commonwealth dogfighter",
+    blurb:
+      "Fast and agile, with a forgiving hull and a full heat-seeker rack — the Commonwealth's all-rounder.",
   },
   breaker: {
     name: "Breaker",
     role: "Heavy Gunship",
-    blurb: "Armored weapons truck. Heavy bolts, double missile rack.",
+    summary: "Armored Commonwealth weapons truck",
+    blurb:
+      "Armored weapons truck. The best sustained guns in the catalog, double missile rack, ponderous turn — lead your targets.",
   },
   wraith: {
     name: "Wraith",
     role: "Interceptor",
-    blurb: "Novari knife-fighter. Fastest ship there is — light hull, no missiles.",
+    summary: "Fast Novari strike craft",
+    blurb:
+      "Novari knife-fighter built for speed, precision, and close-range dogfighting. Fastest ship there is — light hull, no missiles.",
   },
   reaver: {
     name: "Reaver",
     role: "Heavy Gunship",
-    blurb: "Scythe-winged siege platform. Hits hardest, turns slowest.",
+    summary: "Heavy Novari siege platform",
+    blurb:
+      "Scythe-winged siege platform. The toughest hull, the heaviest bolts, and the biggest missile rack — paid for in speed.",
   },
 };
 
@@ -79,7 +111,11 @@ export class LoadoutMenu {
   private activeRow: "faction" | "ship" = "faction";
   private detached = false;
 
-  constructor(private readonly root: HTMLElement) {
+  constructor(
+    private readonly root: HTMLElement,
+    private readonly preview: ShipPreview,
+    private readonly onPlay: () => void,
+  ) {
     const saved = loadSavedLoadout();
     this.faction = saved.faction;
     this.shipType = saved.shipType;
@@ -124,7 +160,7 @@ export class LoadoutMenu {
           this.shipType = ships[idx];
         }
         e.preventDefault();
-        this.render();
+        this.saveAndRender();
         break;
       }
     }
@@ -142,9 +178,17 @@ export class LoadoutMenu {
     this.shipType = ships[Math.min(roleIdx, ships.length - 1)];
   }
 
+  /** Every user-driven selection change persists immediately (quick play
+   *  reads the same keys next session). Row toggles use plain render(). */
+  private saveAndRender(): void {
+    saveLoadout(this.loadout);
+    this.render();
+  }
+
   /**
    * Full re-render on every change — a handful of cards on a pre-game screen,
-   * nowhere near a hot path. Re-renders also re-bind the click handlers.
+   * nowhere near a hot path. Re-renders also re-bind the click handlers and
+   * re-adopt the preview canvas (innerHTML would otherwise orphan it).
    */
   private render(): void {
     const factionCards = (["humans", "machines"] as Faction[])
@@ -173,37 +217,95 @@ export class LoadoutMenu {
     this.root.innerHTML = `
       <div class="loadout-heading">Choose your side</div>
       <div class="loadout-row${this.activeRow === "faction" ? " active" : ""}" id="loadout-factions">${factionCards}</div>
+      <div class="faction-desc">${FACTION_DESC[this.faction]}</div>
       <div class="loadout-row${this.activeRow === "ship" ? " active" : ""}" id="loadout-ships">${shipCards}</div>
+      ${this.previewPanel()}
+      <button id="loadout-play" class="${this.faction}">PLAY</button>
       <div class="loadout-hint">←/→ SELECT · ↑/↓ ROW · ENTER TO LAUNCH</div>`;
 
     for (const el of this.root.querySelectorAll<HTMLElement>(".faction-card")) {
       el.addEventListener("click", () => {
         this.activeRow = "faction";
         this.setFaction(el.dataset.faction as Faction);
-        this.render();
+        this.saveAndRender();
       });
     }
     for (const el of this.root.querySelectorAll<HTMLElement>(".ship-card")) {
       el.addEventListener("click", () => {
         this.activeRow = "ship";
         this.shipType = el.dataset.ship as ShipTypeId;
-        this.render();
+        this.saveAndRender();
+      });
+    }
+    this.root
+      .querySelector<HTMLButtonElement>("#loadout-play")!
+      .addEventListener("click", () => this.onPlay());
+
+    // Re-adopt the live preview canvas (one shared element across renders)
+    // and point it at the current selection.
+    this.root
+      .querySelector<HTMLElement>("#ship-preview-stage")!
+      .appendChild(this.preview.canvas);
+    this.preview.resize();
+    void this.preview.show(this.shipType);
+
+    // Static thumbnails for the visible ship cards — cached after first
+    // capture, so this is async exactly once per ship.
+    for (const el of this.root.querySelectorAll<HTMLElement>(".ship-thumb")) {
+      const id = el.dataset.thumbFor as ShipTypeId;
+      void this.preview.thumbnail(id).then((url) => {
+        if (url && el.isConnected) el.style.backgroundImage = `url(${url})`;
       });
     }
   }
 
+  /** Compact roster card: thumbnail + name/role/one-liner + two key bars. */
   private shipCard(id: ShipTypeId): string {
     const t = GameConfig.shipTypes[id];
     const info = SHIP_INFO[id];
     const sel = id === this.shipType ? " selected" : "";
-    const bars: Array<[string, number, number]> = [
+    const miniBars = this.statRows([
+      ["SPD", t.maxSpeed, MAX_STAT.speed],
+      ["HULL", t.maxHp, MAX_STAT.hull],
+    ]);
+    return `
+      <div class="loadout-card ship-card ${this.faction}${sel}" data-ship="${id}">
+        <div class="ship-thumb" data-thumb-for="${id}"></div>
+        <div class="ship-card-info">
+          <div class="card-title">${info.name.toUpperCase()}</div>
+          <div class="card-sub">${info.role}</div>
+          <div class="card-blurb">${info.summary}</div>
+          ${miniBars}
+        </div>
+      </div>`;
+  }
+
+  /** The "hangar" panel: live 3D turntable + expanded stats for the pick. */
+  private previewPanel(): string {
+    const t = GameConfig.shipTypes[this.shipType];
+    const info = SHIP_INFO[this.shipType];
+    const theme = FACTION_THEME[this.faction];
+    const bars = this.statRows([
       ["SPD", t.maxSpeed, MAX_STAT.speed],
       ["TRN", t.rotationSpeed, MAX_STAT.turn],
       ["HULL", t.maxHp, MAX_STAT.hull],
-      ["GUNS", gunsDps(id), MAX_STAT.guns],
+      ["GUNS", gunsDps(this.shipType), MAX_STAT.guns],
       ["MSLS", t.missileAmmo, MAX_STAT.missiles],
-    ];
-    const statRows = bars
+    ]);
+    return `
+      <div id="ship-preview" class="${this.faction}">
+        <div id="ship-preview-stage"></div>
+        <div id="ship-preview-info">
+          <div class="preview-name">${info.name.toUpperCase()} ${info.role.toUpperCase()}</div>
+          <div class="preview-role">${theme.fullName}</div>
+          <div class="preview-blurb">${info.blurb}</div>
+          ${bars}
+        </div>
+      </div>`;
+  }
+
+  private statRows(bars: Array<[string, number, number]>): string {
+    return bars
       .map(
         ([label, value, max]) => `
           <div class="stat-row">
@@ -212,12 +314,5 @@ export class LoadoutMenu {
           </div>`,
       )
       .join("");
-    return `
-      <div class="loadout-card ship-card ${this.faction}${sel}" data-ship="${id}">
-        <div class="card-title">${info.name.toUpperCase()}</div>
-        <div class="card-sub">${info.role}</div>
-        <div class="card-blurb">${info.blurb}</div>
-        ${statRows}
-      </div>`;
   }
 }

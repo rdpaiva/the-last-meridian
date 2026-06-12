@@ -1,4 +1,11 @@
 /* ── Splash screen ─────────────────────────────────────────────────────── */
+/* The splash is a state machine driven by main.ts via data-state on #splash:
+     landing        title poster + ENTER THE MERIDIAN + Skip Intro
+     intro          story crawl + Skip Intro
+     factionSelect  right panel revealed: factions → ships → hangar preview
+     quickPlay      Continue line + PLAY + Change Faction / Replay Intro
+   Every state-dependent element is hidden by default and revealed by a
+   data-state rule below — no JS show/hide beyond setting the attribute. */
 
 #splash {
   position: fixed;
@@ -7,18 +14,19 @@
   background: #000;
   display: flex;
   align-items: stretch;
+  justify-content: center; /* centers the poster while the panel is hidden */
 }
 
 #splash.hidden {
   display: none;
 }
 
-/* ── Faded "armed" state ──────────────────────────────────────────────── */
-/* Before the first press the whole splash sits desaturated and dim — a clear
-   "not started yet" cue, with the one full-color START GAME button as the
-   obvious thing to click. The press adds `.begun`, which fades everything up
-   into proper color and turns the button into the pulsing PLAY launch, so the
-   two presses read as two distinct actions instead of "the same button twice". */
+/* ── Faded "dormant" state ────────────────────────────────────────────── */
+/* Before the first interaction the whole splash sits desaturated and dim —
+   grayscale, dormant, quiet. The first meaningful click (Enter the Meridian /
+   Skip Intro / Change Faction / Replay Intro) adds `.begun`, which slowly
+   fades everything up into color: the interface waking up. Quick play stays
+   dormant — its PLAY cuts straight to the game. */
 
 #splash-poster,
 #splash-panel {
@@ -32,8 +40,9 @@
 }
 
 /* ── Poster column ── */
-/* The poster is the left column; the cinematic crawl and the START GAME
-   button are superimposed over it (relative wrapper → absolute children). */
+/* The poster is the cinematic backdrop (it carries the baked-in THE LAST
+   MERIDIAN title); the story crawl and the action stack are superimposed
+   over it (relative wrapper → absolute children). */
 
 #splash-poster-wrap {
   position: relative;
@@ -52,18 +61,23 @@
 
 #splash-panel {
   flex: 1;
-  display: flex;
+  display: none; /* revealed only in factionSelect */
   flex-direction: column;
-  gap: 18px;
-  padding: 26px 32px;
+  gap: 16px;
+  padding: 22px 28px;
   border-left: 1px solid rgba(120, 140, 200, 0.12);
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+#splash[data-state="factionSelect"] #splash-panel {
+  display: flex;
 }
 
 /* ── Cinematic story crawl (over the poster's upper half) ── */
-/* Sits above the baked-in "THE LAST MERIDIAN" title and scrolls upward.
-   Hidden until START GAME is first pressed (the `begun` class), so it
-   "appears" from partway up the poster in sync with the music. */
+/* Sits above the baked-in title and scrolls upward. Visible only in the
+   intro state; runs ONE iteration — main.ts listens for animationend to
+   advance to faction selection. */
 
 #splash-story-wrap {
   position: absolute;
@@ -78,20 +92,19 @@
   mask-image: linear-gradient(to bottom, transparent 0%, black 16%, black 80%, transparent 100%);
 }
 
-#splash.begun #splash-story-wrap {
+#splash[data-state="intro"] #splash-story-wrap {
   opacity: 1;
 }
 
 #splash-story {
   padding: 0 12px 3rem;
   text-align: center;
-  animation: story-scroll 80s linear infinite;
-  /* Held until START GAME is first pressed, so the crawl starts in sync
-     with the music. */
+  animation: story-scroll 80s linear 1 forwards;
+  /* Held until the intro state, so the crawl starts in sync with the music. */
   animation-play-state: paused;
 }
 
-#splash.begun #splash-story {
+#splash[data-state="intro"] #splash-story {
   animation-play-state: running;
 }
 
@@ -115,14 +128,156 @@
   100% { transform: translateY(-100%); }
 }
 
+/* ── Action stack (over the poster's lower edge) ── */
+/* One absolutely-positioned column holds every poster-overlay control; the
+   data-state rules below choose which ones exist per state. */
+
+#splash-actions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 5%;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Hidden by default; revealed per state. */
+#splash-continue,
+#splash-primary,
+#splash-skip,
+#splash-change,
+#splash-replay {
+  display: none;
+}
+
+#splash[data-state="landing"] #splash-primary,
+#splash[data-state="quickPlay"] #splash-primary {
+  display: block;
+}
+
+#splash[data-state="landing"] #splash-skip,
+#splash[data-state="intro"] #splash-skip,
+#splash[data-state="quickPlay"] #splash-change,
+#splash[data-state="quickPlay"] #splash-replay {
+  display: inline-block;
+}
+
+#splash[data-state="quickPlay"] #splash-continue {
+  display: flex;
+}
+
+/* In factionSelect the PLAY button lives in the panel, not on the poster. */
+#splash[data-state="factionSelect"] #splash-actions {
+  display: none;
+}
+
+/* Primary button — ENTER THE MERIDIAN on landing, PLAY on quick play. */
+#splash-primary {
+  padding: 13px 46px;
+  background: rgba(5, 7, 14, 0.55);
+  border: 1px solid rgba(137, 180, 250, 0.55);
+  border-radius: 4px;
+  color: #cdd6f4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  backdrop-filter: blur(2px);
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, color 0.15s;
+}
+
+#splash-primary:hover {
+  background: rgba(137, 180, 250, 0.16);
+  border-color: rgba(137, 180, 250, 0.9);
+  color: #89b4fa;
+  box-shadow: 0 0 18px rgba(137, 180, 250, 0.3);
+}
+
+#splash-primary:active {
+  background: rgba(137, 180, 250, 0.22);
+}
+
+/* Quick play's PLAY is the one-click relaunch — give it the pulse. */
+#splash[data-state="quickPlay"] #splash-primary {
+  animation: play-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes play-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(137, 180, 250, 0);
+    border-color: rgba(137, 180, 250, 0.55);
+  }
+  50% {
+    transform: scale(1.06);
+    box-shadow: 0 0 24px 4px rgba(137, 180, 250, 0.45);
+    border-color: rgba(137, 180, 250, 0.95);
+  }
+}
+
+/* Secondary text links — Skip Intro / Change Faction / Replay Intro. */
+#splash-secondary {
+  display: flex;
+  gap: 26px;
+}
+
+.splash-link {
+  background: none;
+  border: none;
+  padding: 4px 6px;
+  color: #8a96b8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
+  transition: color 0.15s, text-shadow 0.15s;
+}
+
+.splash-link:hover {
+  color: #cdd6f4;
+  text-shadow: 0 0 12px rgba(137, 180, 250, 0.6);
+}
+
+/* Quick-play "Continue:" line — the saved side + ship, command-style. */
+#splash-continue {
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 9px 22px;
+  background: rgba(5, 7, 14, 0.6);
+  border: 1px solid rgba(120, 140, 200, 0.3);
+  border-radius: 4px;
+  backdrop-filter: blur(2px);
+}
+
+#splash-continue .continue-label {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #7f8aa6;
+}
+
+#splash-continue-loadout {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: #f9e2af;
+}
+
 /* ── Loadout select (side + ship) ── */
 
 #loadout {
-  flex: 1;
+  /* Grow into the panel's spare height — the faction row (below) absorbs
+     it, so the portrait cards get as tall as the viewport allows. */
+  flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
 .loadout-heading {
@@ -141,16 +296,14 @@
   justify-content: center;
 }
 
-/* The faction row grows to fill the panel so its portrait cards read big;
-   the ship row keeps its natural height beneath. */
+/* The faction row soaks up whatever height the panel has to spare, so the
+   portraits show as much of the art as the screen allows; the ship row and
+   preview below keep their natural height. On short screens it bottoms out
+   at the cards' min-height and the panel scrolls instead. */
 #loadout-factions {
   flex: 1 1 auto;
-  align-items: stretch;
   min-height: 0;
-}
-
-#loadout-ships {
-  flex: 0 0 auto;
+  align-items: stretch;
 }
 
 .loadout-card {
@@ -188,8 +341,7 @@
   position: relative;
   flex: 1 1 0;
   max-width: 460px;
-  min-height: 340px;
-  height: 100%;
+  min-height: 200px;
   padding: 0;
   border-width: 2px;
   border-radius: 10px;
@@ -227,19 +379,19 @@
   left: 0;
   right: 0;
   bottom: 0;
-  padding: 20px 22px 22px;
+  padding: 14px 18px 16px;
   text-align: left;
 }
 
 .faction-tag {
-  font-size: 11px;
+  font-size: 10px;
   letter-spacing: 0.22em;
   color: #8a96b8;
-  margin-bottom: 6px;
+  margin-bottom: 5px;
 }
 
 .faction-name {
-  font-size: 23px;
+  font-size: 19px;
   font-weight: 700;
   line-height: 1.1;
   letter-spacing: 0.04em;
@@ -248,8 +400,8 @@
 }
 
 .faction-mothership {
-  margin-top: 8px;
-  font-size: 12px;
+  margin-top: 6px;
+  font-size: 11px;
   letter-spacing: 0.04em;
   color: #aab4d4;
 }
@@ -320,6 +472,18 @@
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8), 0 0 22px rgba(243, 139, 168, 0.45);
 }
 
+/* One-line pitch for the selected side, beneath the faction row. */
+.faction-desc {
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  color: #8a96b8;
+  max-width: 620px;
+  margin: 0 auto;
+  min-height: 2.6em; /* two lines reserved so toggling sides doesn't reflow */
+}
+
 /* The row the arrow keys act on gets slightly brighter card borders. */
 .loadout-row.active .ship-card:not(.selected) {
   border-color: rgba(120, 140, 200, 0.45);
@@ -328,6 +492,33 @@
 /* When the faction row is the active one, frame the unselected side too. */
 .loadout-row.active .faction-card:not(.selected) {
   border-color: rgba(150, 168, 220, 0.5);
+}
+
+/* ── Ship cards: compact thumbnail + name/role/one-liner + key bars ── */
+
+.ship-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 340px;
+  padding: 10px 12px;
+}
+
+.ship-thumb {
+  flex: 0 0 92px;
+  height: 66px;
+  border-radius: 4px;
+  border: 1px solid rgba(120, 140, 200, 0.18);
+  /* Placeholder until ShipPreview delivers the capture; the JS-set
+     background-image simply replaces this gradient. */
+  background: radial-gradient(ellipse at 50% 60%, rgba(120, 140, 200, 0.14), rgba(6, 8, 15, 0.9) 75%);
+  background-size: cover;
+  background-position: center;
+}
+
+.ship-card-info {
+  flex: 1;
+  min-width: 0;
 }
 
 .card-title {
@@ -344,7 +535,7 @@
 }
 
 .card-blurb {
-  margin: 6px 0 8px;
+  margin: 4px 0 6px;
   font-size: 11px;
   line-height: 1.4;
   color: #8a96b8;
@@ -379,8 +570,146 @@
   background: linear-gradient(90deg, #4a7bff, #89b4fa);
 }
 
-.loadout-card.machines .stat-fill {
+.loadout-card.machines .stat-fill,
+#ship-preview.machines .stat-fill {
   background: linear-gradient(90deg, #ff4d6d, #f38ba8);
+}
+
+/* ── Hangar preview: the one live 3D view of the selected ship ── */
+
+#ship-preview {
+  position: relative;
+  display: flex;
+  gap: 16px;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 14px;
+  box-sizing: border-box;
+  border: 1px solid rgba(120, 140, 200, 0.25);
+  border-radius: 8px;
+  background: rgba(8, 10, 18, 0.55);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+#ship-preview.humans {
+  border-color: rgba(137, 180, 250, 0.45);
+  box-shadow: 0 0 26px rgba(137, 180, 250, 0.1);
+}
+
+#ship-preview.machines {
+  border-color: rgba(243, 139, 168, 0.45);
+  box-shadow: 0 0 26px rgba(243, 139, 168, 0.1);
+}
+
+/* The stage carries the hangar mood: a soft faction-colored glow pooled
+   behind the hull (the preview scene clears transparent) + faint scanlines. */
+#ship-preview-stage {
+  position: relative;
+  flex: 1.25;
+  min-height: 230px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #04060c;
+}
+
+#ship-preview.humans #ship-preview-stage {
+  background:
+    radial-gradient(ellipse at 50% 62%, rgba(137, 180, 250, 0.16), rgba(4, 6, 12, 0) 70%),
+    #04060c;
+}
+
+#ship-preview.machines #ship-preview-stage {
+  background:
+    radial-gradient(ellipse at 50% 62%, rgba(243, 139, 168, 0.14), rgba(4, 6, 12, 0) 70%),
+    #04060c;
+}
+
+/* Faint command-interface scanlines over the live render. */
+#ship-preview-stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(205, 214, 244, 0.025) 0 1px,
+    transparent 1px 3px
+  );
+  pointer-events: none;
+}
+
+#ship-preview-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  outline: none;
+}
+
+#ship-preview-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.preview-name {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #eef2ff;
+}
+
+#ship-preview.humans .preview-name { text-shadow: 0 0 16px rgba(137, 180, 250, 0.4); }
+#ship-preview.machines .preview-name { text-shadow: 0 0 16px rgba(243, 139, 168, 0.4); }
+
+.preview-role {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #7f8aa6;
+}
+
+.preview-blurb {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #8a96b8;
+  margin-bottom: 4px;
+}
+
+/* PLAY — the faction-select primary action, beneath the hangar preview. */
+#loadout-play {
+  align-self: center;
+  padding: 12px 64px;
+  background: rgba(5, 7, 14, 0.55);
+  border: 1px solid rgba(137, 180, 250, 0.55);
+  border-radius: 4px;
+  color: #cdd6f4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+  letter-spacing: 0.16em;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, color 0.15s;
+}
+
+#loadout-play:hover {
+  background: rgba(137, 180, 250, 0.16);
+  border-color: rgba(137, 180, 250, 0.9);
+  color: #89b4fa;
+  box-shadow: 0 0 18px rgba(137, 180, 250, 0.3);
+}
+
+#loadout-play.machines {
+  border-color: rgba(243, 139, 168, 0.55);
+}
+
+#loadout-play.machines:hover {
+  background: rgba(243, 139, 168, 0.14);
+  border-color: rgba(243, 139, 168, 0.9);
+  color: #f38ba8;
+  box-shadow: 0 0 18px rgba(243, 139, 168, 0.3);
 }
 
 .loadout-hint {
@@ -425,52 +754,52 @@
   letter-spacing: 0.02em;
 }
 
-/* Superimposed over the poster's lower edge, clear of the baked-in title. */
-#splash-start {
-  position: absolute;
-  bottom: 5%;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 2;
-  padding: 13px 46px;
-  background: rgba(5, 7, 14, 0.55);
-  border: 1px solid rgba(137, 180, 250, 0.55);
-  border-radius: 4px;
-  color: #cdd6f4;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 14px;
-  letter-spacing: 0.14em;
-  cursor: pointer;
-  backdrop-filter: blur(2px);
-  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, color 0.15s;
-}
+/* ── Small screens: stack the columns, let the panel scroll ── */
 
-#splash-start:hover {
-  background: rgba(137, 180, 250, 0.16);
-  border-color: rgba(137, 180, 250, 0.9);
-  color: #89b4fa;
-  box-shadow: 0 0 18px rgba(137, 180, 250, 0.3);
-}
-
-#splash-start:active {
-  background: rgba(137, 180, 250, 0.22);
-}
-
-/* Once begun, the button is the pulsing PLAY launch call-to-action. */
-#splash.begun #splash-start {
-  animation: play-pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes play-pulse {
-  0%, 100% {
-    transform: translateX(-50%) scale(1);
-    box-shadow: 0 0 0 0 rgba(137, 180, 250, 0);
-    border-color: rgba(137, 180, 250, 0.55);
+@media (max-width: 980px) {
+  #splash {
+    flex-direction: column;
+    align-items: stretch;
   }
-  50% {
-    transform: translateX(-50%) scale(1.06);
-    box-shadow: 0 0 24px 4px rgba(137, 180, 250, 0.45);
-    border-color: rgba(137, 180, 250, 0.95);
+
+  #splash-poster-wrap {
+    width: 100%;
+    height: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  #splash-poster {
+    height: 100%;
+    max-height: 100vh;
+    max-width: 100%;
+    object-fit: contain;
+  }
+
+  /* Selection needs the room — drop the poster column entirely. */
+  #splash[data-state="factionSelect"] #splash-poster-wrap {
+    display: none;
+  }
+
+  #splash-panel {
+    border-left: none;
+    padding: 14px 14px 20px;
+  }
+
+  .faction-card {
+    min-height: 150px;
+  }
+
+  #ship-preview {
+    flex-direction: column;
+  }
+
+  #ship-preview-stage {
+    min-height: 190px;
+  }
+
+  #splash-actions {
+    bottom: 7%;
   }
 }
 

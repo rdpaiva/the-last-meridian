@@ -178,6 +178,14 @@ and explicitly skipped. Update this when you finish or start work.
   replays the saved loadout; `GameConfig.fleets` is per-faction so the AI
   flies whichever fleet you didn't pick. Wraith/Reaver gained reverse/strafe
   authority so humans can fly them.
+- **Staged splash flow** — the splash is now a state machine (`main.ts`):
+  cinematic landing (ENTER THE MERIDIAN + always-visible Skip Intro) →
+  one-shot story crawl → faction select (progressive reveal: faction cards →
+  selected faction's ships w/ thumbnails → live rotating GLB hangar preview
+  via the standalone `ShipPreview` engine → PLAY), with a one-click quick-play
+  screen (Continue / Change Faction / Replay Intro) for returning players.
+  Persistence under `lastMeridian_*` keys incl. `introSeen`; centralized
+  `unlockAudio()` on every splash button.
 - **Kills + score** — per-shooter kill attribution (player lasers tagged
   `fromPlayer`, missiles, wing kills tallied separately); score = victim max
   hull; best score persists in localStorage; HUD rows + end-banner summary.
