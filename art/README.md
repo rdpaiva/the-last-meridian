@@ -122,3 +122,35 @@ glowing nozzle discs. Flown via the `reaver` entry in `GameConfig.shipTypes`.
 ### Export settings
 Same as the Breaker — GLB, +Y up, apply modifiers (bakes the wing
 Solidify), selection = the `Reaver` collection.
+
+## `wraith.blend` → `public/models/wraith.glb`
+
+Low-poly Wraith fighter (the Novari fighter — see the story bible). Unlike
+the other ships this model wasn't built in-house: the original GLB shipped
+with a single non-metallic material driven by a 2×2 palette texture, so it
+ignored scene lighting. This .blend was reverse-engineered from that GLB —
+faces were bucketed by which palette pixel their UVs sampled and rebuilt as
+three named PBR materials (texture dropped):
+
+| Material | From palette | Tuning |
+|---|---|---|
+| `Wraith_Hull` (530 faces) | white (245,244,244) | metallic 0.85 / rough 0.45 — same recipe as the spitfire's `metal` |
+| `Wraith_Panel` (200 faces) | dark teal (22,64,61) | metallic 0.6 / rough 0.4, base lifted off near-black so it specs |
+| `Wraith_Dark` (96 faces, canopy panes + intakes) | near-black (22,22,23) | metallic 0.7 / rough 0.35 — glossy dark glass look |
+
+### Conventions baked into the model
+- **Axes (FIGHTER convention):** nose along **-Y**, up **+Z** → nose-+Z in
+  Babylon; `GameConfig.shipModels["wraith.glb"]` needs no rotation
+  correction, only `scale: 0.28` (~8.2u long, 6.9u span native).
+- **Root/structure:** ONE mesh (`Wraith_Fighter`) in the `Wraith`
+  collection — no per-part objects, no root empty (legacy of the imported
+  asset). Material slots 0/1/2 = Hull/Panel/Dark.
+- **No marker empties** — muzzles/thrusters come from the `wraith` entry in
+  `GameConfig.shipTypes` only. If you add `muzzle.*`/`thruster.*` empties,
+  keep the config list in sync like the other fighters.
+- **No baked emissives** — engine glow is the runtime `EngineGlow`, same as
+  the spitfire/breaker. The original palette had an unused bright-teal pixel
+  (1,151,137); if you ever add glow accents, that's the canon color.
+
+### Export settings
+Same as the Breaker — GLB, +Y up, selection = the `Wraith` collection.
