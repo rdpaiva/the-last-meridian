@@ -154,7 +154,7 @@ As files get split, place sim halves in `src/game/sim/` and views in
 mechanical, history-preserving `git mv` (see Decisions → restructure
 timing).
 
-- [ ] **Headless smoke harness — FIRST, before any splitting.** Add
+- [x] **Headless smoke harness — FIRST, before any splitting.** Add
       vitest; write a headless run (NullEngine or plain Node imports)
       that constructs the full sim with two AI fleets, runs N
       fixed-dt ticks, and asserts ships move/fire/take damage/die/
