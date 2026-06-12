@@ -21,7 +21,7 @@ import { findTuningEntry, TUNING_SCHEMA, type TuningEntry } from "./TuningSchema
  * document tomorrow (docs/MULTIPLAYER.md).
  */
 
-export type OverrideValue = number | boolean;
+export type OverrideValue = number | boolean | string;
 
 const STORAGE_KEY = "lastMeridian_tuning";
 
@@ -62,7 +62,7 @@ function captureDefaults(): void {
   for (const group of TUNING_SCHEMA) {
     for (const entry of group.entries) {
       const v = deepGet(GameConfig, entry.path);
-      if (typeof v === "number" || typeof v === "boolean") {
+      if (typeof v === "number" || typeof v === "boolean" || typeof v === "string") {
         defaults.set(entry.path, v);
       }
     }
@@ -76,6 +76,11 @@ function captureDefaults(): void {
 function sanitize(entry: TuningEntry, raw: unknown): OverrideValue | undefined {
   if (entry.kind === "boolean") {
     return typeof raw === "boolean" ? raw : undefined;
+  }
+  if (entry.kind === "choice") {
+    return typeof raw === "string" && entry.options?.some((o) => o.value === raw)
+      ? raw
+      : undefined;
   }
   if (typeof raw !== "number" || !Number.isFinite(raw)) return undefined;
   let v = Math.min(entry.max ?? raw, Math.max(entry.min ?? raw, raw));
@@ -149,7 +154,9 @@ export function applyStoredOverrides(): void {
 export function getTuningValue(path: string): OverrideValue | undefined {
   captureDefaults();
   const v = deepGet(GameConfig, path);
-  return typeof v === "number" || typeof v === "boolean" ? v : undefined;
+  return typeof v === "number" || typeof v === "boolean" || typeof v === "string"
+    ? v
+    : undefined;
 }
 
 /** The source-default value of a schema path. */

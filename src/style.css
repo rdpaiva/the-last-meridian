@@ -1240,6 +1240,25 @@ body {
   accent-color: #89b4fa;
 }
 
+/* Choice knobs (e.g. wingman orders): one dropdown spanning the slider +
+   number columns. */
+.set-select {
+  grid-column: 2 / 4;
+  justify-self: start;
+  min-width: 140px;
+  background: rgba(10, 13, 24, 0.9);
+  border: 1px solid rgba(120, 140, 200, 0.3);
+  border-radius: 3px;
+  color: #cdd6f4;
+  font-family: inherit;
+  font-size: 11.5px;
+  padding: 3px 6px;
+}
+
+.set-row.modified .set-select {
+  border-color: rgba(249, 226, 175, 0.6);
+}
+
 /* Per-row reset: only visible once the row is off its default. */
 .set-reset {
   visibility: hidden;
@@ -1266,5 +1285,8 @@ body {
   .set-label {
     grid-column: 1 / -1;
     padding-top: 4px;
+  }
+  .set-select {
+    grid-column: 1 / 3;
   }
 }

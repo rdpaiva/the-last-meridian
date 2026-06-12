@@ -541,9 +541,12 @@ friendly-fire-free without per-bolt faction checks.
   Settings" link on landing / quick play / faction select; BACK or Esc
   returns to wherever the user came from). Three pieces:
   - `TuningSchema.ts` — the CURATED declarative knob list (`{path, label,
-    kind, min, max, step, hint}` grouped into sections). The GUI renders
-    itself from this; adding an entry is the WHOLE job of exposing a new
-    knob (it auto-persists and round-trips through JSON). Deliberately
+    kind, min, max, step, options, hint}` grouped into sections; kinds:
+    `number` = slider+field, `boolean` = checkbox, `choice` = dropdown over
+    `options` — e.g. the per-wingman order dropdowns, one per slot of the
+    padded `player.wingmen.orders` array). The GUI renders itself from
+    this; adding an entry is the WHOLE job of exposing a new knob (it
+    auto-persists and round-trips through JSON). Deliberately
     gameplay-only (~70 knobs: arena/asteroids, per-ship stats, weapons,
     fleets, AI/commander, sensors, objective) — juice/visuals stay out.
     `hint` is REQUIRED and plain-language: it feeds each row's clickable ⓘ

@@ -35,11 +35,13 @@ export interface TuningEntry {
    * does in play, not how the code implements it).
    */
   hint: string;
-  kind: "number" | "boolean";
-  /** Bounds + step — required for "number" entries; ignored for booleans. */
+  kind: "number" | "boolean" | "choice";
+  /** Bounds + step — required for "number" entries; ignored otherwise. */
   min?: number;
   max?: number;
   step?: number;
+  /** Allowed values + display labels — required for "choice" entries. */
+  options?: ReadonlyArray<{ value: string; label: string }>;
 }
 
 export interface TuningGroup {
@@ -60,6 +62,15 @@ function num(
 
 function bool(path: string, label: string, hint: string): TuningEntry {
   return { path, label, kind: "boolean", hint };
+}
+
+function choice(
+  path: string,
+  label: string,
+  options: ReadonlyArray<{ value: string; label: string }>,
+  hint: string,
+): TuningEntry {
+  return { path, label, kind: "choice", options, hint };
 }
 
 /** "spitfire" → "Spitfire" — the catalog ids are already the canon names. */
@@ -124,6 +135,31 @@ function fleetEntries(faction: Faction): TuningEntry[] {
   return rows;
 }
 
+/** The standing orders an AI wingman can fly (AIController's AIOrder). */
+const WINGMAN_ORDER_OPTIONS = [
+  { value: "cover", label: "Cover" },
+  { value: "formation", label: "Formation" },
+  { value: "hunt", label: "Hunt" },
+  { value: "strike", label: "Strike" },
+  { value: "defend", label: "Defend" },
+];
+
+/**
+ * One order dropdown per wingman SLOT — generated from the orders array's
+ * length (GameConfig pads it to the max wing size), so slot i's dropdown is
+ * exactly `player.wingmen.orders[i]`.
+ */
+function wingmanOrderEntries(): TuningEntry[] {
+  return GameConfig.player.wingmen.orders.map((_, i) =>
+    choice(
+      `player.wingmen.orders.${i}`,
+      `Wingman ${i + 1} order`,
+      WINGMAN_ORDER_OPTIONS,
+      "This wingman's standing order for the whole match. Cover = fly your wing and break off to attack anything that threatens you. Formation = hold position on your wing, only shooting what crosses its nose. Hunt = roam and chase down enemy fighters. Strike = press the attack on the enemy mothership. Defend = guard your own mothership. (Only matters if you field this many wingmen.)",
+    ),
+  );
+}
+
 export const TUNING_SCHEMA: ReadonlyArray<TuningGroup> = [
   {
     title: "Arena & Asteroids",
@@ -183,6 +219,7 @@ export const TUNING_SCHEMA: ReadonlyArray<TuningGroup> = [
     entries: [
       num("player.wingmen.count", "Player wingmen", 0, 6, 1,
         "How many AI teammates fly at your side. 0 = you fly alone."),
+      ...wingmanOrderEntries(),
       ...fleetEntries("humans"),
       ...fleetEntries("machines"),
     ],

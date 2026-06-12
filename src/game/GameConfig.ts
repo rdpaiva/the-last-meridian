@@ -287,8 +287,14 @@ export const GameConfig = {
         humans: ["spitfire"],
         machines: ["wraith"],
       } as Record<Faction, ReadonlyArray<ShipTypeId>>,
-      /** Per-wingman standing order (wraps if shorter than count). */
-      orders: ["cover"] as ReadonlyArray<
+      /**
+       * Per-wingman standing order (wraps if shorter than count). One
+       * explicit entry per slot, padded to the max wing size (6) — the
+       * match-settings screen exposes one order dropdown per slot
+       * (TuningSchema reads this array's length), and behavior is identical
+       * to the old single wrapped ["cover"] entry.
+       */
+      orders: ["cover", "cover", "cover", "cover", "cover", "cover"] as ReadonlyArray<
         "cover" | "formation" | "hunt" | "strike" | "defend"
       >,
       /**

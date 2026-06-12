@@ -117,8 +117,12 @@ export class SettingsMenu {
     const control =
       entry.kind === "boolean"
         ? `<span></span><input type="checkbox" class="set-check">`
-        : `<input type="range" class="set-range" min="${entry.min}" max="${entry.max}" step="${entry.step}">
-           <input type="number" class="set-num" min="${entry.min}" max="${entry.max}" step="${entry.step}">`;
+        : entry.kind === "choice"
+          ? `<select class="set-select">${entry
+              .options!.map((o) => `<option value="${o.value}">${o.label}</option>`)
+              .join("")}</select>`
+          : `<input type="range" class="set-range" min="${entry.min}" max="${entry.max}" step="${entry.step}">
+             <input type="number" class="set-num" min="${entry.min}" max="${entry.max}" step="${entry.step}">`;
     // The ⓘ toggles the popover (hidden attribute — no display rule in CSS,
     // or [hidden] would stop working). One open at a time; click-away closes.
     return `
@@ -137,6 +141,7 @@ export class SettingsMenu {
     const range = row.querySelector<HTMLInputElement>(".set-range");
     const num = row.querySelector<HTMLInputElement>(".set-num");
     const check = row.querySelector<HTMLInputElement>(".set-check");
+    const select = row.querySelector<HTMLSelectElement>(".set-select");
     const reset = row.querySelector<HTMLButtonElement>(".set-reset")!;
     const info = row.querySelector<HTMLButtonElement>(".set-info")!;
     const pop = row.querySelector<HTMLElement>(".set-info-pop")!;
@@ -144,6 +149,7 @@ export class SettingsMenu {
     const sync = (): void => {
       const v = getTuningValue(path);
       if (check && typeof v === "boolean") check.checked = v;
+      if (select && typeof v === "string") select.value = v;
       if (typeof v === "number") {
         if (range) range.value = String(v);
         if (num) num.value = String(v);
@@ -151,7 +157,7 @@ export class SettingsMenu {
       row.classList.toggle("modified", isOverridden(path));
     };
 
-    const apply = (raw: number | boolean): void => {
+    const apply = (raw: number | boolean | string): void => {
       setTuningValue(path, raw);
       sync();
       this.updateCounts();
@@ -163,6 +169,7 @@ export class SettingsMenu {
     // user's cursor; the commit snaps both controls to the clamped value.
     num?.addEventListener("change", () => apply(parseFloat(num.value)));
     check?.addEventListener("change", () => apply(check.checked));
+    select?.addEventListener("change", () => apply(select.value));
     info.addEventListener("click", () => {
       const wasHidden = pop.hidden;
       this.closeInfoPops(); // one popover at a time
