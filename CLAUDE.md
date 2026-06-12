@@ -105,6 +105,7 @@ Game (top-level coordinator)
 │     └── enemy Ships    = AIController (enemy faction, default "patrol")
 ├── LaserSystem × 2 (humans faction + machines faction)
 ├── MissileSystem × 2 (per-faction heat-seekers; any ship type with a rack fires — player, wingmen, enemy fleet)
+├── MissileWarning (player RWR: beep + HUD border pulse + radar blips while an enemy missile homes on the player)
 ├── ExplosionSystem
 ├── SoundSystem
 ├── CameraRig
@@ -190,6 +191,7 @@ src/
     LaserSystem.ts         per-faction bolt collection + collision + onHit
     Missile.ts             single homing missile (composite mesh + trail; steers to target)
     MissileSystem.ts       per-faction missile pool: lock-fed homing, shooter attribution, collision, onHit
+    MissileWarning.ts      player RWR: polls enemy missiles homing on the player; beep w/ proximity tempo ramp + HUD border pulse (re-triggered per beep) + radar threat list
     CameraRig.ts           top-down camera, velocity lead, trauma-based shake
     EngineGlow.ts          core sphere + TrailMesh behind player, thrust-driven
     DamageFlash.ts         red emissive sphere pulses around player on damage

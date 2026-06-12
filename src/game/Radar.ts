@@ -1,6 +1,7 @@
 import type { Ship } from "./Ship";
 import type { Mothership } from "./Mothership";
 import type { Asteroid } from "./Asteroid";
+import type { Missile } from "./Missile";
 import { opposing, type Faction } from "./Faction";
 import { GameConfig } from "./GameConfig";
 import type { SensorContact, ConcealmentZone } from "./SensorSystem";
@@ -70,12 +71,14 @@ export class Radar {
   /**
    * Redraw the radar. `player` anchors the center; `friendlies` are the
    * player faction's ships (ground truth), `contacts` the player faction's
-   * sensor picture of the enemy.
+   * sensor picture of the enemy, `missileThreats` the live enemy missiles
+   * homing on the player (from MissileWarning).
    */
   update(
     player: Ship,
     friendlies: Ship[],
     contacts: SensorContact[],
+    missileThreats: ReadonlyArray<Missile>,
     motherships: Record<Faction, Mothership>,
     asteroids: Asteroid[],
     nebulaZones: ReadonlyArray<ConcealmentZone>,
@@ -152,6 +155,15 @@ export class Radar {
           true,
         );
       }
+    }
+
+    // Inbound missiles — the warning's "from where?" cue, drawn on top of
+    // everything but the player marker. Deliberately GROUND TRUTH, not the
+    // sensor picture: these are rounds ALREADY homing on you (the RWR hears
+    // their seeker), and a warning channel has to be reliable to be trusted.
+    // Enemy missiles chasing someone else don't show — the blip means YOU.
+    for (const missile of missileThreats) {
+      this.plotMissile(missile, player);
     }
 
     // Player heading triangle at center, pointing along rotationY.
@@ -233,6 +245,28 @@ export class Radar {
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(150, 144, 134, 0.55)";
     ctx.fill();
+  }
+
+  /**
+   * Hot amber blip for an enemy missile homing on the player. Amber, not a
+   * faction color — it reads as ORDNANCE, distinct from both sides' fighter
+   * dots; the white rim makes the tiny dot pop against terrain underneath.
+   * (Inbound missiles are always well inside radar range — the AI launch
+   * envelope tops out far closer than the rim — so no off-edge dimming.)
+   */
+  private plotMissile(missile: Missile, player: Ship): void {
+    const { x, y } = this.project(
+      missile.mesh.position.x - player.position.x,
+      missile.mesh.position.z - player.position.z,
+    );
+    const ctx = this.ctx;
+    ctx.beginPath();
+    ctx.arc(x, y, GameConfig.radar.missileBlip, 0, Math.PI * 2);
+    ctx.fillStyle = "#fab387";
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+    ctx.stroke();
   }
 
   private plotDiamond(ms: Mothership, player: Ship, faction: Faction): void {

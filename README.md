@@ -70,6 +70,11 @@ audio until a user gesture).
 - **Heat-seeking missiles** — limited-ammo secondary (`R`) that homes onto a
   locked target and flies ballistic without one. HUD shows ammo + a `LOCK`
   indicator; gray-and-red missile with an orange exhaust trail.
+- **Incoming-missile warning** — an RWR for your fighter: while an enemy
+  missile is tracking you, a warning beep accelerates as it closes, the
+  viewport edge pulses red in the same rhythm (plus an `INCOMING` readout),
+  and the radar marks the inbound rounds in amber — so out-turning a missile
+  or dragging it into an asteroid is a timed move instead of luck.
 - **Arcade juice**: trauma-based camera shake, hitstop on every impact,
   damage flash on the player ship.
 - **Sound**: 5 CC0 effects (laser fire × 2, hit, explosion, engine hum)
