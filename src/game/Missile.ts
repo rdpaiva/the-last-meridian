@@ -4,7 +4,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 
 import { wrapAngle } from "./math";
 import type { DamageTarget } from "./types";
-import type { Ship } from "./Ship";
+import type { Ship } from "./sim/Ship";
 
 /**
  * Single heat-seeking missile. Owned and updated by MissileSystem — do not

@@ -1,6 +1,6 @@
 // Type-only import — erased at compile time, so no runtime cycle with Ship.ts
 // (which imports the GameConfig value from here).
-import type { ShipTypeConfig } from "./Ship";
+import type { ShipTypeConfig } from "./sim/Ship";
 // Type-only as well — keys the per-faction records below (fleets, rosters).
 import type { Faction } from "./Faction";
 

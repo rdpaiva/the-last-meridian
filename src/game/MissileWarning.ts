@@ -2,7 +2,7 @@ import { GameConfig } from "./GameConfig";
 import { clamp, exponentialMultiplier, lerp } from "./math";
 import type { Missile } from "./Missile";
 import type { MissileSystem } from "./MissileSystem";
-import type { Ship } from "./Ship";
+import type { Ship } from "./sim/Ship";
 import type { Hud } from "./Hud";
 import type { SoundSystem } from "./SoundSystem";
 

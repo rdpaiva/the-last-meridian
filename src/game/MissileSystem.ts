@@ -16,7 +16,7 @@ import { wrapAngle } from "./math";
 import { simRandom } from "./sim/SimRng";
 import { Missile } from "./Missile";
 import type { DamageTarget } from "./types";
-import type { Ship } from "./Ship";
+import type { Ship } from "./sim/Ship";
 
 /**
  * Per-faction collection of heat-seeking missiles. Parallels LaserSystem, but
@@ -259,7 +259,8 @@ export class MissileSystem {
     return root;
   }
 
-  update(deltaSeconds: number, deltaMs: number): void {
+  /** `nowMs` is the frame's sim clock, forwarded to takeDamage (death timers). */
+  update(deltaSeconds: number, deltaMs: number, nowMs: number): void {
     const targets = this.targets;
 
     for (const missile of this.missiles) {
@@ -290,7 +291,7 @@ export class MissileSystem {
           ? rock.surfaceRadiusToward(dx, dz)
           : rock.hitRadius;
         if (distSq <= r * r) {
-          rock.takeDamage(this.rollDamage());
+          rock.takeDamage(this.rollDamage(), nowMs);
           this.onHit?.(missile.mesh.position, null, missile.shooter);
           missile.kill();
           blocked = true;
@@ -317,7 +318,7 @@ export class MissileSystem {
         ) {
           continue;
         }
-        target.takeDamage(this.rollDamage());
+        target.takeDamage(this.rollDamage(), nowMs);
         this.onHit?.(missile.mesh.position, target, missile.shooter);
         missile.kill();
         break;

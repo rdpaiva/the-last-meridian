@@ -1,5 +1,5 @@
 import type { InputState } from "./types";
-import type { Ship } from "./Ship";
+import type { Ship } from "./sim/Ship";
 import type { Mothership } from "./Mothership";
 import type { SensorContact } from "./SensorSystem";
 

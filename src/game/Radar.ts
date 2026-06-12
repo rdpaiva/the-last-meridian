@@ -1,4 +1,4 @@
-import type { Ship } from "./Ship";
+import type { Ship } from "./sim/Ship";
 import type { Mothership } from "./Mothership";
 import type { Asteroid } from "./Asteroid";
 import type { Missile } from "./Missile";

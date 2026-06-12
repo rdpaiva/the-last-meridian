@@ -10,7 +10,7 @@ import "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { GameConfig } from "./GameConfig";
 import { Laser } from "./Laser";
 import type { DamageTarget } from "./types";
-import type { Ship } from "./Ship";
+import type { Ship } from "./sim/Ship";
 
 /**
  * Per-faction collection of laser bolts.
@@ -156,7 +156,8 @@ export class LaserSystem {
     );
   }
 
-  update(deltaSeconds: number, deltaMs: number): void {
+  /** `nowMs` is the frame's sim clock, forwarded to takeDamage (death timers). */
+  update(deltaSeconds: number, deltaMs: number, nowMs: number): void {
     const targets = this.targets;
     const obstacles = this.obstacles;
 
@@ -197,7 +198,7 @@ export class LaserSystem {
           ? rock.surfaceRadiusToward(dx, dz)
           : rock.hitRadius;
         if (distSq <= r * r) {
-          rock.takeDamage(laser.damage);
+          rock.takeDamage(laser.damage, nowMs);
           laser.kill();
           blocked = true;
           break;
@@ -221,7 +222,7 @@ export class LaserSystem {
         ) {
           continue;
         }
-        target.takeDamage(laser.damage);
+        target.takeDamage(laser.damage, nowMs);
         laser.kill();
         this.onHit?.(target, laser.shooter);
         break;

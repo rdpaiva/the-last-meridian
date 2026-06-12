@@ -67,8 +67,8 @@ export class MothershipSection implements DamageTarget {
     return this.owner.isAlive;
   }
 
-  takeDamage(amount: number): void {
-    this.owner.takeDamage(amount);
+  takeDamage(amount: number, nowMs: number): void {
+    this.owner.takeDamage(amount, nowMs);
   }
 
   /**

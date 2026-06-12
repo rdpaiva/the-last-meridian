@@ -1,6 +1,6 @@
 import { GameConfig } from "./GameConfig";
 import { clamp } from "./math";
-import type { Ship } from "./Ship";
+import type { Ship } from "./sim/Ship";
 
 type Phase = "hold" | "launching" | "complete";
 
@@ -193,7 +193,7 @@ export class LaunchSequence {
       ship.velocity.set(this.dirX * s, 0, this.dirZ * s);
       ship.position.x += this.dirX * s * deltaSeconds;
       ship.position.z += this.dirZ * s * deltaSeconds;
-      ship.root.position.copyFrom(ship.position);
+      // (No visual sync — the ship's view reads the pose at end of frame.)
 
       // Distance travelled past the carrier center, projected onto the launch axis.
       const proj =

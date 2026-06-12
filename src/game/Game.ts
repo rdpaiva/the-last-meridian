@@ -17,8 +17,9 @@ import { GameConfig, type ShipTypeId } from "./GameConfig";
 import { InputManager } from "./InputManager";
 import { Arena } from "./Arena";
 import { AssetLoader } from "./AssetLoader";
-import { Ship } from "./Ship";
-import type { ShipTypeConfig } from "./Ship";
+import { Ship } from "./sim/Ship";
+import type { ShipTypeConfig } from "./sim/Ship";
+import { ShipView } from "./view/ShipView";
 import { LaserSystem } from "./LaserSystem";
 import { MissileSystem } from "./MissileSystem";
 import { wrapAngle } from "./math";
@@ -66,6 +67,11 @@ const BEST_SCORE_KEY = "space-duel-best-score";
 /** A ship plus whatever drives it (keyboard / AI / future network). */
 interface Combatant {
   ship: Ship;
+  /**
+   * The ship's Babylon depiction. The sim half (`ship`) never touches the
+   * scene; tick()'s view section copies ship → view once per frame.
+   */
+  view: ShipView;
   controller: ShipController;
   /**
    * Active catapult launch, or null once flying normally. While set (and not
@@ -531,7 +537,10 @@ export class Game {
     // muzzle*/rcs.*). Empty when the model has none → systems use their config
     // defaults. Wingmen clone the same model, so they share these markers.
     const markers = loaded.markers;
-    this.playerShip = new Ship(loaded.root, {
+    // Sim and depiction built side by side: the Ship never sees the scene;
+    // the ShipView owns the loaded model root and copies the pose each frame.
+    const playerShipView = new ShipView(loaded.root);
+    this.playerShip = new Ship({
       faction: this.playerFaction,
       maxHp: playerType.maxHp,
       respawnDelayMs: GameConfig.combat.playerRespawnDelayMs,
@@ -556,6 +565,7 @@ export class Game {
           ? wingTypes[i % wingTypes.length]
           : this.playerShipTypeId;
       let ship: Ship;
+      let view: ShipView;
       if (typeId === this.playerShipTypeId) {
         // Two-tier root like the player's: gameplay drives `root.rotation.y`, the
         // cloned model carries its own alignment. Clone modelRoot (the visual) — NOT
@@ -565,7 +575,8 @@ export class Game {
         // on death.
         const root = new TransformNode(`wingmanRoot${i}`, this.scene);
         loaded.modelRoot.instantiateHierarchy(root, { doNotInstantiate: true });
-        ship = new Ship(root, {
+        view = new ShipView(root);
+        ship = new Ship({
           faction: this.playerFaction,
           maxHp: playerType.maxHp,
           respawnDelayMs: GameConfig.combat.enemyRespawnDelayMs,
@@ -581,8 +592,8 @@ export class Game {
         // from the wingman's emitted input in the sim loop (see tick()). Same
         // model as the player = same thruster/RCS markers.
         this.aiVisuals.set(ship, {
-          glow: new EngineGlow(this.scene, ship.root, this.glowLayer, markers.thrusters),
-          thrusters: new SecondaryThrusters(this.scene, ship.root, this.glowLayer, markers.rcs),
+          glow: new EngineGlow(this.scene, view.root, this.glowLayer, markers.thrusters),
+          thrusters: new SecondaryThrusters(this.scene, view.root, this.glowLayer, markers.rcs),
         });
       } else {
         // Mixed-wing type: built exactly like an enemy fleet clone of that
@@ -592,20 +603,20 @@ export class Game {
         // config nozzle positions.
         const type = GameConfig.shipTypes[typeId];
         const template = type.model ? (shipTemplates.get(type.model) ?? null) : null;
-        ship = this.makeFighter(this.playerFaction, type, template);
+        ({ ship, view } = this.makeFighter(this.playerFaction, type, template));
         this.aiVisuals.set(ship, {
           glow: template
-            ? new EngineGlow(this.scene, ship.root, this.glowLayer, this.rearEmitters(ship.root))
+            ? new EngineGlow(this.scene, view.root, this.glowLayer, this.rearEmitters(view.root))
             : undefined,
-          thrusters: new SecondaryThrusters(this.scene, ship.root, this.glowLayer, {}),
+          thrusters: new SecondaryThrusters(this.scene, view.root, this.glowLayer, {}),
         });
       }
       const controller = new AIController({
         order: wcfg.orders[i % wcfg.orders.length],
         slot: wcfg.formationSlot(i),
       });
-      this.combatants.push({ ship, controller, launch: null, bayIndex: 0 });
-      this.aiDamageFlashes.set(ship, new DamageFlash(this.scene, ship.root, this.glowLayer, new Color3(2.5, 1.5, 0.2)));
+      this.combatants.push({ ship, view, controller, launch: null, bayIndex: 0 });
+      this.aiDamageFlashes.set(ship, new DamageFlash(this.scene, view.root, this.glowLayer, new Color3(2.5, 1.5, 0.2)));
     }
 
     this.engineGlow = new EngineGlow(
@@ -624,6 +635,7 @@ export class Game {
 
     this.playerCombatant = {
       ship: this.playerShip,
+      view: playerShipView,
       controller: this.playerController,
       launch: null,
       bayIndex: 0,
@@ -648,7 +660,7 @@ export class Game {
       const type = GameConfig.shipTypes[entry.type];
       const template = type.model ? (shipTemplates.get(type.model) ?? null) : null;
       for (let i = 0; i < entry.count; i++, fleetIndex++) {
-        const ship = this.makeFighter(this.enemyFaction, type, template);
+        const { ship, view } = this.makeFighter(this.enemyFaction, type, template);
         let controller: AIController;
         if (fleetIndex < enemyFleet.strikeCount) {
           controller = new AIController({ order: "strike" });
@@ -667,6 +679,7 @@ export class Game {
         enemyPilots.push({ ship, ai: controller });
         this.combatants.push({
           ship,
+          view,
           controller,
           launch: null,
           bayIndex: 0,
@@ -680,13 +693,13 @@ export class Game {
           this.aiVisuals.set(ship, {
             glow: new EngineGlow(
               this.scene,
-              ship.root,
+              view.root,
               this.glowLayer,
-              this.rearEmitters(ship.root),
+              this.rearEmitters(view.root),
             ),
           });
         }
-        this.aiDamageFlashes.set(ship, new DamageFlash(this.scene, ship.root, this.glowLayer, new Color3(2.5, 1.5, 0.2)));
+        this.aiDamageFlashes.set(ship, new DamageFlash(this.scene, view.root, this.glowLayer, new Color3(2.5, 1.5, 0.2)));
       }
     }
 
@@ -949,10 +962,10 @@ export class Game {
         const dist = Math.sqrt(distSq) || 0.0001;
         const nx = dx / dist;
         const nz = dz / dist;
-        // Shove the ship out to the rock's surface and re-sync its visual.
+        // Shove the ship out to the rock's surface (its view re-reads the
+        // pose at the end of the frame).
         ship.position.x = rock.position.x + nx * minDist;
         ship.position.z = rock.position.z + nz * minDist;
-        ship.root.position.copyFrom(ship.position);
         // Cancel the velocity component pointing INTO the rock (vn < 0 = inward).
         const vn = ship.velocity.x * nx + ship.velocity.z * nz;
         if (vn < 0) {
@@ -964,7 +977,7 @@ export class Game {
         const last = this.lastBumpMs.get(ship) ?? -Infinity;
         if (nowMs - last >= bumpCooldownMs) {
           this.lastBumpMs.set(ship, nowMs);
-          ship.takeDamage(cfg.collisionDamage);
+          ship.takeDamage(cfg.collisionDamage, nowMs);
           if (ship === this.playerShip) {
             this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
             this.playerDamageFlash?.trigger();
@@ -1066,8 +1079,7 @@ export class Game {
               if (ship.velocity.z < 0) ship.velocity.z = 0;
             }
           }
-          // Re-sync the visual with the corrected sim position.
-          ship.root.position.copyFrom(ship.position);
+          // (The ship's view re-reads the corrected pose at end of frame.)
         }
       }
     }
@@ -1240,16 +1252,22 @@ export class Game {
           if (ship.shouldRespawn(nowMs)) this.respawnShip(c, isPlayer);
         }
 
-        this.factionLasers.humans.update(deltaSeconds, deltaMs);
-        this.factionLasers.machines.update(deltaSeconds, deltaMs);
-        this.factionMissiles.humans.update(deltaSeconds, deltaMs);
-        this.factionMissiles.machines.update(deltaSeconds, deltaMs);
+        this.factionLasers.humans.update(deltaSeconds, deltaMs, nowMs);
+        this.factionLasers.machines.update(deltaSeconds, deltaMs, nowMs);
+        this.factionMissiles.humans.update(deltaSeconds, deltaMs, nowMs);
+        this.factionMissiles.machines.update(deltaSeconds, deltaMs, nowMs);
 
         // Drift/tumble the rocks + process any shattered by the fire above.
         this.asteroids.update(deltaSeconds);
 
         this.checkObjectives();
       }
+
+      // --- Depictions: copy every ship's sim pose into its scene root. Runs
+      // every frame (during hitstop the pose simply hasn't changed) and
+      // BEFORE the camera/FX below so anything parented to a ship root sees
+      // this frame's transform.
+      for (const c of this.combatants) c.view.update(c.ship);
 
       // Explosions animate through the end screen (so the death spectacle plays
       // out) but pause during hitstop, like the rest of the sim.
@@ -1479,17 +1497,17 @@ export class Game {
   }
 
   /**
-   * Build an AI fighter mesh + Ship of the given catalog `type` for a faction.
-   * If `template` is given, the fighter is a CLONE of that loaded GLB
-   * (two-tier root like the player's, so gameplay drives the outer root while
-   * the clone carries the model's alignment); otherwise it gets the procedural
-   * faction-themed FighterMesh.
+   * Build an AI fighter — the Ship sim plus its ShipView depiction — of the
+   * given catalog `type` for a faction. If `template` is given, the fighter's
+   * view is a CLONE of that loaded GLB (two-tier root like the player's, so
+   * the view drives the outer root while the clone carries the model's
+   * alignment); otherwise it gets the procedural faction-themed FighterMesh.
    */
   private makeFighter(
     faction: Faction,
     type: ShipTypeConfig,
     template: TransformNode | null = null,
-  ): Ship {
+  ): { ship: Ship; view: ShipView } {
     let root: TransformNode;
     if (template) {
       root = new TransformNode(`fighter_${faction}_root`, this.scene);
@@ -1501,7 +1519,7 @@ export class Game {
     } else {
       root = buildFighterMesh(this.scene, this.glowLayer, faction);
     }
-    return new Ship(root, {
+    const ship = new Ship({
       faction,
       maxHp: type.maxHp,
       respawnDelayMs: GameConfig.combat.enemyRespawnDelayMs,
@@ -1511,6 +1529,7 @@ export class Game {
       hitRadius: type.hitRadius,
       fireSound: type.fireSound,
     });
+    return { ship, view: new ShipView(root) };
   }
 
   /**

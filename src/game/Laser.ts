@@ -1,6 +1,6 @@
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import type { Ship } from "./Ship";
+import type { Ship } from "./sim/Ship";
 
 /**
  * Single laser bolt. Owned and updated by LaserSystem — do not construct

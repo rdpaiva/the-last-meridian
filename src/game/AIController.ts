@@ -5,7 +5,7 @@ import { clamp, exponentialDecay, wrapAngle } from "./math";
 // harness diffs battles against a committed baseline (docs/MULTIPLAYER.md).
 import { simRandom } from "./sim/SimRng";
 import type { InputState } from "./types";
-import type { Ship } from "./Ship";
+import type { Ship } from "./sim/Ship";
 import type { ShipController, ControllerWorld, AvoidObstacle } from "./ShipController";
 import type { SensorContact } from "./SensorSystem";
 

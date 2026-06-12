@@ -44,7 +44,13 @@ export interface DamageTarget {
   readonly position: Vector3;
   readonly hitRadius: number;
   readonly isAlive: boolean;
-  takeDamage(amount: number): void;
+  /**
+   * Apply damage at sim time `nowMs`. The timestamp is the CALLER's sim
+   * clock (Game.tick's frame clock today, the server's tick clock in
+   * multiplayer) — death timers must run on sim time, never wall clock.
+   * Implementers without time-based death (asteroids, motherships) ignore it.
+   */
+  takeDamage(amount: number, nowMs: number): void;
   /**
    * Optional directional refinement of `hitRadius` for non-round targets:
    * the collision radius along the given world X/Z direction FROM this

@@ -1,4 +1,4 @@
-import type { Ship } from "./Ship";
+import type { Ship } from "./sim/Ship";
 import type { LaserSystem } from "./LaserSystem";
 import { FACTION_THEME } from "./Faction";
 

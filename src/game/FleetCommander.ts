@@ -1,6 +1,6 @@
 import { GameConfig } from "./GameConfig";
 import type { AIController } from "./AIController";
-import type { Ship } from "./Ship";
+import type { Ship } from "./sim/Ship";
 import type { ControllerWorld } from "./ShipController";
 
 /** A fleet pilot the commander may re-task: the ship + its AI brain. */

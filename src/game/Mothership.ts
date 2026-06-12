@@ -327,7 +327,7 @@ export class Mothership implements DamageTarget {
     return this.hp > 0;
   }
 
-  takeDamage(amount: number): void {
+  takeDamage(amount: number, _nowMs: number): void {
     if (this.hp <= 0) return;
     this.hp = Math.max(0, this.hp - amount);
   }

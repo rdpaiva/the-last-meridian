@@ -1,6 +1,6 @@
 import { GameConfig } from "./GameConfig";
 import { opposing, type Faction } from "./Faction";
-import type { Ship } from "./Ship";
+import type { Ship } from "./sim/Ship";
 import type { Mothership } from "./Mothership";
 
 /** A circular X/Z region that hides ships from radar (a combat nebula). */

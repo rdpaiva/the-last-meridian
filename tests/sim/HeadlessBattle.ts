@@ -39,28 +39,26 @@
  *     during it in the browser); headless we advance every tick.
  *   - No FX/score listeners: LaserSystem/MissileSystem onHit callbacks are
  *     omitted (they only drive feedback + kill tallies in Game).
- *   - Ships get bare TransformNode roots (no meshes) — Ship only writes
- *     pose/enabled state to its root, which is exactly the seam the
- *     Ship/ShipView split will formalize.
+ *   - No ShipViews: post Ship/ShipView split the ship sim is depiction-free,
+ *     so headless ships simply have no view attached.
  *   - Combat-nebula concealment zones are computed from GameConfig directly
  *     (the same three lines CombatNebulas runs) instead of constructing the
  *     textured view class. Keep in sync until the zone math is split out of
  *     the view (Phase 0 "verify AI + sensors are scene-free" task).
- *   - performance.now() is overridden with the sim clock for the run:
- *     Ship.die() stamps death time from it (the Ship/ShipView split will
- *     make it a nowMs parameter — when it does, the override can go).
+ *   - Sim time: tick() advances its own clock and passes nowMs everywhere —
+ *     no wall-clock reads anywhere in the sim (Ship death stamps come from
+ *     takeDamage's nowMs parameter since the Ship/ShipView split).
  */
 
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
 import { Scene } from "@babylonjs/core/scene";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
-import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
 
 import { GameConfig } from "../../src/game/GameConfig";
 import { opposing, type Faction } from "../../src/game/Faction";
-import { Ship, type ShipTypeConfig } from "../../src/game/Ship";
+import { Ship, type ShipTypeConfig } from "../../src/game/sim/Ship";
 import type {
   ShipController,
   ControllerWorld,
@@ -172,21 +170,10 @@ export class HeadlessBattle {
     outcome: null,
   };
 
-  /** The wall-clock performance.now this fixture displaced (see dispose). */
-  private readonly realPerformanceNow: () => number;
-
   constructor(opts: HeadlessBattleOptions) {
     // Seed FIRST: every construction below that draws sim randomness
     // (asteroid layout, AI timers) must come out of the seeded stream.
     seedSimRng(opts.seed);
-
-    // Sim code still reads time from performance.now() in one place
-    // (Ship.die's death stamp). Point the global at the sim clock for the
-    // fixture's lifetime so death/respawn timing is deterministic.
-    this.realPerformanceNow = globalThis.performance.now.bind(
-      globalThis.performance,
-    );
-    globalThis.performance.now = () => this.simNowMs;
 
     this.engine = new NullEngine();
     this.scene = new Scene(this.engine);
@@ -393,12 +380,8 @@ export class HeadlessBattle {
     this.assignInitialLaunches();
   }
 
-  /**
-   * Restore the real performance.now. Call when done with the fixture —
-   * especially under a test runner that runs more files in this process.
-   */
+  /** Tear down the NullEngine scene. Call when done with the fixture. */
   dispose(): void {
-    globalThis.performance.now = this.realPerformanceNow;
     this.scene.dispose();
     this.engine.dispose();
   }
@@ -509,10 +492,10 @@ export class HeadlessBattle {
         if (ship.shouldRespawn(nowMs)) this.respawnShip(c);
       }
 
-      this.factionLasers.humans.update(dtSeconds, deltaMs);
-      this.factionLasers.machines.update(dtSeconds, deltaMs);
-      this.factionMissiles.humans.update(dtSeconds, deltaMs);
-      this.factionMissiles.machines.update(dtSeconds, deltaMs);
+      this.factionLasers.humans.update(dtSeconds, deltaMs, nowMs);
+      this.factionLasers.machines.update(dtSeconds, deltaMs, nowMs);
+      this.factionMissiles.humans.update(dtSeconds, deltaMs, nowMs);
+      this.factionMissiles.machines.update(dtSeconds, deltaMs, nowMs);
 
       this.asteroids.update(dtSeconds);
 
@@ -575,7 +558,6 @@ export class HeadlessBattle {
         const nz = dz / dist;
         ship.position.x = rock.position.x + nx * minDist;
         ship.position.z = rock.position.z + nz * minDist;
-        ship.root.position.copyFrom(ship.position);
         const vn = ship.velocity.x * nx + ship.velocity.z * nz;
         if (vn < 0) {
           ship.velocity.x -= vn * nx;
@@ -585,7 +567,7 @@ export class HeadlessBattle {
         const last = this.lastBumpMs.get(ship) ?? -Infinity;
         if (nowMs - last >= bumpCooldownMs) {
           this.lastBumpMs.set(ship, nowMs);
-          ship.takeDamage(cfg.collisionDamage);
+          ship.takeDamage(cfg.collisionDamage, nowMs);
         }
         break; // one bump per ship per frame
       }
@@ -638,7 +620,6 @@ export class HeadlessBattle {
               if (ship.velocity.z < 0) ship.velocity.z = 0;
             }
           }
-          ship.root.position.copyFrom(ship.position);
         }
       }
     }
@@ -675,17 +656,16 @@ export class HeadlessBattle {
   // ─── Construction helpers ───────────────────────────────────────────────────
 
   /**
-   * Game.makeFighter's SHIP construction with a bare TransformNode root —
-   * sim stats only, no mesh (visuals are irrelevant headless; hit radii and
+   * Game.makeFighter's SHIP construction — sim stats only (hit radii and
    * muzzles come from the type config exactly as procedural fighters do).
+   * No view: post Ship/ShipView split the sim is depiction-free by design.
    */
   private makeShip(
     faction: Faction,
     type: ShipTypeConfig,
     opts: { respawnDelayMs: number },
   ): Ship {
-    const root = new TransformNode(`headless_${faction}_ship`, this.scene);
-    return new Ship(root, {
+    return new Ship({
       faction,
       maxHp: type.maxHp,
       respawnDelayMs: opts.respawnDelayMs,

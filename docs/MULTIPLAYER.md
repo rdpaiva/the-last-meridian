@@ -164,7 +164,7 @@ timing).
       and commit it; every task below must leave the baseline diff
       clean (or explain why it legitimately changed). Doubles as a
       balance-testing harness forever after.
-- [ ] **`Ship` + `ShipView` split** — the pattern-setter for every
+- [x] **`Ship` + `ShipView` split** — the pattern-setter for every
       split below.
       Remove `root: TransformNode` from `Ship`'s constructor; delete the
       four view touches (`die()` setEnabled, `respawn()` root sync,
