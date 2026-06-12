@@ -5,7 +5,6 @@ import { loadSavedLoadout, type PlayerLoadout } from "./game/Loadout";
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement | null;
 const hudRoot = document.getElementById("hud") as HTMLDivElement | null;
 const splash = document.getElementById("splash") as HTMLDivElement | null;
-const splashBegin = document.getElementById("splash-begin") as HTMLDivElement | null;
 const splashPoster = document.getElementById("splash-poster") as HTMLImageElement | null;
 const startBtn = document.getElementById("splash-start") as HTMLButtonElement | null;
 const loadoutRoot = document.getElementById("loadout") as HTMLDivElement | null;
@@ -13,7 +12,6 @@ const loadoutRoot = document.getElementById("loadout") as HTMLDivElement | null;
 if (!canvas) throw new Error("Canvas #renderCanvas not found in DOM");
 if (!hudRoot) throw new Error("HUD root #hud not found in DOM");
 if (!splash) throw new Error("#splash not found in DOM");
-if (!splashBegin) throw new Error("#splash-begin not found in DOM");
 if (!splashPoster) throw new Error("#splash-poster not found in DOM");
 if (!startBtn) throw new Error("#splash-start not found in DOM");
 if (!loadoutRoot) throw new Error("#loadout not found in DOM");
@@ -81,14 +79,21 @@ if (sessionStorage.getItem(RESTART_FLAG)) {
   // a returning player straight back into the fight.
   const menu = new LoadoutMenu(loadoutRoot);
 
-  // The "click to begin" overlay click is the user gesture the browser requires
-  // to allow audio. It starts the music and (via the `begun` class) the
-  // cinematic scroll together, so they stay in sync. `once` means there are no
-  // stray handlers left over after the splash is dismissed.
-  splashBegin.addEventListener("click", () => {
+  // START GAME is a two-press entry — no separate "click to begin" gate. The
+  // first press is the user gesture the browser requires to allow audio: it
+  // starts the music and (via the `begun` class) the cinematic crawl, which
+  // fades in over the poster. The second press launches the chosen loadout.
+  // That gap is what lets the splash music + crawl actually be heard/seen
+  // before the cut to gameplay. Enter mirrors the button exactly.
+  const begin = (): void => {
+    if (splash.classList.contains("begun")) return;
+    // `begun` fades the splash up into color (CSS) and starts the music; the
+    // button relabels to the pulsing PLAY so the launch press reads as a new,
+    // distinct action rather than a second click of the same "START GAME".
     splash.classList.add("begun");
+    startBtn.textContent = "Play";
     void startSplashMusic();
-  }, { once: true });
+  };
 
   const startGame = (): void => {
     if (game) return;
@@ -99,18 +104,19 @@ if (sessionStorage.getItem(RESTART_FLAG)) {
     splash.classList.add("hidden");
     launch(loadout);
   };
-  startBtn.addEventListener("click", startGame);
 
-  // Enter walks the whole splash from the keyboard: first press clears the
-  // "click to begin" gate (it counts as the audio user gesture), second
-  // press launches with the selected loadout.
+  const advance = (): void => {
+    if (splash.classList.contains("begun")) startGame();
+    else begin();
+  };
+
+  startBtn.addEventListener("click", advance);
+
+  // Enter walks the whole splash from the keyboard: first press starts the
+  // music + crawl (the audio user gesture), second press launches.
   window.addEventListener("keydown", (e) => {
     if (game || e.code !== "Enter") return;
-    if (!splash.classList.contains("begun")) {
-      splashBegin.click();
-    } else {
-      startGame();
-    }
+    advance();
   });
 }
 

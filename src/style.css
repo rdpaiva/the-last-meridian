@@ -13,53 +13,39 @@
   display: none;
 }
 
-/* ── "Click to begin" gate ── */
-/* Covers the whole splash until the first click. That click is the user
-   gesture the browser needs to allow audio, so the music + cinematic scroll
-   start together (see #splash-story animation-play-state below). */
+/* ── Faded "armed" state ──────────────────────────────────────────────── */
+/* Before the first press the whole splash sits desaturated and dim — a clear
+   "not started yet" cue, with the one full-color START GAME button as the
+   obvious thing to click. The press adds `.begun`, which fades everything up
+   into proper color and turns the button into the pulsing PLAY launch, so the
+   two presses read as two distinct actions instead of "the same button twice". */
 
-#splash-begin {
-  position: absolute;
-  inset: 0;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.72);
-  cursor: pointer;
-  transition: opacity 0.6s ease;
+#splash-poster,
+#splash-panel {
+  filter: grayscale(1) brightness(0.7);
+  transition: filter 1.1s ease;
 }
 
-#splash-begin span {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 20px;
-  letter-spacing: 0.32em;
-  color: #cdd6f4;
-  text-indent: 0.32em; /* balance the trailing letter-spacing */
-  animation: begin-pulse 1.9s ease-in-out infinite;
+#splash.begun #splash-poster,
+#splash.begun #splash-panel {
+  filter: none;
 }
 
-@keyframes begin-pulse {
-  0%, 100% { opacity: 0.45; }
-  50%      { opacity: 1; }
-}
-
-#splash.begun #splash-begin {
-  opacity: 0;
-  pointer-events: none;
-}
+/* ── Poster column ── */
+/* The poster is the left column; the cinematic crawl and the START GAME
+   button are superimposed over it (relative wrapper → absolute children). */
 
 #splash-poster-wrap {
+  position: relative;
   flex: 0 0 auto;
+  height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
 }
 
 #splash-poster {
   height: 100%;
-  max-height: calc(100vh - 48px);
   width: auto;
   display: block;
 }
@@ -68,25 +54,40 @@
   flex: 1;
   display: flex;
   flex-direction: column;
+  gap: 18px;
+  padding: 26px 32px;
   border-left: 1px solid rgba(120, 140, 200, 0.12);
   overflow: hidden;
 }
 
-/* ── Cinematic story scroll ── */
+/* ── Cinematic story crawl (over the poster's upper half) ── */
+/* Sits above the baked-in "THE LAST MERIDIAN" title and scrolls upward.
+   Hidden until START GAME is first pressed (the `begun` class), so it
+   "appears" from partway up the poster in sync with the music. */
 
 #splash-story-wrap {
-  flex: 1;
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  top: 5%;
+  bottom: 38%;
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 14%, black 82%, transparent 100%);
-  mask-image: linear-gradient(to bottom, transparent 0%, black 14%, black 82%, transparent 100%);
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 16%, black 80%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, black 16%, black 80%, transparent 100%);
+}
+
+#splash.begun #splash-story-wrap {
+  opacity: 1;
 }
 
 #splash-story {
-  padding: 0 44px 3rem;
+  padding: 0 12px 3rem;
   text-align: center;
   animation: story-scroll 80s linear infinite;
-  /* Held until the "click to begin" gate is dismissed, so the scroll starts
-     in sync with the music. */
+  /* Held until START GAME is first pressed, so the crawl starts in sync
+     with the music. */
   animation-play-state: paused;
 }
 
@@ -117,18 +118,39 @@
 /* ── Loadout select (side + ship) ── */
 
 #loadout {
-  flex-shrink: 0;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px 44px 10px;
-  border-top: 1px solid rgba(120, 140, 200, 0.12);
+  gap: 16px;
+}
+
+.loadout-heading {
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: #cdd6f4;
 }
 
 .loadout-row {
   display: flex;
-  gap: 10px;
+  gap: 14px;
   justify-content: center;
+}
+
+/* The faction row grows to fill the panel so its portrait cards read big;
+   the ship row keeps its natural height beneath. */
+#loadout-factions {
+  flex: 1 1 auto;
+  align-items: stretch;
+  min-height: 0;
+}
+
+#loadout-ships {
+  flex: 0 0 auto;
 }
 
 .loadout-card {
@@ -147,22 +169,165 @@
   border-color: rgba(137, 180, 250, 0.6);
 }
 
-/* Selected cards glow in their faction's color. */
-.loadout-card.humans.selected {
+/* Selected ship cards glow in their faction's color. */
+.ship-card.humans.selected {
   border-color: #89b4fa;
   box-shadow: 0 0 14px rgba(137, 180, 250, 0.3);
   background: rgba(137, 180, 250, 0.07);
 }
 
-.loadout-card.machines.selected {
+.ship-card.machines.selected {
   border-color: #f38ba8;
   box-shadow: 0 0 14px rgba(243, 139, 168, 0.3);
   background: rgba(243, 139, 168, 0.07);
 }
 
+/* ── Faction cards: big portrait tiles, the headline choice ── */
+
+.faction-card {
+  position: relative;
+  flex: 1 1 0;
+  max-width: 460px;
+  min-height: 340px;
+  height: 100%;
+  padding: 0;
+  border-width: 2px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #05070e;
+  /* The portrait sits flat until chosen; selecting it brings it to life. */
+  transition: border-color 0.18s, box-shadow 0.18s, transform 0.18s;
+}
+
+.faction-portrait {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center 18%;
+  filter: grayscale(0.55) brightness(0.62) contrast(1.02);
+  transform: scale(1.02);
+  transition: filter 0.25s, transform 0.4s ease;
+}
+
+/* Bottom-up gradient so the faction name stays legible over the art. */
+.faction-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to top,
+    rgba(3, 4, 10, 0.96) 0%,
+    rgba(3, 4, 10, 0.72) 26%,
+    rgba(3, 4, 10, 0.18) 52%,
+    rgba(3, 4, 10, 0) 72%
+  );
+}
+
+.faction-body {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 20px 22px 22px;
+  text-align: left;
+}
+
+.faction-tag {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  color: #8a96b8;
+  margin-bottom: 6px;
+}
+
+.faction-name {
+  font-size: 23px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+  color: #eef2ff;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8);
+}
+
+.faction-mothership {
+  margin-top: 8px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: #aab4d4;
+}
+
+/* "SELECTED" ribbon — hidden until the card is the active side. */
+.faction-check {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+  padding: 4px 9px;
+  border-radius: 4px;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  font-weight: 700;
+  color: #05070e;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.18s, transform 0.18s;
+}
+
+.faction-card:hover .faction-portrait {
+  filter: grayscale(0.2) brightness(0.78) contrast(1.04);
+}
+
+.faction-card:hover {
+  border-color: rgba(180, 196, 240, 0.55);
+}
+
+/* Selected: full-color portrait, faction-colored frame + glow, lifts forward. */
+.faction-card.selected .faction-portrait {
+  filter: grayscale(0) brightness(1) contrast(1.05) saturate(1.08);
+  transform: scale(1);
+}
+
+.faction-card.selected {
+  transform: translateY(-3px);
+}
+
+.faction-card.humans.selected {
+  border-color: #89b4fa;
+  box-shadow: 0 0 0 1px rgba(137, 180, 250, 0.5), 0 8px 30px rgba(137, 180, 250, 0.35);
+}
+
+.faction-card.machines.selected {
+  border-color: #f38ba8;
+  box-shadow: 0 0 0 1px rgba(243, 139, 168, 0.5), 0 8px 30px rgba(243, 139, 168, 0.35);
+}
+
+.faction-card.selected .faction-check {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.faction-card.humans.selected .faction-check {
+  background: #89b4fa;
+}
+
+.faction-card.machines.selected .faction-check {
+  background: #f38ba8;
+}
+
+.faction-card.humans.selected .faction-name {
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8), 0 0 22px rgba(137, 180, 250, 0.45);
+}
+
+.faction-card.machines.selected .faction-name {
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8), 0 0 22px rgba(243, 139, 168, 0.45);
+}
+
 /* The row the arrow keys act on gets slightly brighter card borders. */
-.loadout-row.active .loadout-card:not(.selected) {
+.loadout-row.active .ship-card:not(.selected) {
   border-color: rgba(120, 140, 200, 0.45);
+}
+
+/* When the faction row is the active one, frame the unselected side too. */
+.loadout-row.active .faction-card:not(.selected) {
+  border-color: rgba(150, 168, 220, 0.5);
 }
 
 .card-title {
@@ -225,21 +390,13 @@
   color: #5b6680;
 }
 
-/* ── Controls + button strip ── */
-
-#splash-bottom {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-  padding: 18px 44px 28px;
-  border-top: 1px solid rgba(120, 140, 200, 0.12);
-}
+/* ── Controls (right panel, beneath the loadout) ── */
 
 #splash-controls {
+  flex-shrink: 0;
+  align-self: center;
   width: 100%;
-  max-width: 340px;
+  max-width: 420px;
   display: flex;
   flex-direction: column;
   gap: 5px;
@@ -268,10 +425,15 @@
   letter-spacing: 0.02em;
 }
 
+/* Superimposed over the poster's lower edge, clear of the baked-in title. */
 #splash-start {
-  margin-top: 4px;
-  padding: 12px 40px;
-  background: transparent;
+  position: absolute;
+  bottom: 5%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  padding: 13px 46px;
+  background: rgba(5, 7, 14, 0.55);
   border: 1px solid rgba(137, 180, 250, 0.55);
   border-radius: 4px;
   color: #cdd6f4;
@@ -279,11 +441,12 @@
   font-size: 14px;
   letter-spacing: 0.14em;
   cursor: pointer;
+  backdrop-filter: blur(2px);
   transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, color 0.15s;
 }
 
 #splash-start:hover {
-  background: rgba(137, 180, 250, 0.12);
+  background: rgba(137, 180, 250, 0.16);
   border-color: rgba(137, 180, 250, 0.9);
   color: #89b4fa;
   box-shadow: 0 0 18px rgba(137, 180, 250, 0.3);
@@ -291,6 +454,24 @@
 
 #splash-start:active {
   background: rgba(137, 180, 250, 0.22);
+}
+
+/* Once begun, the button is the pulsing PLAY launch call-to-action. */
+#splash.begun #splash-start {
+  animation: play-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes play-pulse {
+  0%, 100% {
+    transform: translateX(-50%) scale(1);
+    box-shadow: 0 0 0 0 rgba(137, 180, 250, 0);
+    border-color: rgba(137, 180, 250, 0.55);
+  }
+  50% {
+    transform: translateX(-50%) scale(1.06);
+    box-shadow: 0 0 24px 4px rgba(137, 180, 250, 0.45);
+    border-color: rgba(137, 180, 250, 0.95);
+  }
 }
 
 /* ── Base ───────────────────────────────────────────────────────────────── */

@@ -16,6 +16,22 @@ import { loadSavedLoadout, saveLoadout, type PlayerLoadout } from "./Loadout";
  * normalized against the catalog maxima — no duplicated numbers to drift.
  */
 
+/**
+ * Portrait art per side — the big, pronounced faces on the faction cards.
+ * Resolved against BASE_URL (like the splash poster) so it loads under the
+ * GitHub Pages sub-path too.
+ */
+const FACTION_PORTRAIT: Record<Faction, string> = {
+  humans: "images/Human-Pilot.jpg",
+  machines: "images/Novari.jpg",
+};
+
+/** One-word flavor tag shown above each faction's name on its card. */
+const FACTION_TAG: Record<Faction, string> = {
+  humans: "BASELINE HUMANITY",
+  machines: "THE ASCENDANCY",
+};
+
 /** Display strings per catalog ship (canon naming — story bible §8). */
 const SHIP_INFO: Record<ShipTypeId, { name: string; role: string; blurb: string }> = {
   spitfire: {
@@ -135,10 +151,17 @@ export class LoadoutMenu {
       .map((f) => {
         const t = FACTION_THEME[f];
         const sel = f === this.faction ? " selected" : "";
+        const portrait = `${import.meta.env.BASE_URL}${FACTION_PORTRAIT[f]}`;
         return `
           <div class="loadout-card faction-card ${f}${sel}" data-faction="${f}">
-            <div class="card-title">${t.fullName.toUpperCase()}</div>
-            <div class="card-sub">${t.mothershipClass} · ${t.mothershipName}</div>
+            <div class="faction-portrait" style="background-image: url('${portrait}')"></div>
+            <div class="faction-scrim"></div>
+            <div class="faction-check">▶ SELECTED</div>
+            <div class="faction-body">
+              <div class="faction-tag">${FACTION_TAG[f]}</div>
+              <div class="faction-name">${t.fullName.toUpperCase()}</div>
+              <div class="faction-mothership">${t.mothershipClass} · ${t.mothershipName}</div>
+            </div>
           </div>`;
       })
       .join("");
@@ -148,6 +171,7 @@ export class LoadoutMenu {
       .join("");
 
     this.root.innerHTML = `
+      <div class="loadout-heading">Choose your side</div>
       <div class="loadout-row${this.activeRow === "faction" ? " active" : ""}" id="loadout-factions">${factionCards}</div>
       <div class="loadout-row${this.activeRow === "ship" ? " active" : ""}" id="loadout-ships">${shipCards}</div>
       <div class="loadout-hint">←/→ SELECT · ↑/↓ ROW · ENTER TO LAUNCH</div>`;
