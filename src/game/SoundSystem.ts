@@ -110,6 +110,7 @@ export class SoundSystem {
   private readonly playerGuns: PooledSound;
   private readonly playerGunsSpatial: PooledSound;
   private readonly missileLaunch: PooledSound;
+  private readonly missileLaunchSpatial: PooledSound;
   private readonly enemyLaser: PooledSound;
   private readonly laserGun: PooledSound;
   private readonly laserGunOwn: PooledSound;
@@ -153,6 +154,13 @@ export class SoundSystem {
       scene,
       2,
       { volume: 0.5 },
+    );
+    this.missileLaunchSpatial = new PooledSound(
+      "sfx_missile_launch_spatial",
+      `${baseUrl}/missile-launch.mp3`,
+      scene,
+      3,
+      { volume: 0.45, spatial: true },
     );
     this.enemyLaser = new PooledSound(
       "sfx_enemy_laser",
@@ -291,8 +299,14 @@ export class SoundSystem {
   playPlayerGuns(): void {
     this.playerGuns.play();
   }
-  playMissileLaunch(): void {
-    this.missileLaunch.play();
+  /**
+   * Missile-launch whoosh. Pass `position` for AI launches (spatial pool,
+   * attenuates with distance); omit it for the player's own launch (full
+   * volume at the listener) — same own/spatial split as playFireSound.
+   */
+  playMissileLaunch(position?: Vector3): void {
+    if (position) this.missileLaunchSpatial.playAt(position);
+    else this.missileLaunch.play();
   }
   playEnemyLaser(position: Vector3): void {
     this.enemyLaser.playAt(position);

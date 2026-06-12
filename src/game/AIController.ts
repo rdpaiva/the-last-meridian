@@ -120,6 +120,23 @@ export class AIController implements ShipController {
   private prevFwdCmd = 0;
   private prevLatCmd = 0;
 
+  /**
+   * Per-pilot missile pacing (seconds until the next launch is allowed) —
+   * the doctrine gate that makes a rack last a fight instead of dumping on
+   * the first target (see GameConfig.ai "Missiles"). Seeded randomly so a
+   * fleet's first volley staggers instead of firing in sync.
+   */
+  private missileTimerSec = Math.random() * GameConfig.ai.missileCooldownSec;
+  /**
+   * The real SHIP behind the contact this pilot just launched at, valid only
+   * on a frame where the emitted InputState.fireMissile is true (null = the
+   * launch is ballistic, e.g. a strike pilot rippling into the carrier hull).
+   * Game reads this to spawn the homing missile — the AI equivalent of the
+   * player's HUD lock. Only ever set from a FRESH sensor track, so it never
+   * grants guidance the pilot's own sensors couldn't provide.
+   */
+  missileTarget: Ship | null = null;
+
   // Reaction timer — non-formation orders re-evaluate heading + target only
   // when this reaches zero. Staggered per-ship so pilots don't all think on
   // the same frame. Formation/cover are exempt (servo needs per-frame updates).
@@ -193,7 +210,9 @@ export class AIController implements ShipController {
     out.strafeLeft = false;
     out.strafeRight = false;
     out.fire = false;
-    // missile/zoom stay false for AI.
+    out.fireMissile = false;
+    this.missileTarget = null;
+    // zoom stays false for AI.
 
     if (!self.isAlive) return out;
 
@@ -416,7 +435,138 @@ export class AIController implements ShipController {
       }
     }
 
+    // --- Missiles (independent of the gun aim) ---
+    // The launch decision re-scans the contacts itself rather than reusing
+    // `aim`: gun aim points at last-known positions (including ghosts), but a
+    // seeker is only worth a round when there's a live return to ride. All
+    // doctrine gates live in findMissileShot/carrierMissileShot — see the
+    // GameConfig.ai "Missiles" block for the full policy.
+    this.missileTimerSec -= deltaSeconds;
+    if (self.missileAmmo > 0 && this.missileTimerSec <= 0) {
+      const shot = this.findMissileShot(self, world);
+      if (shot) {
+        out.fireMissile = true;
+        this.missileTarget = shot.ship;
+        this.resetMissileTimer();
+      } else if (this.order === "strike" && this.carrierMissileShot(self, world)) {
+        // Ballistic ripple into the carrier hull — missileTarget stays null.
+        out.fireMissile = true;
+        this.resetMissileTimer();
+      }
+    }
+
     return out;
+  }
+
+  /** Re-arm the missile pacing timer with ±20% per-pilot jitter. */
+  private resetMissileTimer(): void {
+    this.missileTimerSec =
+      GameConfig.ai.missileCooldownSec * (0.8 + Math.random() * 0.4);
+  }
+
+  /**
+   * The contact this pilot would spend a missile on right now, or null. A
+   * shot must pass every doctrine gate: FRESH track (a live sensor return —
+   * ghosts and concealed ships never draw a missile), inside the launch
+   * envelope (missileMinRange..missileMaxRange, within missileLaunchConeAngle
+   * of the nose so the seeker starts on target), and a clear line of fire
+   * (an asteroid would just eat the round). Nearest qualifying contact wins.
+   */
+  private findMissileShot(
+    self: Ship,
+    world: ControllerWorld,
+  ): SensorContact | null {
+    const cfg = GameConfig.ai;
+    let best: SensorContact | null = null;
+    let bestDist = Infinity;
+    for (const o of world.opponents) {
+      if (!o.isAlive || !o.fresh) continue;
+      const dx = o.position.x - self.position.x;
+      const dz = o.position.z - self.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < cfg.missileMinRange || dist > cfg.missileMaxRange || dist >= bestDist) {
+        continue;
+      }
+      const angle = Math.atan2(dx, dz); // matches forward convention
+      if (Math.abs(wrapAngle(angle - self.rotationY)) > cfg.missileLaunchConeAngle) {
+        continue;
+      }
+      if (!this.lineOfFireClear(self, world, o.position.x, o.position.z)) {
+        continue;
+      }
+      best = o;
+      bestDist = dist;
+    }
+    return best;
+  }
+
+  /**
+   * Should a strike pilot ripple a BALLISTIC missile into the enemy carrier
+   * right now? Checks the same launch envelope as a fighter shot against the
+   * nearest point on the carrier's hull boxes (the surface the strike order
+   * already aims its guns at). No line-of-fire test: world.obstacles includes
+   * the carrier's own (deliberately over-sized) avoidance circles, which
+   * would always "block" a shot aimed at the hull inside them — and at
+   * standoff range the path is short enough that an occasional round lost to
+   * a drifting rock reads as battle noise, not waste.
+   */
+  private carrierMissileShot(self: Ship, world: ControllerWorld): boolean {
+    const carrier = world.opponentMothership;
+    if (!carrier || !carrier.isAlive) return false;
+    const cfg = GameConfig.ai;
+
+    let bestSq = Infinity;
+    let aimX = 0;
+    let aimZ = 0;
+    for (const s of carrier.hullSections) {
+      const px = clamp(self.position.x, s.minX, s.maxX);
+      const pz = clamp(self.position.z, s.minZ, s.maxZ);
+      const dx = px - self.position.x;
+      const dz = pz - self.position.z;
+      const dSq = dx * dx + dz * dz;
+      if (dSq < bestSq) {
+        bestSq = dSq;
+        aimX = px;
+        aimZ = pz;
+      }
+    }
+    const dist = Math.sqrt(bestSq);
+    if (dist < cfg.missileMinRange || dist > cfg.missileMaxRange) return false;
+    const angle = Math.atan2(aimX - self.position.x, aimZ - self.position.z);
+    return Math.abs(wrapAngle(angle - self.rotationY)) <= cfg.missileLaunchConeAngle;
+  }
+
+  /**
+   * True when the straight X/Z segment from `self` to the target point clears
+   * every live asteroid's collision circle. Missiles detonate on rocks (cover
+   * works against them like it does against lasers), so a pilot holds a shot
+   * that would just feed a rock. Carrier avoidance circles also live in
+   * world.obstacles — blocking on those is fine here, since a missile that
+   * would cross a carrier's footprint to reach a fighter is a low-value shot
+   * anyway.
+   */
+  private lineOfFireClear(
+    self: Ship,
+    world: ControllerWorld,
+    tx: number,
+    tz: number,
+  ): boolean {
+    const sx = self.position.x;
+    const sz = self.position.z;
+    const dx = tx - sx;
+    const dz = tz - sz;
+    const lenSq = dx * dx + dz * dz;
+    for (const rock of world.obstacles) {
+      if (!rock.isAlive) continue;
+      const rx = rock.position.x - sx;
+      const rz = rock.position.z - sz;
+      // Closest point on the segment to the circle center.
+      const t = lenSq > 0 ? clamp((rx * dx + rz * dz) / lenSq, 0, 1) : 0;
+      const cx = rx - t * dx;
+      const cz = rz - t * dz;
+      if (cx * cx + cz * cz < rock.radius * rock.radius) return false;
+    }
+    return true;
   }
 
   /** Heading (radians) from `self` toward a world point, in the +Z-forward convention. */

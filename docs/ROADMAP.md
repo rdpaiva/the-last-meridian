@@ -246,9 +246,9 @@ and explicitly skipped. Update this when you finish or start work.
 - Faction-colored materials with emissive > 1.0 for hot bloom
 - `onHit` callback on each system (used to wire SFX + juice)
 
-### Missiles (player secondary weapon)
+### Missiles (both sides)
 - `MissileSystem` + `Missile` — homing projectiles fired with `R`, limited
-  ammo (`GameConfig.missile.maxAmmo`, refilled on respawn)
+  ammo (the ship type's `missileAmmo` rack, refilled on respawn)
 - Per-missile homing: steers toward a live target at capped `turnRate`;
   flies ballistic with no lock or once its target dies — still detonates on
   contact with any enemy
@@ -258,6 +258,17 @@ and explicitly skipped. Update this when you finish or start work.
   explosion + heavier trauma/hitstop than a laser
 - Composite mesh (gray body + nose cone + red fins) with an orange `TrailMesh`
   exhaust; HUD shows ammo count + lock state
+- **AI missile use (2026-06-12)** — one `MissileSystem` per faction (like the
+  lasers), each missile carrying its SHOOTER for kill attribution; any AI
+  pilot whose ship type has a rack fires under a launch doctrine
+  (`GameConfig.ai` → "Missiles"): FRESH sensor track only (ghosts/concealed
+  ships never draw a round — the AI mirror of the player's lock denial),
+  launch envelope (`missileMinRange..missileMaxRange` + nose cone), clear
+  line of fire past asteroids, jittered per-pilot pacing
+  (`missileCooldownSec`). `strike` pilots also ripple ballistic rounds into
+  the enemy carrier's hull. Novari rounds fly green exhausts; AI launches are
+  spatialized. Taking a missile = heaviest non-death trauma/hitstop
+  (`traumaPlayerMissileHit`/`playerMissileHitMs`).
 
 ### Explosions
 - `ExplosionSystem` with shared materials (flash + debris)
@@ -380,6 +391,31 @@ so the next agent (or you, in a future session) doesn't redo work.
 Things that have come up in conversation as good ideas but haven't been
 implemented yet. Roughly ordered by gameplay value.
 
+**⏭ NEXT UP (agreed 2026-06-12): Incoming-missile warning.** Now that the AI
+fires missiles, the player's counterplay already exists (out-turn it — missile
+`turnRate` 3.2 < player 4.5; drag it into an asteroid — rocks eat missiles;
+duck into a nebula — AI only launches on a fresh track) but is INVISIBLE:
+there's no cue that a missile is tracking you, so dodges can't be timed and
+hits read as random chip damage. Make the counterplay legible. Trigger
+condition: any live enemy missile homing on the player ship. Three layers, in
+priority order, each independently shippable:
+  1. **Warning tone** — a repeating beep while tracked, tempo ramping as the
+     missile closes (RWR-style; proximity through rhythm). Highest-bandwidth
+     channel — needs zero eye movement. One new CC0 beep asset
+     (`public/sounds/` + SOURCES.md attribution), pooled like the other SFX.
+  2. **HUD pulse + label** — red pulsing viewport border. Must be a SUSTAINED
+     RHYTHMIC pulse for as long as a missile tracks, NOT a one-shot flash:
+     a single red blink is ambiguous with the existing damage flash. Short
+     `INCOMING` text near the HP/DETECTED cluster — not "MISSILE LOCK" (the
+     AI has no pre-launch lock phase; the detectable event is a missile in
+     flight, and "incoming" is both true and more urgent).
+  3. **Radar missile blip** — the "from where?" follow-up (eyes are on the
+     ship during a dodge, so radar is supporting cast, not the primary cue).
+  Deliberately NOT chaff/flares: a counter-button adds input load (the
+  keyboard is at its fidget ceiling) and turns a piloting challenge into
+  cooldown management. Revisit only if, with the warning shipped, missiles
+  still feel uncounterable — and then as a tight-timing parry, not immunity.
+
 **Agreed next phases (battle build, continuing from the faction spine):**
 - **Mothership defenses** — pod-mounted gun turrets + missile launchers as
   sub-emitters; optionally per-part hitboxes so pods/turrets can be shot off.
@@ -407,8 +443,8 @@ implemented yet. Roughly ordered by gameplay value.
   in-flight missile before it lands. Make `Missile` damageable (implement
   `DamageTarget` or a lighter "interceptable" hook) and register live missiles
   as laser targets; a shot-down missile pops a small explosion and deals no
-  damage. Pairs with giving `EnemyShip` its own missiles (player-only today),
-  so each side can launch AND intercept the other's missiles. Watch friendly
+  damage. Both sides launch missiles now (AI doctrine landed 2026-06-12), so
+  each side could launch AND intercept the other's. Watch friendly
   fire: a faction's lasers shouldn't detonate its own missiles.
 - **Multiple enemy types** — strafer, charger, dropper. Different AI
   states + meshes; share the `DamageTarget` interface.

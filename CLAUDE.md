@@ -104,7 +104,7 @@ Game (top-level coordinator)
 │     ├── wingman Ships  = AIController (player faction, standing orders) [Phase 5]
 │     └── enemy Ships    = AIController (enemy faction, default "patrol")
 ├── LaserSystem × 2 (humans faction + machines faction)
-├── MissileSystem (player heat-seeking secondary; homing + limited ammo)
+├── MissileSystem × 2 (per-faction heat-seekers; any ship type with a rack fires — player, wingmen, enemy fleet)
 ├── ExplosionSystem
 ├── SoundSystem
 ├── CameraRig
@@ -184,12 +184,12 @@ src/
     Ship.ts                unified ship sim + HP + DamageTarget + muzzle/fire (config-injected; merges old PlayerShip/EnemyShip)
     ShipController.ts      controller interface + ControllerWorld (opponents/mothership/leader → InputState)
     LocalInputController.ts  keyboard controller (surfaces InputManager.state) = the player
-    AIController.ts        order-driven AI (patrol/strike/hunt/cover/formation/defend), emits InputState; targets SENSOR CONTACTS; setOrder() = runtime re-task seam
+    AIController.ts        order-driven AI (patrol/strike/hunt/cover/formation/defend), emits InputState; targets SENSOR CONTACTS; missile launch doctrine (fresh-track + envelope + LOS + pacing); setOrder() = runtime re-task seam
     FighterMesh.ts         faction-themed procedural fighter mesh + randomFighterSpawn helper
     Laser.ts               single bolt entity (position, age, kill flag)
     LaserSystem.ts         per-faction bolt collection + collision + onHit
     Missile.ts             single homing missile (composite mesh + trail; steers to target)
-    MissileSystem.ts       player missile pool: lock-fed homing, ammo, collision, onHit
+    MissileSystem.ts       per-faction missile pool: lock-fed homing, shooter attribution, collision, onHit
     CameraRig.ts           top-down camera, velocity lead, trauma-based shake
     EngineGlow.ts          core sphere + TrailMesh behind player, thrust-driven
     DamageFlash.ts         red emissive sphere pulses around player on damage
@@ -227,7 +227,7 @@ The whole game's tuning lives in `src/game/GameConfig.ts`. Major sections:
 | `fleets` | PER-FACTION fleet defaults: `fleet` composition (`{ type, count }` picks) + `strikeCount`. The AI flies the fleet of whichever side the player didn't pick |
 | `sensors` | Per-faction awareness: ship/carrier radar ranges, eyeball `visualRange`, ghost `memorySec`, sweep cadence, nebula penalty |
 | `commander` | Enemy fleet doctrine: think cadence, escort/defend/hunt counts, carrier-alert radius |
-| `ai` | Shared AI decision knobs: engage/fire ranges, fire cone, carrier-strike standoff, wander, leash, formation gains |
+| `ai` | Shared AI decision knobs: engage/fire ranges, fire cone, carrier-strike standoff, missile launch doctrine (envelope/pacing), wander, leash, formation gains |
 | `mothership` | Carrier objective: HP, GLB models + correction, launch bays, death FX — and `hullRects`, the PER-FACTION solid hull footprint (fitted to the GLBs via `scripts/measure-carrier-footprint.mjs`; re-fit after re-exporting a carrier model) |
 | `player.wingmen` | Wing size, per-wingman orders + formation slots + PER-FACTION `shipTypes` lists (empty list = wing clones the player's type) |
 | `laser` | Bolt speed/lifetime/visuals (shared across both factions; per-bolt damage comes from the firing ship's type) |

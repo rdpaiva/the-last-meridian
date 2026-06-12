@@ -100,7 +100,6 @@ export class Game {
   private readonly input: InputManager;
   private readonly arena: Arena;
   private readonly asteroids: AsteroidField;
-  private readonly playerMissiles: MissileSystem;
   private readonly explosions: ExplosionSystem;
   private readonly sound: SoundSystem;
   private readonly music: MusicSystem;
@@ -118,6 +117,8 @@ export class Game {
 
   /** Each faction's own laser bolts (humans fire humansLasers, etc.). */
   private readonly factionLasers: Record<Faction, LaserSystem>;
+  /** Each faction's heat-seekers — any ship whose type carries a rack fires. */
+  private readonly factionMissiles: Record<Faction, MissileSystem>;
   private readonly motherships: Record<Faction, Mothership>;
 
   /** All ships, regardless of side, plus their controllers. */
@@ -357,32 +358,35 @@ export class Game {
     });
     this.factionLasers = { humans: humansLasers, machines: machinesLasers };
 
-    // Player heat-seeking missiles (a humans/player capability for now).
-    this.playerMissiles = new MissileSystem(this.scene, {
+    // Faction-keyed heat-seeker systems (parallel to the lasers). Each side
+    // fires from its own pool — the player and any wingman with a rack on the
+    // player faction's system, the enemy fleet on theirs — and every missile
+    // carries its shooter, so onMissileHit attributes kills and scales
+    // feedback exactly like the laser path. Visuals are faction-themed:
+    // Commonwealth rounds keep the classic gray/red hull with a hot orange
+    // exhaust; Novari rounds fly darker hulls with the Ascendancy's
+    // electric-green exhaust (matching their laser palette).
+    const humansMissiles = new MissileSystem(this.scene, {
       minDamage: GameConfig.missile.minDamage,
       maxDamage: GameConfig.missile.maxDamage,
       bodyColor: new Color3(0.62, 0.66, 0.7),
       finColor: new Color3(0.78, 0.16, 0.16),
       trailEmissive: new Color3(2.2, 0.7, 0.1),
-      materialName: "player_missile_mat",
+      materialName: "humans_missile_mat",
       obstacles: this.asteroids.obstacles,
-      onHit: (pos, struck) => {
-        this.explosions.spawn(pos);
-        this.sound.playExplosion(pos);
-        this.cameraRig.addTrauma(this.traumaAtDistance(GameConfig.shake.traumaMissileHit, pos));
-        this.applyHitstop(GameConfig.hitstop.missileHitMs);
-        // This MissileSystem is the player's rack, so its kills credit the
-        // player ship. (A future per-ship missile capability would carry the
-        // shooter per missile, like lasers do.)
-        if (
-          struck instanceof Ship &&
-          struck.faction === this.enemyFaction &&
-          !struck.isAlive
-        ) {
-          this.recordKill(struck, this.playerShip);
-        }
-      },
+      onHit: (pos, struck, shooter) => this.onMissileHit(pos, struck, shooter),
     });
+    const machinesMissiles = new MissileSystem(this.scene, {
+      minDamage: GameConfig.missile.minDamage,
+      maxDamage: GameConfig.missile.maxDamage,
+      bodyColor: new Color3(0.4, 0.38, 0.44),
+      finColor: new Color3(0.5, 0.12, 0.14),
+      trailEmissive: new Color3(0.5, 2.2, 0.6),
+      materialName: "machines_missile_mat",
+      obstacles: this.asteroids.obstacles,
+      onHit: (pos, struck, shooter) => this.onMissileHit(pos, struck, shooter),
+    });
+    this.factionMissiles = { humans: humansMissiles, machines: machinesMissiles };
 
     this.explosions = new ExplosionSystem(this.scene, this.glowLayer);
 
@@ -561,7 +565,7 @@ export class Game {
           faction: this.playerFaction,
           maxHp: playerType.maxHp,
           respawnDelayMs: GameConfig.combat.enemyRespawnDelayMs,
-          startMissileAmmo: 0,
+          startMissileAmmo: playerType.missileAmmo,
           movement: playerType,
           laserDamage: playerType.laserDamage,
           hitRadius: playerType.hitRadius,
@@ -695,12 +699,10 @@ export class Game {
     );
 
     // Wire combat targets: every ship is a target of the opposing faction's
-    // lasers; the player's missiles target every enemy ship + their mothership.
+    // lasers AND missiles.
     for (const c of this.combatants) {
       this.factionLasers[opposing(c.ship.faction)].addTarget(c.ship);
-      if (c.ship.faction === this.enemyFaction) {
-        this.playerMissiles.addTarget(c.ship);
-      }
+      this.factionMissiles[opposing(c.ship.faction)].addTarget(c.ship);
     }
     // Carriers are targeted per HULL SECTION (overlapping circles covering the
     // full hull, each forwarding damage to the one HP pool) — not via the
@@ -708,10 +710,8 @@ export class Game {
     for (const f of ["humans", "machines"] as Faction[]) {
       for (const section of this.motherships[f].hullSections) {
         this.factionLasers[opposing(f)].addTarget(section);
+        this.factionMissiles[opposing(f)].addTarget(section);
       }
-    }
-    for (const section of this.motherships[this.enemyFaction].hullSections) {
-      this.playerMissiles.addTarget(section);
     }
 
     // Upgrade both carriers from the procedural box build to their faction's
@@ -774,6 +774,40 @@ export class Game {
         !target.isAlive
       ) {
         this.recordKill(target, shooter);
+      }
+    }
+  }
+
+  /**
+   * A missile from `shooter` detonated at `pos`, striking `struck` (null =
+   * it spent itself on an asteroid). Every detonation pops an explosion +
+   * proximity-scaled shake (it IS an explosion); attribution then follows
+   * the laser rules — the player TAKING a missile gets the heaviest non-death
+   * feedback, the player LANDING one gets the hit-confirm freeze, and
+   * AI-on-AI impacts just flash the victim.
+   */
+  private onMissileHit(
+    pos: Vector3,
+    struck: DamageTarget | null,
+    shooter: Ship | null,
+  ): void {
+    const fromPlayer = shooter !== null && shooter === this.playerShip;
+    this.explosions.spawn(pos);
+    this.sound.playExplosion(pos);
+    if (struck !== null && struck === this.playerShip) {
+      this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerMissileHit);
+      this.applyHitstop(GameConfig.hitstop.playerMissileHitMs);
+      this.playerDamageFlash?.trigger();
+      return;
+    }
+    this.cameraRig.addTrauma(
+      this.traumaAtDistance(GameConfig.shake.traumaMissileHit, pos),
+    );
+    if (fromPlayer) this.applyHitstop(GameConfig.hitstop.missileHitMs);
+    if (struck instanceof Ship) {
+      this.aiDamageFlashes.get(struck)?.trigger();
+      if (struck.faction === this.enemyFaction && !struck.isAlive) {
+        this.recordKill(struck, shooter);
       }
     }
   }
@@ -1150,12 +1184,27 @@ export class Game {
             }
           }
 
-          // Missiles: player capability. Homes onto the lock if any, else ballistic.
-          if (isPlayer && ship.isAlive && input.fireMissile) {
+          // Missiles: any ship whose type carries a rack. The player's round
+          // homes on their HUD lock; an AI pilot's homes on the fresh contact
+          // its controller chose (AIController.missileTarget). No lock =
+          // ballistic (it may still reacquire mid-flight). Like the lasers,
+          // the round spawns into the SHOOTER's faction system carrying the
+          // shooter for attribution.
+          if (ship.isAlive && input.fireMissile) {
             const missilePos = ship.tryFireMissile();
             if (missilePos) {
-              this.playerMissiles.spawn(missilePos, ship.rotationY, lockTarget);
-              this.sound.playMissileLaunch();
+              const homing = isPlayer
+                ? lockTarget
+                : c.controller instanceof AIController
+                  ? c.controller.missileTarget
+                  : null;
+              this.factionMissiles[ship.faction].spawn(
+                missilePos,
+                ship.rotationY,
+                homing,
+                ship,
+              );
+              this.sound.playMissileLaunch(isPlayer ? undefined : ship.position);
             }
           }
         }
@@ -1189,7 +1238,8 @@ export class Game {
 
         this.factionLasers.humans.update(deltaSeconds, deltaMs);
         this.factionLasers.machines.update(deltaSeconds, deltaMs);
-        this.playerMissiles.update(deltaSeconds, deltaMs);
+        this.factionMissiles.humans.update(deltaSeconds, deltaMs);
+        this.factionMissiles.machines.update(deltaSeconds, deltaMs);
 
         // Drift/tumble the rocks + process any shattered by the fire above.
         this.asteroids.update(deltaSeconds);
@@ -1434,7 +1484,7 @@ export class Game {
       faction,
       maxHp: type.maxHp,
       respawnDelayMs: GameConfig.combat.enemyRespawnDelayMs,
-      startMissileAmmo: 0,
+      startMissileAmmo: type.missileAmmo,
       movement: type,
       laserDamage: type.laserDamage,
       hitRadius: type.hitRadius,

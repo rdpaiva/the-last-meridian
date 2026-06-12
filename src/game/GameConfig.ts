@@ -1336,6 +1336,35 @@ export const GameConfig = {
      */
     carrierFireStandoff: 60,
 
+    // --- Missiles (AI launch doctrine) ---
+    // Any AI pilot whose ship type carries a rack (shipTypes[*].missileAmmo
+    // > 0) uses it, gated so the limited ammo is SPENT WELL, not dumped:
+    //   1. FRESH track only — the pilot launches at a contact its faction's
+    //      sensors are tracking RIGHT NOW. Ghosts (last-known positions) and
+    //      concealed ships never draw a missile; same rule that denies the
+    //      player a lock on a hidden ship.
+    //   2. Launch envelope — target between missileMinRange (closer than
+    //      this, the guns already do the job; don't waste a seeker on a
+    //      knife fight) and missileMaxRange (further out, a juking target
+    //      can outlast the motor), inside missileLaunchConeAngle of the
+    //      nose so the seeker starts with the target in its basket.
+    //   3. Clear line of fire — no asteroid between pilot and target
+    //      (missiles detonate on rocks; firing into one is a wasted round).
+    //   4. Pacing — at most one launch per missileCooldownSec (jittered
+    //      per-pilot), so a rack lasts a fight and a fleet doesn't volley
+    //      in sync. Ship.tryFireMissile's own short cooldown still applies.
+    // Strike-order pilots additionally ripple BALLISTIC missiles into the
+    // enemy carrier's hull from inside the same envelope (no lock needed —
+    // the hull doesn't dodge).
+    /** Closest range (world units) at which an AI pilot fires a missile. */
+    missileMinRange: 25,
+    /** Furthest range (world units) at which an AI pilot fires a missile. */
+    missileMaxRange: 110,
+    /** Half-angle (rad) of the AI launch cone around the nose. 0.3 ≈ 17°. */
+    missileLaunchConeAngle: 0.3,
+    /** Minimum seconds between one pilot's missile launches (±20% jitter). */
+    missileCooldownSec: 7,
+
     /** How often the wander heading gets nudged (seconds). */
     wanderRetargetSec: 1.4,
     /** Magnitude of a wander nudge (radians). */
@@ -1537,6 +1566,8 @@ export const GameConfig = {
     traumaPlayerExplosion: 0.75,
     /** Player missile detonated on an enemy — heavier than a laser hit. */
     traumaMissileHit: 0.5,
+    /** Enemy missile detonated ON the player — between a laser hit and dying. */
+    traumaPlayerMissileHit: 0.6,
   },
 
   hitstop: {
@@ -1551,6 +1582,8 @@ export const GameConfig = {
     playerExplosionMs: 90,
     /** Player missile detonation — a beefier freeze than a laser hit. */
     missileHitMs: 70,
+    /** Enemy missile detonated ON the player — the heaviest non-death freeze. */
+    playerMissileHitMs: 90,
     /** Hard cap on accumulated hitstop so chained hits can't freeze indefinitely. */
     maxStackedMs: 140,
   },

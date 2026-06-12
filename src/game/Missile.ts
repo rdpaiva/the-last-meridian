@@ -4,6 +4,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 
 import { wrapAngle } from "./math";
 import type { DamageTarget } from "./types";
+import type { Ship } from "./Ship";
 
 /**
  * Single heat-seeking missile. Owned and updated by MissileSystem — do not
@@ -40,6 +41,13 @@ export class Missile {
     private readonly trail: TrailMesh,
     private rotationY: number,
     private target: DamageTarget | null,
+    /**
+     * The SHIP that launched this missile (null = unattributed). Carried per
+     * missile, like Laser.shooter, so onHit can credit kills and scale
+     * feedback by who fired — AI pilots fire from the same per-faction
+     * systems the player does.
+     */
+    readonly shooter: Ship | null,
     private readonly speed: number,
     private readonly turnRate: number,
     readonly lifetimeMs: number,

@@ -51,7 +51,7 @@ export interface ShipOptions {
   maxHp: number;
   /** Delay before Game may respawn this ship after death (ms). */
   respawnDelayMs: number;
-  /** Missiles to start/refill with. AI fighters get 0; the player gets a full rack. */
+  /** Missiles to start/refill with (the ship type's rack — 0 = no rack). */
   startMissileAmmo: number;
   /** Movement/weapon tuning (a GameConfig.shipTypes entry). */
   movement: ShipMovementConfig;

@@ -13,10 +13,13 @@ import { GameConfig } from "./GameConfig";
 import { wrapAngle } from "./math";
 import { Missile } from "./Missile";
 import type { DamageTarget } from "./types";
+import type { Ship } from "./Ship";
 
 /**
- * Collection of player heat-seeking missiles. Parallels LaserSystem, but each
- * projectile homes (see Missile) and carries its own exhaust trail.
+ * Per-faction collection of heat-seeking missiles. Parallels LaserSystem, but
+ * each projectile homes (see Missile) and carries its own exhaust trail. Like
+ * the lasers, each missile carries ITS shooter, so kill attribution and
+ * feedback scaling work the same whether the player or an AI pilot fired.
  *
  * Collision reuses the laser pattern: a simple X/Z distance test against every
  * registered target each frame (so a ballistic or off-target missile still
@@ -37,12 +40,17 @@ export type MissileSystemOptions = {
   /** Optional material name prefix — handy when debugging in the inspector. */
   materialName?: string;
   /**
-   * Called once per missile that detonates, with the world-space impact point
-   * and the DamageTarget it struck — null when it detonated on an asteroid
-   * (cover) rather than a registered target. The target is reported AFTER
-   * damage is applied, so the caller can check `!target.isAlive` for a kill.
+   * Called once per missile that detonates, with the world-space impact point,
+   * the DamageTarget it struck — null when it detonated on an asteroid
+   * (cover) rather than a registered target — and the SHIP that launched it
+   * (null = unattributed). The target is reported AFTER damage is applied, so
+   * the caller can check `!target.isAlive` for a kill.
    */
-  onHit?: (position: Vector3, target: DamageTarget | null) => void;
+  onHit?: (
+    position: Vector3,
+    target: DamageTarget | null,
+    shooter: Ship | null,
+  ) => void;
   /**
    * Live obstacles (asteroids) a missile detonates against. Checked BEFORE the
    * target loop, so a rock blocks a missile (cover) and the missile still pops
@@ -62,7 +70,7 @@ export class MissileSystem {
   private readonly minDamage: number;
   private readonly maxDamage: number;
   private readonly onHit:
-    | ((position: Vector3, target: DamageTarget | null) => void)
+    | ((position: Vector3, target: DamageTarget | null, shooter: Ship | null) => void)
     | null;
   /** Targets every missile tests against each frame (all enemies). */
   private readonly targets: DamageTarget[] = [];
@@ -114,9 +122,15 @@ export class MissileSystem {
 
   /**
    * Spawn a missile at `origin` heading along `rotationY`. Pass the locked
-   * enemy as `target` to home on it, or `null` to fire ballistic.
+   * enemy as `target` to home on it, or `null` to fire ballistic. `shooter`
+   * is the launching SHIP, reported back through onHit for attribution.
    */
-  spawn(origin: Vector3, rotationY: number, target: DamageTarget | null): void {
+  spawn(
+    origin: Vector3,
+    rotationY: number,
+    target: DamageTarget | null,
+    shooter: Ship | null = null,
+  ): void {
     const cfg = GameConfig.missile;
 
     const mesh = this.buildMissileMesh();
@@ -148,6 +162,7 @@ export class MissileSystem {
         trail,
         rotationY,
         target,
+        shooter,
         cfg.speed,
         cfg.turnRate,
         cfg.lifetimeMs,
@@ -257,7 +272,7 @@ export class MissileSystem {
           : rock.hitRadius;
         if (distSq <= r * r) {
           rock.takeDamage(this.rollDamage());
-          this.onHit?.(missile.mesh.position, null);
+          this.onHit?.(missile.mesh.position, null, missile.shooter);
           missile.kill();
           blocked = true;
           break;
@@ -284,7 +299,7 @@ export class MissileSystem {
           continue;
         }
         target.takeDamage(this.rollDamage());
-        this.onHit?.(missile.mesh.position, target);
+        this.onHit?.(missile.mesh.position, target, missile.shooter);
         missile.kill();
         break;
       }

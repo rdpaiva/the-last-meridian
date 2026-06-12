@@ -73,6 +73,17 @@
     rebuild, snap again). Both are the same bug; proportional control removes it.
     `Ship.update` sums `turn` with the keyboard's rotate booleans, so the human
     still turns full-rate (keyboard leaves `turn` at 0) while the AI eases.
+  - **Missiles (any order, any pilot with a rack).** After the gun gate, the
+    shared tail runs the missile doctrine (knobs in `GameConfig.ai` →
+    "Missiles"): launch only at a **fresh** sensor contact (ghosts/concealed
+    ships never draw a round — the AI mirror of the player's lock denial),
+    inside the launch envelope (`missileMinRange..missileMaxRange`, within
+    `missileLaunchConeAngle` of the nose), with a **clear line of fire** past
+    asteroids (a rock would eat the round), paced by a jittered per-pilot
+    `missileCooldownSec`. `strike` pilots additionally ripple **ballistic**
+    rounds into the enemy carrier's hull from the same envelope. The chosen
+    real ship is surfaced as `AIController.missileTarget` on the launch frame;
+    `Game` passes it to the faction's `MissileSystem` as the homing target.
 - **Player wingmen** (Phase 5) — there is no separate wingman class: a wingman is
   a player-faction `Ship` wearing an `AIController` with a `cover`/`hunt`/etc.
   order, built in `Game.start()` from `GameConfig.player.wingmen`. Two non-obvious
@@ -147,7 +158,7 @@
   the spawn-away-from-player helper (was `EnemyShip.randomSpawnPosition`).
 
 Game wires each Ship as a target of the **opposing** faction's `LaserSystem`
-(+ the player's `MissileSystem`), so collisions are faction-correct and
+and `MissileSystem`, so collisions are faction-correct and
 friendly-fire-free without per-bolt faction checks.
 
 ## SensorSystem (per-faction awareness)
@@ -274,21 +285,29 @@ friendly-fire-free without per-bolt faction checks.
 - `Laser.kill()` marks a bolt expired (it'll be swept on the next pass).
 
 ## MissileSystem
-- Player-only scarce weapon (key **R**), parallel to `LaserSystem` but each
-  projectile homes and carries its own exhaust trail. One instance, registers
-  every enemy as a target.
-- **Ammo + cooldown live on `PlayerShip`**, not the system: `missileAmmo`
+- Scarce homing weapon, parallel to `LaserSystem`: **one instance per faction**
+  (like the lasers), each registering every opposing ship + opposing carrier
+  hull section as targets. Any ship whose TYPE carries a rack
+  (`shipTypes[*].missileAmmo > 0`) fires from its faction's system — the
+  player (key **R**), wingmen, and the enemy fleet alike. Each missile carries
+  its SHOOTER (like `Laser.shooter`), so `Game.onMissileHit` attributes kills
+  and scales feedback per-pilot.
+- **Ammo + cooldown live on `Ship`**, not the system: `missileAmmo`
   (starts at the ship type's `missileAmmo`, refilled in `respawn()`) and a
   `fireCooldownMs` gate so a held key can't dump the pool in one frame.
-  `PlayerShip.tryFireMissile()` returns the nose spawn point or `null`.
-- **Lock is computed in `Game.computeLockTarget()`** (once per tick, shared by
-  the launch and the HUD): nearest live enemy within `missile.lockRange` AND
-  inside the frontal `lockConeAngle` (same idea as the enemy fire cone). The
-  HUD shows green `LOCK` only when a lock exists AND ammo > 0.
-- `spawn(origin, rotationY, target)` — pass the locked enemy to home, or `null`
-  to fire ballistic. **A no-lock missile still flies and still detonates** on
-  any enemy it contacts (collision tests all targets, same X/Z **point**-test as
-  lasers *used* to use).
+  `Ship.tryFireMissile()` returns the nose spawn point or `null`.
+- **The player's lock is computed in `Game.computeLockTarget()`** (once per
+  tick, shared by the launch and the HUD): nearest live enemy within
+  `missile.lockRange` AND inside the frontal `lockConeAngle` (same idea as the
+  enemy fire cone). The HUD shows green `LOCK` only when a lock exists AND
+  ammo > 0. **An AI pilot's "lock" is its own doctrine gate** — see
+  `AIController` (fresh sensor track + launch envelope + clear line of fire +
+  per-pilot pacing, knobs in `GameConfig.ai` "Missiles"); the chosen ship is
+  surfaced as `AIController.missileTarget` on the launch frame.
+- `spawn(origin, rotationY, target, shooter)` — pass the locked enemy to home,
+  or `null` to fire ballistic. **A no-lock missile still flies and still
+  detonates** on any enemy it contacts (collision tests all targets, same X/Z
+  **point**-test as lasers *used* to use).
 - **TODO (known gap):** unlike `LaserSystem`, this still uses a point-at-new-
   position collision test, which can tunnel through a target on a large step.
   Missiles are slow (`missile.speed` 45 u/s) and homing, so the gap is tiny in
@@ -298,10 +317,14 @@ friendly-fire-free without per-bolt faction checks.
   `rotationY` toward the bearing to that target, capped at `turnRate`/sec (the
   same `wrapAngle` + `turnStep` math as the enemy AI). If the target dies it
   drops to `null` and coasts straight from there.
-- **Damage is rolled per hit** in `[minDamage, maxDamage]`. `onHit(position)`
-  carries the impact point (unlike `LaserSystem`'s parameterless `onHit`) so
-  `Game` pops an `explosions.spawn(pos)` plus heavier trauma/hitstop than a
-  laser.
+- **Damage is rolled per hit** in `[minDamage, maxDamage]`.
+  `onHit(position, target, shooter)` carries the impact point (unlike
+  `LaserSystem`'s position-less `onHit`) so `Game.onMissileHit` pops an
+  `explosions.spawn(pos)`, then attributes like the laser path: the player
+  TAKING a missile gets the heaviest non-death trauma/hitstop
+  (`traumaPlayerMissileHit`/`playerMissileHitMs`), the player LANDING one gets
+  the hit-confirm freeze (`traumaMissileHit`/`missileHitMs`), AI-on-AI just
+  flashes the victim.
 - **Mesh** is a small composite (root `TransformNode` named `missile`): gray
   cylinder body + tapered nose cone + four red `+`-cross tail fins, oriented
   along local +Z, built in `buildMissileMesh()`. Kept ~0.7 long so it reads as
