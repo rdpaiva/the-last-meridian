@@ -345,6 +345,48 @@ friendly-fire-free without per-bolt faction checks.
   `stop()` unhooks the observer; skip it and every fired missile leaks a
   permanent per-frame callback, piling up into progressive slowdown.
 
+## MissileWarning (the player's RWR)
+- **Trigger**: ANY live enemy missile currently HOMING on the player — a
+  per-frame poll of the enemy faction's MissileSystem via
+  `collectHomingOn(player, out)` (write-in-place into a reusable array, no
+  per-frame allocation). A ballistic round doesn't warn; one that REACQUIRES
+  the player mid-flight warns from that frame; a round that loses its target
+  (or detonates) stops warning. Adds NO new mechanic — it makes the existing
+  counterplay legible (out-turn: `missile.turnRate` < fighter rotation
+  speeds; cover: rocks eat missiles; stealth: the AI only launches on a
+  fresh track). Chaff/flares deliberately rejected — see ROADMAP.
+- **Three channels, one rhythm** (knobs in `GameConfig.missileWarning`):
+  1. *Beep* — `SoundSystem.playMissileWarning()` on a cadence that lerps
+     `beepIntervalFarSec → beepIntervalCloseSec` as the NEAREST tracking
+     round closes through `rampStartDistance → rampEndDistance` (RWR-style:
+     proximity through rhythm). Threat onset beeps immediately (the first
+     beep IS the launch cue), and a pending beep is pulled IN whenever the
+     tempo tightens mid-interval — never pushed out.
+  2. *HUD border pulse + label* — each beep snaps the `#incoming-overlay`
+     border to `pulsePeakAlpha`; it decays at `pulseDecayRate` between
+     beeps, so the far tempo reads as discrete blips and the close tempo
+     fuses into a near-steady glow — the visual urgency ramps with the audio
+     for free, and the sustained pulse train can't be mistaken for the
+     one-shot damage flash. `Hud.setMissileWarning` owns the DOM and is
+     called every frame (NOT 10 Hz-throttled): the `INCOMING` label (by the
+     sig line; not "MISSILE LOCK" — there's no pre-launch lock phase to
+     detect) writes only on state flips, and the border opacity
+     (compositor-only) skips sub-1% deltas.
+  3. *Radar blips* — the threat array is exposed as `threats` and drawn by
+     `Radar.plotMissile` as small amber dots (`radar.missileBlip`).
+     Deliberately GROUND TRUTH, not the sensor picture: a warning channel
+     must be reliable to be trusted, and a blip means a round tracking YOU —
+     enemy missiles chasing wingmen don't show.
+- **Update placement**: Game.tick's always-block (presentation), so the
+  warning runs THROUGH hitstop like the rest of audio/HUD; Game passes
+  `player = null` outside live play (launch sequence, end screens, death
+  gaps), which fades any remaining pulse out rather than snapping it off.
+- **Asset**: expects `public/sounds/missile_warning.mp3` — a SHORT blip
+  (≲0.3 s; at the fastest tempo each of the 4 pool slots replays every
+  ~0.45 s and a longer file would cut itself off). Code degrades silently
+  while the file is absent (Babylon's `Sound` never reports ready and
+  `play()` no-ops).
+
 ## ExplosionSystem
 - Spawns short-lived explosions: 1 flash sphere + 8 debris cubes.
 - Shared materials (one flash mat, one debris mat) reused across every

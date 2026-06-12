@@ -384,6 +384,49 @@ export const GameConfig = {
     trailLength: 28,
   },
 
+  /**
+   * Incoming-missile warning — the player's RWR. Active while ANY live enemy
+   * missile is homing on the player's ship. The counterplay (out-turn it, drag
+   * it into a rock, break the track in a nebula) already exists; this makes it
+   * LEGIBLE. Three synced channels, all driven by MissileWarning:
+   *   - a repeating warning beep whose tempo ramps as the nearest tracking
+   *     missile closes (RWR-style: proximity through rhythm),
+   *   - a red viewport-border pulse re-triggered ON each beep (a sustained
+   *     rhythm for as long as a missile tracks — deliberately NOT a one-shot
+   *     flash, which would be ambiguous with the damage flash), and
+   *   - radar blips for the inbound rounds (size in radar.missileBlip).
+   */
+  missileWarning: {
+    /**
+     * Beep period (sec) while the nearest tracking missile is at or beyond
+     * rampStartDistance — the "launch detected, you have time" tempo.
+     */
+    beepIntervalFarSec: 0.55,
+    /**
+     * Beep period (sec) once that missile is at or inside rampEndDistance —
+     * the "break NOW" tempo. The interval lerps between the two across the
+     * ramp band.
+     */
+    beepIntervalCloseSec: 0.11,
+    /**
+     * Distance (world units) at which the tempo ramp starts. Sized to the AI
+     * launch envelope (ai.missileMaxRange 110) plus a margin, so even a
+     * max-range launch opens with some urgency information in the rhythm.
+     */
+    rampStartDistance: 130,
+    /** Distance (world units) of max urgency — the tempo pegs at the close interval. */
+    rampEndDistance: 12,
+    /** Peak opacity (0..1) of the red viewport-border pulse on each beep. */
+    pulsePeakAlpha: 0.55,
+    /**
+     * Exponential decay rate (1/sec) of the border pulse between beeps. At
+     * the far tempo a pulse fully fades before the next beep (discrete
+     * blips); at the close tempo successive pulses overlap into a near-steady
+     * red glow — the visual urgency ramps with the audio for free.
+     */
+    pulseDecayRate: 7,
+  },
+
   arena: {
     /**
      * The arena is UNBOUNDED — ships are no longer position-clamped (the AI
@@ -706,6 +749,8 @@ export const GameConfig = {
     marginPx: 16,
     /** Fighter blip radius (px). */
     fighterBlip: 3,
+    /** Inbound-missile blip radius (px) — smaller than a fighter blip. */
+    missileBlip: 2.2,
     /** Mothership diamond half-size (px). */
     mothershipBlip: 6,
     /** Player heading-triangle size (px). */

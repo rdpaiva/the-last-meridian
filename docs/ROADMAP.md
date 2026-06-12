@@ -269,6 +269,28 @@ and explicitly skipped. Update this when you finish or start work.
   the enemy carrier's hull. Novari rounds fly green exhausts; AI launches are
   spatialized. Taking a missile = heaviest non-death trauma/hitstop
   (`traumaPlayerMissileHit`/`playerMissileHitMs`).
+- **Incoming-missile warning (2026-06-12)** — the player's RWR
+  (`MissileWarning.ts`), closing the loop on the AI doctrine above: the
+  counterplay (out-turn it, drag it into a rock, break the track in a
+  nebula) existed but was invisible. Trigger: any live enemy missile HOMING
+  on the player (per-frame poll via `MissileSystem.collectHomingOn` — a
+  ballistic round doesn't warn; one that reacquires you does). All three
+  planned layers shipped, on ONE rhythm (`GameConfig.missileWarning`):
+  (1) warning beep whose tempo lerps far→close as the nearest round closes;
+  (2) red viewport-border pulse RE-TRIGGERED ON EACH BEEP — a sustained
+  rhythm, unmistakable next to the one-shot damage flash — plus an
+  `INCOMING` HUD readout by the sig line (not "MISSILE LOCK": the AI has no
+  pre-launch lock phase, the detectable event is a round in flight);
+  (3) amber radar blips for the inbound rounds, ground truth on purpose
+  (the warning channel must be reliable; a blip means a round tracking
+  YOU). Runs in the presentation block (continues through hitstop),
+  silenced outside live play. Beep asset expected at
+  `public/sounds/missile_warning.mp3` (short blip ≲0.3 s, CC0 +
+  `SOURCES.md` entry) — file pending; code degrades silently without it.
+  Chaff/flares stay REJECTED (input load; would turn a piloting challenge
+  into cooldown management) — revisit only if missiles still feel
+  uncounterable WITH the warning shipped, and then as a tight-timing parry,
+  not immunity.
 
 ### Explosions
 - `ExplosionSystem` with shared materials (flash + debris)
@@ -390,31 +412,6 @@ so the next agent (or you, in a future session) doesn't redo work.
 
 Things that have come up in conversation as good ideas but haven't been
 implemented yet. Roughly ordered by gameplay value.
-
-**⏭ NEXT UP (agreed 2026-06-12): Incoming-missile warning.** Now that the AI
-fires missiles, the player's counterplay already exists (out-turn it — missile
-`turnRate` 3.2 < player 4.5; drag it into an asteroid — rocks eat missiles;
-duck into a nebula — AI only launches on a fresh track) but is INVISIBLE:
-there's no cue that a missile is tracking you, so dodges can't be timed and
-hits read as random chip damage. Make the counterplay legible. Trigger
-condition: any live enemy missile homing on the player ship. Three layers, in
-priority order, each independently shippable:
-  1. **Warning tone** — a repeating beep while tracked, tempo ramping as the
-     missile closes (RWR-style; proximity through rhythm). Highest-bandwidth
-     channel — needs zero eye movement. One new CC0 beep asset
-     (`public/sounds/` + SOURCES.md attribution), pooled like the other SFX.
-  2. **HUD pulse + label** — red pulsing viewport border. Must be a SUSTAINED
-     RHYTHMIC pulse for as long as a missile tracks, NOT a one-shot flash:
-     a single red blink is ambiguous with the existing damage flash. Short
-     `INCOMING` text near the HP/DETECTED cluster — not "MISSILE LOCK" (the
-     AI has no pre-launch lock phase; the detectable event is a missile in
-     flight, and "incoming" is both true and more urgent).
-  3. **Radar missile blip** — the "from where?" follow-up (eyes are on the
-     ship during a dodge, so radar is supporting cast, not the primary cue).
-  Deliberately NOT chaff/flares: a counter-button adds input load (the
-  keyboard is at its fidget ceiling) and turns a piloting challenge into
-  cooldown management. Revisit only if, with the warning shipped, missiles
-  still feel uncounterable — and then as a tight-timing parry, not immunity.
 
 **Agreed next phases (battle build, continuing from the faction spine):**
 - **Mothership defenses** — pod-mounted gun turrets + missile launchers as

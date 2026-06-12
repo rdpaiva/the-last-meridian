@@ -67,6 +67,15 @@ export class Missile {
     return this.target !== null;
   }
 
+  /**
+   * The target this missile is currently homing on (null = flying ballistic).
+   * Read by MissileSystem.collectHomingOn so the player's incoming-missile
+   * warning (MissileWarning) can ask "is this round tracking ME?".
+   */
+  get currentTarget(): DamageTarget | null {
+    return this.target;
+  }
+
   /** Lock onto a target found mid-flight (only used for `canReacquire` missiles). */
   acquire(target: DamageTarget): void {
     this.target = target;

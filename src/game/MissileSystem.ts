@@ -121,6 +121,22 @@ export class MissileSystem {
   }
 
   /**
+   * Append every live missile currently homing on `target` to `out`. Backs the
+   * incoming-missile warning (MissileWarning), which polls this once per frame
+   * with a reusable array — write-in-place, no per-frame allocation. A missile
+   * that lost its target (went ballistic) or already detonated is excluded; a
+   * ballistic round that REACQUIRES `target` mid-flight shows up the frame it
+   * does.
+   */
+  collectHomingOn(target: DamageTarget, out: Missile[]): void {
+    for (const missile of this.missiles) {
+      if (!missile.isExpired && missile.currentTarget === target) {
+        out.push(missile);
+      }
+    }
+  }
+
+  /**
    * Spawn a missile at `origin` heading along `rotationY`. Pass the locked
    * enemy as `target` to home on it, or `null` to fire ballistic. `shooter`
    * is the launching SHIP, reported back through onHit for attribution.

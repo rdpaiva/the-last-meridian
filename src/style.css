@@ -866,6 +866,22 @@ body {
   display: none;
 }
 
+/* Incoming-missile warning border — a red glow hugging the viewport edges.
+   Opacity is driven per-frame by MissileWarning (via Hud.setMissileWarning):
+   it spikes on each RWR beep and decays between them, so the border carries
+   the same accelerating rhythm as the audio. Edge-only (inset shadows, no
+   fill) so the center of the screen — where the dodge happens — stays clean. */
+.incoming-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0;
+  box-shadow:
+    inset 0 0 110px 26px rgba(243, 139, 168, 0.45),
+    inset 0 0 34px 8px rgba(255, 77, 109, 0.55);
+}
+
 /* Mothership objective HP bars — top center. */
 #mothership-bars {
   position: fixed;

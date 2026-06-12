@@ -21,6 +21,7 @@ export class Hud {
   private readonly missilesEl: HTMLElement | null;
   private readonly lockEl: HTMLElement | null;
   private readonly sigEl: HTMLElement | null;
+  private readonly warnEl: HTMLElement | null;
   private readonly killsEl: HTMLElement | null;
   private readonly scoreEl: HTMLElement | null;
   private readonly zoomEl: Element | null;
@@ -30,9 +31,15 @@ export class Hud {
   private readonly machinesFillEl: HTMLElement | null;
   private readonly endBannerEl: HTMLElement | null;
 
+  private readonly incomingOverlayEl: HTMLElement;
+
   private lastTextUpdateMs = 0;
   private lastOverlayText: string | null = null;
   private endShown = false;
+  /** Last state written to the INCOMING label (write-on-change only). */
+  private warnShown = false;
+  /** Last opacity written to the incoming border (skip sub-1% deltas). */
+  private lastPulseAlpha = -1;
 
   constructor(root: HTMLDivElement) {
     root.innerHTML = `
@@ -43,6 +50,7 @@ export class Hud {
       <div><span class="label">missiles</span><span id="hud-missiles">0</span></div>
       <div><span class="label">lock</span><span id="hud-lock">---</span></div>
       <div><span class="label">sig</span><span id="hud-sig">---</span></div>
+      <div><span class="label">warn</span><span id="hud-warn">---</span></div>
       <div><span class="label">kills</span><span id="hud-kills">0</span></div>
       <div><span class="label">score</span><span id="hud-score">0</span></div>
       <div><span class="label">zoom</span><span id="hud-zoom">1.00</span></div>
@@ -55,10 +63,22 @@ export class Hud {
     this.missilesEl = root.querySelector<HTMLElement>("#hud-missiles");
     this.lockEl = root.querySelector<HTMLElement>("#hud-lock");
     this.sigEl = root.querySelector<HTMLElement>("#hud-sig");
+    this.warnEl = root.querySelector<HTMLElement>("#hud-warn");
+    if (this.warnEl) this.warnEl.style.color = "#6c7086"; // dim until a threat
     this.killsEl = root.querySelector<HTMLElement>("#hud-kills");
     this.scoreEl = root.querySelector<HTMLElement>("#hud-score");
     this.zoomEl = root.querySelector("#hud-zoom");
     this.sfxEl = root.querySelector<HTMLElement>("#hud-sfx");
+
+    // Incoming-missile border — a fullscreen red edge glow whose opacity is
+    // driven by MissileWarning (a pulse re-triggered on each warning beep).
+    // Appended FIRST so the launch overlay / end banner stack above it in DOM
+    // order, same z-strategy as every other fixed overlay here.
+    const incoming = document.createElement("div");
+    incoming.id = "incoming-overlay";
+    incoming.className = "incoming-overlay";
+    document.body.appendChild(incoming);
+    this.incomingOverlayEl = incoming;
 
     // Launch overlay lives outside the debug panel — it's fullscreen-centered.
     const overlay = document.createElement("div");
@@ -155,6 +175,31 @@ export class Hud {
     if (!this.sfxEl) return;
     this.sfxEl.textContent = muted ? "off" : "on";
     this.sfxEl.style.color = muted ? "#6c7086" : "";
+  }
+
+  /**
+   * Drive the incoming-missile cues. Called EVERY frame by MissileWarning
+   * (not 10 Hz-throttled like update() — the border pulse is the fast,
+   * rhythm-carrying channel), so both writes are guarded: the INCOMING label
+   * only touches the DOM when the threat state flips, and the border opacity
+   * (compositor-only, no layout) skips sub-1% deltas so an idle overlay
+   * costs nothing.
+   */
+  setMissileWarning(active: boolean, pulseAlpha: number): void {
+    if (active !== this.warnShown) {
+      this.warnShown = active;
+      if (this.warnEl) {
+        // "INCOMING", not "MISSILE LOCK": the AI has no pre-launch lock phase —
+        // the detectable event is a missile already in flight.
+        this.warnEl.textContent = active ? "INCOMING" : "---";
+        this.warnEl.style.color = active ? "#f38ba8" : "#6c7086";
+      }
+    }
+    const alpha = Math.round(pulseAlpha * 100) / 100;
+    if (alpha !== this.lastPulseAlpha) {
+      this.lastPulseAlpha = alpha;
+      this.incomingOverlayEl.style.opacity = String(alpha);
+    }
   }
 
   update(

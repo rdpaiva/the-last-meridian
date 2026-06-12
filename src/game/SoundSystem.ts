@@ -87,9 +87,9 @@ class PooledSound {
 }
 
 /**
- * Centralized audio: 5 one-shot sounds (player laser, enemy laser, hit,
- * explosion, missile launch) plus 1 looping engine hum whose volume is
- * modulated by thrust.
+ * Centralized audio: one-shot SFX pools (lasers, hit, explosion, missile
+ * launch, incoming-missile warning beep) plus 1 looping engine hum whose
+ * volume is modulated by thrust.
  *
  * Browser autoplay policy requires a user gesture before audio plays. The
  * Engine has to be constructed with `audioEngine: true` (see Game.ts) so
@@ -111,6 +111,7 @@ export class SoundSystem {
   private readonly playerGunsSpatial: PooledSound;
   private readonly missileLaunch: PooledSound;
   private readonly missileLaunchSpatial: PooledSound;
+  private readonly missileWarning: PooledSound;
   private readonly enemyLaser: PooledSound;
   private readonly laserGun: PooledSound;
   private readonly laserGunOwn: PooledSound;
@@ -161,6 +162,18 @@ export class SoundSystem {
       scene,
       3,
       { volume: 0.45, spatial: true },
+    );
+    // RWR beep for the incoming-missile warning (MissileWarning). NON-spatial:
+    // it's the player's own cockpit warning, always full volume at the
+    // listener. The asset should be a SHORT blip (≲0.3 s) — at the warning's
+    // fastest tempo (missileWarning.beepIntervalCloseSec) each of the 4 pool
+    // slots replays every ~0.45 s, so a longer file would cut itself off.
+    this.missileWarning = new PooledSound(
+      "sfx_missile_warning",
+      `${baseUrl}/missile_warning.mp3`,
+      scene,
+      4,
+      { volume: 0.4 },
     );
     this.enemyLaser = new PooledSound(
       "sfx_enemy_laser",
@@ -307,6 +320,14 @@ export class SoundSystem {
   playMissileLaunch(position?: Vector3): void {
     if (position) this.missileLaunchSpatial.playAt(position);
     else this.missileLaunch.play();
+  }
+  /**
+   * One RWR warning blip — MissileWarning re-triggers this on its beep
+   * cadence while an enemy missile is homing on the player (the tempo lives
+   * there, not here).
+   */
+  playMissileWarning(): void {
+    this.missileWarning.play();
   }
   playEnemyLaser(position: Vector3): void {
     this.enemyLaser.playAt(position);

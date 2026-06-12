@@ -25,6 +25,7 @@ import { wrapAngle } from "./math";
 import { CameraRig } from "./CameraRig";
 import { Hud } from "./Hud";
 import { Radar } from "./Radar";
+import { MissileWarning } from "./MissileWarning";
 import { Starfield } from "./Starfield";
 import { EngineGlow } from "./EngineGlow";
 import { SecondaryThrusters } from "./SecondaryThrusters";
@@ -108,6 +109,8 @@ export class Game {
   private readonly backdrop: Backdrop;
   private readonly hud: Hud;
   private readonly radar: Radar;
+  /** Player's RWR — beep + HUD pulse + radar blips while a missile homes on them. */
+  private readonly missileWarning: MissileWarning;
 
   /** Which side the human pilot flies, and the side they fight. */
   private readonly playerFaction: Faction;
@@ -411,6 +414,7 @@ export class Game {
     this.starfield = new Starfield(this.scene, this.cameraRig.camera);
     this.hud = new Hud(hudRoot);
     this.radar = new Radar();
+    this.missileWarning = new MissileWarning(this.sound, this.hud);
 
     // Per-faction sensor pictures — built before the controller worlds, which
     // hold the contact arrays by reference. The combat nebulas' footprints
@@ -1299,6 +1303,22 @@ export class Game {
           : 0;
       this.sound.updateEngine(deltaSeconds, engineIntensity);
 
+      // Incoming-missile warning (RWR). Presentation, so it runs THROUGH
+      // hitstop with the rest of this block (audio + HUD continue during
+      // freeze frames; the threat picture is simply static while the sim is
+      // paused). Passing player = null outside live play — launch countdown,
+      // end screens, death gaps — forces it quiet, fading any active pulse.
+      const rwrActive =
+        this.state === "playing" &&
+        this.playerShip !== null &&
+        this.playerShip.isAlive;
+      this.missileWarning.update(
+        deltaSeconds,
+        nowMs,
+        this.factionMissiles[this.enemyFaction],
+        rwrActive ? this.playerShip : null,
+      );
+
       // HUD.
       if (this.playerShip) {
         // The stealth cue asks the ENEMY's sensor picture about the player.
@@ -1329,6 +1349,7 @@ export class Game {
           this.playerShip,
           this.shipsByFaction[this.playerFaction],
           this.sensors.contacts[this.playerFaction],
+          this.missileWarning.threats,
           this.motherships,
           this.asteroids.asteroids,
           this.combatNebulas.zones,
