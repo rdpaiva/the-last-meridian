@@ -114,6 +114,117 @@
   100% { transform: translateY(-100%); }
 }
 
+/* ── Loadout select (side + ship) ── */
+
+#loadout {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 44px 10px;
+  border-top: 1px solid rgba(120, 140, 200, 0.12);
+}
+
+.loadout-row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.loadout-card {
+  flex: 1;
+  max-width: 300px;
+  padding: 10px 14px;
+  border: 1px solid rgba(120, 140, 200, 0.25);
+  border-radius: 6px;
+  background: rgba(11, 13, 22, 0.5);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+
+.loadout-card:hover {
+  border-color: rgba(137, 180, 250, 0.6);
+}
+
+/* Selected cards glow in their faction's color. */
+.loadout-card.humans.selected {
+  border-color: #89b4fa;
+  box-shadow: 0 0 14px rgba(137, 180, 250, 0.3);
+  background: rgba(137, 180, 250, 0.07);
+}
+
+.loadout-card.machines.selected {
+  border-color: #f38ba8;
+  box-shadow: 0 0 14px rgba(243, 139, 168, 0.3);
+  background: rgba(243, 139, 168, 0.07);
+}
+
+/* The row the arrow keys act on gets slightly brighter card borders. */
+.loadout-row.active .loadout-card:not(.selected) {
+  border-color: rgba(120, 140, 200, 0.45);
+}
+
+.card-title {
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  color: #cdd6f4;
+}
+
+.card-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #7f8aa6;
+  letter-spacing: 0.04em;
+}
+
+.card-blurb {
+  margin: 6px 0 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #8a96b8;
+}
+
+.stat-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+  font-size: 10px;
+  color: #7f8aa6;
+}
+
+.stat-label {
+  width: 32px;
+  flex-shrink: 0;
+  text-align: right;
+  letter-spacing: 0.06em;
+}
+
+.stat-track {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(120, 140, 200, 0.12);
+  overflow: hidden;
+}
+
+.stat-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4a7bff, #89b4fa);
+}
+
+.loadout-card.machines .stat-fill {
+  background: linear-gradient(90deg, #ff4d6d, #f38ba8);
+}
+
+.loadout-hint {
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: #5b6680;
+}
+
 /* ── Controls + button strip ── */
 
 #splash-bottom {
@@ -322,6 +433,12 @@ body {
 .end-banner.defeat .end-title {
   color: #f38ba8;
   text-shadow: 0 0 24px rgba(243, 139, 168, 0.8), 0 0 64px rgba(243, 139, 168, 0.4);
+}
+
+.end-banner .end-stats {
+  font-size: clamp(14px, 2vw, 22px);
+  color: #f9e2af;
+  letter-spacing: 0.12em;
 }
 
 .end-banner .end-sub {

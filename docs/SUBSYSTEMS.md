@@ -146,6 +146,49 @@ Game wires each Ship as a target of the **opposing** faction's `LaserSystem`
 (+ the player's `MissileSystem`), so collisions are faction-correct and
 friendly-fire-free without per-bolt faction checks.
 
+## SensorSystem (per-faction awareness)
+- The keystone of the stealth loop: each faction has ONE shared sensor picture
+  (`sensors.contacts[faction]`, an array of `SensorContact`), and **every AI
+  pilot targets that picture, never ground truth** — `ControllerWorld.opponents`
+  is the contact array, held by reference and rebuilt in place each frame.
+- A `SensorContact.position` is the **last-known** position: it follows the
+  real ship only while the track is `fresh`, then freezes where contact was
+  lost. `contact.isAlive` mirrors `DamageTarget.isAlive` (ship alive AND track
+  unexpired) so contacts slot into the same nearest-target scans Ships did.
+- Detection rule (per sweep, throttled by `sensors.sweepIntervalSec`; fresh
+  positions still copy **every frame** so AI aim doesn't lag a sweep): a ship
+  is detected if within `shipRange` of any live enemy fighter or
+  `mothershipRange` of the enemy carrier (the AWACS). **Concealment**: inside
+  a combat-nebula zone a ship is invisible to radar entirely — only the
+  unconditional `visualRange` eyeball check finds it — and its own radar is
+  degraded by `nebulaSensorFactor` (hiding costs awareness). Lost tracks
+  linger `memorySec` as targetable ghosts (AI flies there and searches), then
+  expire. Dead ships drop instantly (the explosion is observable).
+- Symmetric by construction: the player hides from the machines exactly the
+  way machines hide from the player's wing. The player-facing consequences:
+  the radar draws the picture, the HUD `sig` cue asks the ENEMY's picture
+  about the player, and missile locks are denied on concealed ships beyond
+  visual range (`Game.computeLockTarget`).
+
+## FleetCommander (enemy doctrine)
+- Runtime re-tasking for the AI fleet — `AIController.setOrder()` is the seam
+  (it zeroes the reaction timer and clears the formation servo's jet latches).
+  The player's own wing keeps its static configured orders.
+- Role split by spawn order, set at construction: the first
+  `fleets.*.strikeCount` ships are permanent **strikers** (the first one is
+  the fleet's wing leader, wired into `ControllerWorld.leader`), the next
+  `commander.escortCount` fly **cover** on that leader (escorted strike
+  package), and the rest form the dynamic **pool**.
+- Every `commander.thinkIntervalSec` the pool re-tasks by priority: carrier
+  threatened (hull dropped since last think, or a contact within
+  `defendAlertRadius`) → up to `defendCount` nearest ships `defend` (held for
+  `defendHoldThinks` thinks); any live contact → up to `huntCount` ships
+  `hunt` (ghost contacts make this a search of the last-known position); rest
+  `patrol`.
+- **Fair play:** the commander reads only its faction's `ControllerWorld` —
+  the same sensor picture its pilots fly on. Break contact and the commander
+  is as blind as the fleet.
+
 ## Mothership (the objective)
 - Implements `DamageTarget`: large `maxHp` + generous single `hitRadius`
   (`GameConfig.mothership`) covering the central hull. Per-part hitboxes are a
@@ -159,7 +202,14 @@ friendly-fire-free without per-bolt faction checks.
 
 ## Radar
 - Player-centered, **north-up** circular minimap on its own canvas
-  (bottom-right), redrawn every frame from live ship/mothership refs (read-only).
+  (bottom-right), redrawn every frame (read-only — it never feeds gameplay).
+- **Friendlies draw from ground truth** (your wing shares telemetry);
+  **hostiles draw from the player faction's sensor picture**: fresh contacts
+  are solid dots, stale tracks are hollow ghost rings fading out over the
+  memory window at their last-known position, and ships that broke contact
+  simply aren't there. Motherships are always-known diamonds (stationary,
+  pre-briefed). Nebula concealment zones render as faint violet discs so the
+  player can see where hiding is possible.
 - Orientation matches the world camera (which doesn't rotate with the ship):
   world +Z → screen up, +X → right. `project(dx,dz)` maps a world offset from
   the player to a radar pixel and **clamps** beyond `GameConfig.radar.rangeWorld`
@@ -323,6 +373,31 @@ friendly-fire-free without per-bolt faction checks.
   via `thinInstanceCount` over a max-sized buffer, so zooming out keeps density
   constant up to a hard ceiling. Needs the camera, so it's constructed after
   `CameraRig`.
+- **CombatNebulas** (Y = `scenery.combatNebulas.yLevel`, just ABOVE the
+  fighter plane — these are gameplay, not background): painted alpha quads
+  using the same nebula PNGs + emissiveColor-tint recipe, rendered over the
+  ships so anything flying in is visibly veiled. Each quad's X/Z footprint is
+  exported via `zones` as a `ConcealmentZone` consumed by the SensorSystem
+  (the actual stealth mechanic) and drawn on the radar. `visualScale` keeps
+  the painted cloud roughly covering the hard sensor footprint — tune it
+  against `radius` if hiding "looks wrong".
 - **CapitalShips** (Y ≈ -26): 3 procedural destroyers built from boxes
   (hull + spine + tower + engine + 6 running lights). Engines and
   lights are emissive and opt into GlowLayer.
+
+## Loadout + LoadoutMenu (splash side/ship select)
+- `Loadout.ts`: the `PlayerLoadout {faction, shipType}` type + localStorage
+  load/save, validated against `GameConfig.factionShips` (a saved ship that no
+  longer exists falls back to the faction's first ship). `Game` takes the
+  loadout as a constructor param and copies it — `GameConfig.player.faction/
+  shipType` remain the build-time DEFAULTS only.
+- `LoadoutMenu.ts`: plain-DOM cards injected into `#loadout` on the splash.
+  Two rows (faction, then that faction's ships from `factionShips`), fully
+  keyboard-driven (←/→ select, ↑/↓ row; Enter is owned by main.ts and shares
+  the START button path). Ship stat bars read straight from
+  `GameConfig.shipTypes`, normalized against catalog maxima — no duplicated
+  numbers. `commit()` persists the choice and detaches the key handler before
+  the Game's own keys come up.
+- Fast entry invariants: the saved loadout is preselected (Enter-Enter
+  relaunches the last setup), and the end-of-match restart (`RESTART_FLAG`)
+  skips the splash entirely and replays the saved loadout.

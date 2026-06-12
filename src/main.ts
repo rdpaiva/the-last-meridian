@@ -1,4 +1,6 @@
 import { Game, RESTART_FLAG } from "./game/Game";
+import { LoadoutMenu } from "./game/LoadoutMenu";
+import { loadSavedLoadout, type PlayerLoadout } from "./game/Loadout";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement | null;
 const hudRoot = document.getElementById("hud") as HTMLDivElement | null;
@@ -6,6 +8,7 @@ const splash = document.getElementById("splash") as HTMLDivElement | null;
 const splashBegin = document.getElementById("splash-begin") as HTMLDivElement | null;
 const splashPoster = document.getElementById("splash-poster") as HTMLImageElement | null;
 const startBtn = document.getElementById("splash-start") as HTMLButtonElement | null;
+const loadoutRoot = document.getElementById("loadout") as HTMLDivElement | null;
 
 if (!canvas) throw new Error("Canvas #renderCanvas not found in DOM");
 if (!hudRoot) throw new Error("HUD root #hud not found in DOM");
@@ -13,6 +16,7 @@ if (!splash) throw new Error("#splash not found in DOM");
 if (!splashBegin) throw new Error("#splash-begin not found in DOM");
 if (!splashPoster) throw new Error("#splash-poster not found in DOM");
 if (!startBtn) throw new Error("#splash-start not found in DOM");
+if (!loadoutRoot) throw new Error("#loadout not found in DOM");
 
 // Set src via JS so BASE_URL is resolved correctly for GitHub Pages.
 splashPoster.src = `${import.meta.env.BASE_URL}images/The-Last-Meridian-Poster.jpg`;
@@ -54,17 +58,29 @@ function stopSplashMusic(): void {
   musicSource = null;
 }
 
-const game = new Game(canvas, hudRoot);
+// The Game is constructed at launch time (not page load) so it can take the
+// loadout — which side and ship the pilot chose on the splash menu.
+let game: Game | null = null;
+
+function launch(loadout: PlayerLoadout): void {
+  if (game) return;
+  game = new Game(canvas!, hudRoot!, loadout);
+  void game.start();
+}
 
 if (sessionStorage.getItem(RESTART_FLAG)) {
   // This load is the end-of-match restart (Enter on the result banner) —
-  // the player already sat through the splash, so skip it and go straight
-  // back into the game. Audio resumes on their first keypress (a reloaded
-  // page has no user gesture yet, so it can't resume here).
+  // the player already sat through the splash, so skip it and relaunch the
+  // saved loadout directly. Audio resumes on their first keypress (a
+  // reloaded page has no user gesture yet, so it can't resume here).
   sessionStorage.removeItem(RESTART_FLAG);
   splash.classList.add("hidden");
-  void game.start();
+  launch(loadSavedLoadout());
 } else {
+  // Side + ship select, preloaded with the saved choice so Enter-Enter gets
+  // a returning player straight back into the fight.
+  const menu = new LoadoutMenu(loadoutRoot);
+
   // The "click to begin" overlay click is the user gesture the browser requires
   // to allow audio. It starts the music and (via the `begun` class) the
   // cinematic scroll together, so they stay in sync. `once` means there are no
@@ -74,13 +90,30 @@ if (sessionStorage.getItem(RESTART_FLAG)) {
     void startSplashMusic();
   }, { once: true });
 
-  startBtn.addEventListener("click", () => {
+  const startGame = (): void => {
+    if (game) return;
+    // commit() persists the choice and releases the menu's arrow keys back
+    // to the ship before the Game's own key handling comes up.
+    const loadout = menu.commit();
     stopSplashMusic();
     splash.classList.add("hidden");
-    void game.start();
+    launch(loadout);
+  };
+  startBtn.addEventListener("click", startGame);
+
+  // Enter walks the whole splash from the keyboard: first press clears the
+  // "click to begin" gate (it counts as the audio user gesture), second
+  // press launches with the selected loadout.
+  window.addEventListener("keydown", (e) => {
+    if (game || e.code !== "Enter") return;
+    if (!splash.classList.contains("begun")) {
+      splashBegin.click();
+    } else {
+      startGame();
+    }
   });
 }
 
 window.addEventListener("resize", () => {
-  game.handleResize();
+  game?.handleResize();
 });

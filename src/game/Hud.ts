@@ -20,6 +20,9 @@ export class Hud {
   private readonly lasersEl: Element | null;
   private readonly missilesEl: HTMLElement | null;
   private readonly lockEl: HTMLElement | null;
+  private readonly sigEl: HTMLElement | null;
+  private readonly killsEl: HTMLElement | null;
+  private readonly scoreEl: HTMLElement | null;
   private readonly zoomEl: Element | null;
   private readonly sfxEl: HTMLElement | null;
   private readonly launchOverlayEl: HTMLElement | null;
@@ -39,6 +42,9 @@ export class Hud {
       <div><span class="label">lasers</span><span id="hud-lasers">0</span></div>
       <div><span class="label">missiles</span><span id="hud-missiles">0</span></div>
       <div><span class="label">lock</span><span id="hud-lock">---</span></div>
+      <div><span class="label">sig</span><span id="hud-sig">---</span></div>
+      <div><span class="label">kills</span><span id="hud-kills">0</span></div>
+      <div><span class="label">score</span><span id="hud-score">0</span></div>
       <div><span class="label">zoom</span><span id="hud-zoom">1.00</span></div>
       <div><span class="label">sfx</span><span id="hud-sfx">on</span></div>
     `;
@@ -48,6 +54,9 @@ export class Hud {
     this.lasersEl = root.querySelector("#hud-lasers");
     this.missilesEl = root.querySelector<HTMLElement>("#hud-missiles");
     this.lockEl = root.querySelector<HTMLElement>("#hud-lock");
+    this.sigEl = root.querySelector<HTMLElement>("#hud-sig");
+    this.killsEl = root.querySelector<HTMLElement>("#hud-kills");
+    this.scoreEl = root.querySelector<HTMLElement>("#hud-score");
     this.zoomEl = root.querySelector("#hud-zoom");
     this.sfxEl = root.querySelector<HTMLElement>("#hud-sfx");
 
@@ -80,7 +89,7 @@ export class Hud {
     const banner = document.createElement("div");
     banner.id = "end-banner";
     banner.className = "end-banner hidden";
-    banner.innerHTML = `<div class="end-title"></div><div class="end-sub"></div>`;
+    banner.innerHTML = `<div class="end-title"></div><div class="end-stats"></div><div class="end-sub"></div>`;
     document.body.appendChild(banner);
     this.endBannerEl = banner;
   }
@@ -104,8 +113,9 @@ export class Hud {
   /**
    * Show the victory/defeat banner (idempotent — only writes the DOM once).
    * Pass null to hide it (e.g. on restart, though we currently reload).
+   * `stats` is the run summary line shown under the title (kills/score).
    */
-  setEndBanner(outcome: "victory" | "defeat" | null): void {
+  setEndBanner(outcome: "victory" | "defeat" | null, stats = ""): void {
     if (!this.endBannerEl) return;
     if (outcome === null) {
       if (!this.endShown) return;
@@ -117,8 +127,10 @@ export class Hud {
     this.endShown = true;
     const title = outcome === "victory" ? "VICTORY" : "DEFEAT";
     const titleEl = this.endBannerEl.querySelector<HTMLElement>(".end-title");
+    const statsEl = this.endBannerEl.querySelector<HTMLElement>(".end-stats");
     const subEl = this.endBannerEl.querySelector<HTMLElement>(".end-sub");
     if (titleEl) titleEl.textContent = title;
+    if (statsEl) statsEl.textContent = stats;
     if (subEl) subEl.textContent = "Press Enter to restart";
     this.endBannerEl.className = `end-banner ${outcome}`;
   }
@@ -151,6 +163,11 @@ export class Hud {
     nowMs: number,
     lockAvailable: boolean,
     zoom: number,
+    signature: "detected" | "hidden" | "untracked",
+    kills: number,
+    wingKills: number,
+    score: number,
+    bestScore: number,
   ): void {
     if (nowMs - this.lastTextUpdateMs < 100) return;
     this.lastTextUpdateMs = nowMs;
@@ -188,6 +205,36 @@ export class Hud {
       const canLock = lockAvailable && player.missileAmmo > 0;
       this.lockEl.textContent = canLock ? "LOCK" : "---";
       this.lockEl.style.color = canLock ? "#a6e3a1" : "#6c7086";
+    }
+
+    // Sensor signature cue — does the ENEMY's picture have a fresh track on
+    // you right now? DETECTED (red), HIDDEN (green, inside a nebula and
+    // untracked), or a dim NO TRACK (untracked in the open — they've merely
+    // lost you, nothing is concealing you).
+    if (this.sigEl) {
+      if (signature === "detected") {
+        this.sigEl.textContent = "DETECTED";
+        this.sigEl.style.color = "#f38ba8";
+      } else if (signature === "hidden") {
+        this.sigEl.textContent = "HIDDEN";
+        this.sigEl.style.color = "#a6e3a1";
+      } else {
+        this.sigEl.textContent = "NO TRACK";
+        this.sigEl.style.color = "#6c7086";
+      }
+    }
+
+    // Progression: the player's own kills (wing kills noted alongside) and
+    // the running score vs. the persistent best.
+    if (this.killsEl) {
+      this.killsEl.textContent =
+        wingKills > 0 ? `${kills} (+${wingKills} wing)` : String(kills);
+    }
+    if (this.scoreEl) {
+      this.scoreEl.textContent =
+        bestScore > 0 ? `${score} · best ${bestScore}` : String(score);
+      this.scoreEl.style.color =
+        score > 0 && score >= bestScore ? "#f9e2af" : "";
     }
   }
 }

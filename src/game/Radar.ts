@@ -1,22 +1,27 @@
 import type { Ship } from "./Ship";
 import type { Mothership } from "./Mothership";
 import type { Asteroid } from "./Asteroid";
-import type { Faction } from "./Faction";
+import { opposing, type Faction } from "./Faction";
 import { GameConfig } from "./GameConfig";
+import type { SensorContact, ConcealmentZone } from "./SensorSystem";
 
 /**
- * Basic tactical radar — a player-centered, north-up circular minimap drawn to
- * its own canvas in the bottom-right corner, redrawn every frame.
+ * Tactical radar — a player-centered, north-up circular minimap drawn to its
+ * own canvas in the bottom-right corner, redrawn every frame.
  *
  * Orientation matches the world camera (which does NOT rotate with the ship):
  * world +Z is up, +X is right. The player sits at the center as a heading
- * triangle; enemy fighters are dots and motherships are larger diamonds, all
- * faction-colored. Contacts beyond `rangeWorld` are clamped to the rim so the
- * player always gets a bearing to far things — most importantly the enemy
- * mothership objective.
+ * triangle. FRIENDLY fighters draw from ground truth (your own wing shares
+ * its telemetry); HOSTILE fighters draw from the player faction's SENSOR
+ * PICTURE — fresh contacts are solid dots, lost contacts linger as fading
+ * ghost rings at their last-known position, and ships that broke contact
+ * (e.g. inside a nebula) simply aren't there. Motherships are always-known
+ * diamonds (stationary, pre-briefed). Contacts beyond `rangeWorld` clamp to
+ * the rim so the player always gets a bearing — most importantly to the
+ * enemy mothership objective.
  *
  * Read-only: it never feeds gameplay, so it's safe to draw straight from live
- * ship/mothership references each frame.
+ * ship/contact references each frame.
  */
 export class Radar {
   private readonly ctx: CanvasRenderingContext2D;
@@ -63,14 +68,18 @@ export class Radar {
   }
 
   /**
-   * Redraw the radar. `player` anchors the center; every other live ship and
-   * both motherships are plotted relative to it.
+   * Redraw the radar. `player` anchors the center; `friendlies` are the
+   * player faction's ships (ground truth), `contacts` the player faction's
+   * sensor picture of the enemy.
    */
   update(
     player: Ship,
-    shipsByFaction: Record<Faction, Ship[]>,
+    friendlies: Ship[],
+    contacts: SensorContact[],
     motherships: Record<Faction, Mothership>,
     asteroids: Asteroid[],
+    nebulaZones: ReadonlyArray<ConcealmentZone>,
+    nowMs: number,
   ): void {
     const ctx = this.ctx;
     const c = this.center;
@@ -89,6 +98,12 @@ export class Radar {
     ctx.strokeStyle = "rgba(120, 140, 200, 0.18)";
     ctx.stroke();
 
+    // Nebula cover zones (terrain, under everything): faint violet discs so
+    // the player can SEE where breaking contact is possible.
+    for (const zone of nebulaZones) {
+      this.plotZone(zone, player);
+    }
+
     // Asteroids (terrain — drawn under the contacts). In-range only; clamping
     // ambient rocks to the rim would clutter the bearing to real contacts.
     for (const rock of asteroids) {
@@ -97,14 +112,45 @@ export class Radar {
     }
 
     // Motherships (drawn first so fighters sit on top): faction diamonds.
+    // Always shown — carriers are stationary and pre-briefed, not sensor-gated.
     this.plotDiamond(motherships.humans, player, "humans");
     this.plotDiamond(motherships.machines, player, "machines");
 
-    // Fighters of both factions (the player is the center marker, not a blip).
-    for (const faction of ["humans", "machines"] as Faction[]) {
-      for (const ship of shipsByFaction[faction]) {
-        if (ship === player || !ship.isAlive) continue;
-        this.plotDot(ship.position.x - player.position.x, ship.position.z - player.position.z, faction);
+    // Friendlies: ground truth (the wing shares its own telemetry).
+    for (const ship of friendlies) {
+      if (ship === player || !ship.isAlive) continue;
+      this.plotDot(
+        ship.position.x - player.position.x,
+        ship.position.z - player.position.z,
+        player.faction,
+        1,
+        false,
+      );
+    }
+
+    // Hostiles: the sensor picture. Fresh = solid dot; stale = ghost ring
+    // fading out over the track's memory window at its last-known position.
+    const enemyFaction = opposing(player.faction);
+    const memoryMs = GameConfig.sensors.memorySec * 1000;
+    for (const contact of contacts) {
+      if (!contact.isAlive) continue;
+      if (contact.fresh) {
+        this.plotDot(
+          contact.position.x - player.position.x,
+          contact.position.z - player.position.z,
+          enemyFaction,
+          1,
+          false,
+        );
+      } else {
+        const ageFrac = Math.min(1, (nowMs - contact.lastSeenMs) / memoryMs);
+        this.plotDot(
+          contact.position.x - player.position.x,
+          contact.position.z - player.position.z,
+          enemyFaction,
+          0.7 * (1 - ageFrac) + 0.1,
+          true,
+        );
       }
     }
 
@@ -128,16 +174,50 @@ export class Radar {
     return { x: this.center + px, y: this.center + py, offEdge };
   }
 
-  private plotDot(dx: number, dz: number, faction: Faction): void {
+  /**
+   * One fighter blip. `ghost` draws a hollow ring (a stale last-known
+   * position) instead of a solid dot; `alpha` carries the track's fade.
+   */
+  private plotDot(
+    dx: number,
+    dz: number,
+    faction: Faction,
+    alpha: number,
+    ghost: boolean,
+  ): void {
     const { x, y, offEdge } = this.project(dx, dz);
     const ctx = this.ctx;
     ctx.beginPath();
     ctx.arc(x, y, GameConfig.radar.fighterBlip, 0, Math.PI * 2);
-    ctx.fillStyle = Radar.BLIP[faction];
     // Out-of-range contacts are dimmer so the rim doesn't read as "right here".
-    ctx.globalAlpha = offEdge ? 0.55 : 1;
-    ctx.fill();
+    ctx.globalAlpha = (offEdge ? 0.55 : 1) * alpha;
+    if (ghost) {
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = Radar.BLIP[faction];
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = Radar.BLIP[faction];
+      ctx.fill();
+    }
     ctx.globalAlpha = 1;
+  }
+
+  /** Faint violet disc marking a nebula concealment zone. In-range only. */
+  private plotZone(zone: ConcealmentZone, player: Ship): void {
+    const { x, y, offEdge } = this.project(
+      zone.x - player.position.x,
+      zone.z - player.position.z,
+    );
+    if (offEdge) return;
+    const r = Math.max(2, zone.radius * this.scale);
+    const ctx = this.ctx;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(140, 90, 200, 0.16)";
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(160, 110, 220, 0.3)";
+    ctx.stroke();
   }
 
   /** Neutral grey dot for a rock, sized from its radius. In-range only. */

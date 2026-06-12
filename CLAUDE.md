@@ -14,9 +14,11 @@ You pilot a fighter on a flat X/Z plane against a single AI enemy in a
 bounded arena. Visual style: low-poly procedural ships, glowing lasers,
 bloomed engines, soft nebula backdrops, capital-ship silhouettes far below.
 
-Current state: single-player duel loop with respawn. Combat juice (camera
-shake, hitstop, damage flash) is in. No score, no waves, no menus, no
-networking. See `docs/ROADMAP.md` for the full status.
+Current state: single-player fleet-vs-fleet loop with respawn, combat juice
+(camera shake, hitstop, damage flash), a splash loadout menu (pick side +
+ship), per-faction sensors with nebula stealth, an enemy fleet commander,
+and kills/score with a persistent best. No waves, no networking. See
+`docs/ROADMAP.md` for the full status.
 
 ---
 
@@ -92,6 +94,9 @@ Game (top-level coordinator)
 ├── Engine + Scene + GlowLayer
 ├── Lights (HemisphericLight + DirectionalLight)
 ├── Scenery (Backdrop, Nebulas, Starfield, CapitalShips — fire-and-forget)
+├── CombatNebulas (gameplay stealth clouds; exports ConcealmentZone footprints)
+├── SensorSystem (per-faction contact pictures — AI + radar read THESE, not ground truth)
+├── FleetCommander (enemy-side doctrine: re-tasks the fleet on its own sensor picture)
 ├── Arena (wireframe grid + arena bounds)
 ├── Motherships × 2 (humans + machines; DamageTarget = the win/lose objective)
 ├── Combatants: Ship × N, each driven by a ShipController
@@ -116,8 +121,10 @@ Single `engine.runRenderLoop(this.tick)`. Each frame:
 3. `input.update()` — derives bools from held key set.
 4. Unlock audio on first input frame.
 5. **If not in hitstop (and the match hasn't ended):** advance simulation
-   (each combatant's controller → ship → fire → lasers → missiles →
-   explosions → win/lose check, including respawn logic).
+   (FleetCommander think → each combatant's controller → ship → fire →
+   lasers → missiles → explosions → win/lose check, including respawn
+   logic). Sensors update every frame just before this block (even during
+   hitstop, so the radar picture stays honest).
 6. **Always:** update camera (shake animates during hitstop), damage
    flash, engine hum, HUD, then `scene.render()`.
 
@@ -155,7 +162,7 @@ gets clobbered every frame; modifying inner root persists.
 
 ```
 src/
-  main.ts                  entry: find canvas, construct Game, handle resize
+  main.ts                  entry: splash flow (begin → loadout menu → start) → construct Game with the chosen loadout; handle resize
   style.css                full-viewport canvas + HUD styling
   game/
     Game.ts                top-level coordinator and render loop
@@ -168,10 +175,15 @@ src/
     AsteroidField.ts       rock collection: spawn/drift/wrap + shatter-into-chunks; exposes obstacles[] (held by reference by the weapon systems for cover)
     AssetLoader.ts         GLB importer with procedural fallback (two-tier root); fallback has two designs (classic/viper) via GameConfig.player.shipDesign
     Faction.ts             humans|machines type + opposing() + FACTION_THEME (colors/labels)
+    Loadout.ts             PlayerLoadout {faction, shipType} + localStorage save/load (validated vs GameConfig.factionShips)
+    LoadoutMenu.ts         splash side/ship select cards (plain DOM, keyboard-driven; stat bars read from shipTypes)
+    SensorSystem.ts        per-faction sensor picture: SensorContacts w/ last-known positions, ghost decay, nebula concealment
+    CombatNebulas.ts       gameplay stealth clouds above the fighter plane; zones[] feeds SensorSystem + Radar
+    FleetCommander.ts      enemy fleet doctrine (strikers/escorts/dynamic pool) re-tasked ~2s via AIController.setOrder()
     Ship.ts                unified ship sim + HP + DamageTarget + muzzle/fire (config-injected; merges old PlayerShip/EnemyShip)
     ShipController.ts      controller interface + ControllerWorld (opponents/mothership/leader → InputState)
     LocalInputController.ts  keyboard controller (surfaces InputManager.state) = the player
-    AIController.ts        order-driven AI (patrol/strike/hunt/cover/formation), emits InputState; default "patrol" = enemy behavior
+    AIController.ts        order-driven AI (patrol/strike/hunt/cover/formation/defend), emits InputState; targets SENSOR CONTACTS; setOrder() = runtime re-task seam
     FighterMesh.ts         faction-themed procedural fighter mesh + randomFighterSpawn helper
     Laser.ts               single bolt entity (position, age, kill flag)
     LaserSystem.ts         per-faction bolt collection + collision + onHit
@@ -189,8 +201,8 @@ src/
     CapitalShips.ts        3 procedural destroyer composites in deep background
     Mothership.ts          BSG-style carrier; DamageTarget objective (HP) + multi-bay launch helpers (getLaunchStartPosition(bayIndex))
     LaunchSequence.ts      per-ship catapult (hold→launching→complete); player's hold is the cinematic intro+3-2-1 countdown, others a staggered wait. Both fleets launch from their carrier's two bays at match start (Game.assignInitialLaunches/launchFleet); skipIntro = respawn relaunch
-    Hud.ts                 DOM HUD: HP cue + mothership objective bars + victory/defeat banner
-    Radar.ts               player-centered north-up canvas minimap (fighters + mothership blips)
+    Hud.ts                 DOM HUD: HP cue + sig (DETECTED/HIDDEN) + kills/score + mothership bars + victory/defeat banner
+    Radar.ts               player-centered north-up canvas minimap (friendlies = truth; hostiles = sensor picture w/ ghost rings; nebula zones)
 public/
   models/                  drop fighter.glb here if you want a real ship
   sounds/                  5 CC0 MP3s + SOURCES.md attribution
@@ -206,10 +218,13 @@ The whole game's tuning lives in `src/game/GameConfig.ts`. Major sections:
 | Section | What it controls |
 |---|---|
 | `shipTypes` | THE SHIP CATALOG: one complete profile per type (spitfire / breaker / wraith / reaver) — movement, muzzles, fireMode, `maxHp`, per-bolt `laserDamage`, `missileAmmo`, `hitRadius`, GLB `model`, fire sound. Add a ship = add an entry (see `docs/RECIPES.md` → "Add a new ship type") |
-| `player` | `shipType` (which catalog entry the pilot — and the wingmen — fly), faction, procedural fallback `shipDesign` |
-| `enemy` | `fleet` composition (list of `{ type, count }` catalog picks) + `strikeCount` (how many attack the player mothership) |
+| `player` | DEFAULT `shipType` + `faction` (the splash loadout menu overrides both per run — see `Loadout.ts`), procedural fallback `shipDesign` |
+| `factionShips` | Which catalog ships each faction fields (fighter, gunship) — the loadout menu's roster |
+| `fleets` | PER-FACTION fleet defaults: `fleet` composition (`{ type, count }` picks) + `strikeCount`. The AI flies the fleet of whichever side the player didn't pick |
+| `sensors` | Per-faction awareness: ship/carrier radar ranges, eyeball `visualRange`, ghost `memorySec`, sweep cadence, nebula penalty |
+| `commander` | Enemy fleet doctrine: think cadence, escort/defend/hunt counts, carrier-alert radius |
 | `ai` | Shared AI decision knobs: engage/fire ranges, fire cone, wander, leash, formation gains |
-| `player.wingmen` | Wing size, per-wingman orders + formation slots + optional per-wingman `shipTypes` (empty = wing clones the player's type) |
+| `player.wingmen` | Wing size, per-wingman orders + formation slots + PER-FACTION `shipTypes` lists (empty list = wing clones the player's type) |
 | `laser` | Bolt speed/lifetime/visuals (shared across both factions; per-bolt damage comes from the firing ship's type) |
 | `missile` | Homing secondary: speed, turnRate, damage range, lock range/cone, mesh + trail dims (rack size is per ship type) |
 | `arena` | Half-width, half-depth |
@@ -219,7 +234,7 @@ The whole game's tuning lives in `src/game/GameConfig.ts`. Major sections:
 | `hitstop` | Pause-frame durations per impact type, stack cap |
 | `damageFlash` | Duration, peak alpha, sphere diameter |
 | `glow` | Bloom intensity, blur kernel |
-| `starfield`, `scenery` | Counts and Y levels for backdrop layers |
+| `starfield`, `scenery` | Counts and Y levels for backdrop layers; `scenery.combatNebulas` = the gameplay stealth clouds (zones + visuals) |
 | `engineGlow` | Trail dims, response rate |
 | `explosion` | Debris count, durations, flash scale |
 | `scene` | Clear color, delta-time clamp |
@@ -376,7 +391,9 @@ for one, do it. Otherwise: don't.
 - **ECS framework**. The handful of entities don't need it.
 - **Mobile / touch controls**. Keyboard only.
 - **Gamepad input**.
-- **A complex menu system**. Game runs straight into play.
+- **A complex menu system**. The splash loadout select (side + ship) is the
+  deliberate ceiling — keyboard-first, saved choice, Enter-Enter into play.
+  Don't grow it into settings screens / pause menus unprompted.
 - **Asset preloading splash screens**.
 
 ---

@@ -3,6 +3,7 @@ import { clamp, exponentialDecay, wrapAngle } from "./math";
 import type { InputState } from "./types";
 import type { Ship } from "./Ship";
 import type { ShipController, ControllerWorld, AvoidObstacle } from "./ShipController";
+import type { SensorContact } from "./SensorSystem";
 
 /**
  * A standing order for a computer pilot. Assigned once at spawn (Phase 5: the
@@ -31,7 +32,12 @@ export interface AIControllerOptions {
   slot?: { x: number; z: number };
 }
 
-/** A thing this controller can aim its guns at (a Ship or a Mothership). */
+/**
+ * A thing this controller can aim its guns at (a sensor contact's last-known
+ * position, or a Mothership). Note that for contacts this means an AI fires
+ * at where its faction's sensors SAY the target is — a stale ghost draws fire
+ * at empty space, which is exactly the point of breaking contact.
+ */
 interface AimTarget {
   position: { x: number; z: number };
 }
@@ -64,7 +70,8 @@ export class AIController implements ShipController {
     zoomOut: false,
   };
 
-  private readonly order: AIOrder;
+  /** Standing order. Mutable: the FleetCommander re-tasks pilots at runtime. */
+  private order: AIOrder;
   private readonly slot: { x: number; z: number };
   /**
    * Where a `hunt` wingman loiters when it has no prey: its configured slot if
@@ -149,6 +156,25 @@ export class AIController implements ShipController {
       this.slot.x !== 0 || this.slot.z !== 0
         ? this.slot
         : { x: 0, z: -GameConfig.ai.huntEscortDistance };
+  }
+
+  /** The pilot's current standing order (FleetCommander reads before re-tasking). */
+  get currentOrder(): AIOrder {
+    return this.order;
+  }
+
+  /**
+   * Re-task this pilot at runtime (used by the FleetCommander). Zeroes the
+   * reaction timer so the new order takes hold on the next think, and clears
+   * the station-keeping jet latches so a slot order re-engages cleanly
+   * instead of resuming a stale Schmitt state.
+   */
+  setOrder(order: AIOrder): void {
+    if (order === this.order) return;
+    this.order = order;
+    this.reactionTimer = 0;
+    this.prevFwdCmd = 0;
+    this.prevLatCmd = 0;
   }
 
   update(deltaSeconds: number, self: Ship, world: ControllerWorld): InputState {
@@ -603,8 +629,12 @@ export class AIController implements ShipController {
     return this.wander(deltaSeconds, self, world);
   }
 
-  private nearestLiveOpponent(self: Ship, world: ControllerWorld, maxRange: number): Ship | null {
-    let best: Ship | null = null;
+  private nearestLiveOpponent(
+    self: Ship,
+    world: ControllerWorld,
+    maxRange: number,
+  ): SensorContact | null {
+    let best: SensorContact | null = null;
     let bestDistSq = maxRange * maxRange;
     for (const o of world.opponents) {
       if (!o.isAlive) continue;
@@ -619,14 +649,14 @@ export class AIController implements ShipController {
     return best;
   }
 
-  /** Nearest live opponent within `maxRange` of an arbitrary point (e.g. the leader). */
+  /** Nearest live contact within `maxRange` of an arbitrary point (e.g. the leader). */
   private nearestLiveOpponentToPoint(
     world: ControllerWorld,
     px: number,
     pz: number,
     maxRange: number,
-  ): Ship | null {
-    let best: Ship | null = null;
+  ): SensorContact | null {
+    let best: SensorContact | null = null;
     let bestDistSq = maxRange * maxRange;
     for (const o of world.opponents) {
       if (!o.isAlive) continue;

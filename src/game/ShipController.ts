@@ -1,6 +1,7 @@
 import type { InputState } from "./types";
 import type { Ship } from "./Ship";
 import type { Mothership } from "./Mothership";
+import type { SensorContact } from "./SensorSystem";
 
 /**
  * Minimal view of a round obstacle (an asteroid) for AI path avoidance.
@@ -20,8 +21,15 @@ export interface AvoidObstacle {
  * controller ignores it.
  */
 export interface ControllerWorld {
-  /** Live + dead opposing-faction ships (controllers filter by isAlive). */
-  opponents: Ship[];
+  /**
+   * Opposing-faction ships AS THIS FACTION'S SENSORS KNOW THEM — the shared
+   * sensor picture, not ground truth. A contact's position is last-known
+   * (fresh tracks follow the real ship; stale tracks freeze where contact was
+   * lost), and ships that break contact — e.g. by hiding in a nebula — age
+   * off the list entirely. Controllers filter by contact.isAlive, exactly as
+   * they did when this was a Ship[].
+   */
+  opponents: SensorContact[];
   /** The opposing faction's mothership, or null. */
   opponentMothership: Mothership | null;
   /** This faction's own mothership — used by "defend" order. */

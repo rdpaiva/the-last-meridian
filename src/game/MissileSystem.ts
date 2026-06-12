@@ -36,8 +36,13 @@ export type MissileSystemOptions = {
   trailEmissive: Color3;
   /** Optional material name prefix — handy when debugging in the inspector. */
   materialName?: string;
-  /** Called once per missile that detonates, with the world-space impact point. */
-  onHit?: (position: Vector3) => void;
+  /**
+   * Called once per missile that detonates, with the world-space impact point
+   * and the DamageTarget it struck — null when it detonated on an asteroid
+   * (cover) rather than a registered target. The target is reported AFTER
+   * damage is applied, so the caller can check `!target.isAlive` for a kill.
+   */
+  onHit?: (position: Vector3, target: DamageTarget | null) => void;
   /**
    * Live obstacles (asteroids) a missile detonates against. Checked BEFORE the
    * target loop, so a rock blocks a missile (cover) and the missile still pops
@@ -56,7 +61,9 @@ export class MissileSystem {
   private readonly trailMaterial: StandardMaterial;
   private readonly minDamage: number;
   private readonly maxDamage: number;
-  private readonly onHit: ((position: Vector3) => void) | null;
+  private readonly onHit:
+    | ((position: Vector3, target: DamageTarget | null) => void)
+    | null;
   /** Targets every missile tests against each frame (all enemies). */
   private readonly targets: DamageTarget[] = [];
   /** Asteroid cover missiles detonate against (held by reference; may be empty). */
@@ -250,7 +257,7 @@ export class MissileSystem {
           : rock.hitRadius;
         if (distSq <= r * r) {
           rock.takeDamage(this.rollDamage());
-          this.onHit?.(missile.mesh.position);
+          this.onHit?.(missile.mesh.position, null);
           missile.kill();
           blocked = true;
           break;
@@ -267,7 +274,7 @@ export class MissileSystem {
         const radiusSq = target.hitRadius * target.hitRadius;
         if (dx * dx + dz * dz <= radiusSq) {
           target.takeDamage(this.rollDamage());
-          this.onHit?.(missile.mesh.position);
+          this.onHit?.(missile.mesh.position, target);
           missile.kill();
           break;
         }

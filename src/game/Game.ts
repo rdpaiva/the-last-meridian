@@ -31,6 +31,7 @@ import { SecondaryThrusters } from "./SecondaryThrusters";
 import { CapitalShips } from "./CapitalShips";
 import { AsteroidField } from "./AsteroidField";
 import { Nebulas } from "./Nebulas";
+import { CombatNebulas } from "./CombatNebulas";
 import { Backdrop } from "./Backdrop";
 import { ExplosionSystem } from "./ExplosionSystem";
 import { SoundSystem } from "./SoundSystem";
@@ -41,6 +42,9 @@ import { LaunchSequence } from "./LaunchSequence";
 import { opposing, FACTION_THEME, type Faction } from "./Faction";
 import { LocalInputController } from "./LocalInputController";
 import { AIController } from "./AIController";
+import type { PlayerLoadout } from "./Loadout";
+import { SensorSystem } from "./SensorSystem";
+import { FleetCommander, type CommandedPilot } from "./FleetCommander";
 import type { ShipController, ControllerWorld } from "./ShipController";
 import { buildFighterMesh } from "./FighterMesh";
 import type { DamageTarget } from "./types";
@@ -53,6 +57,9 @@ type GameState = "launching" | "playing" | "victory" | "defeat";
  * main.ts checks it on load to skip the splash and start the game directly.
  */
 export const RESTART_FLAG = "space-duel-restart";
+
+/** localStorage key for the all-time best score (survives reloads/sessions). */
+const BEST_SCORE_KEY = "space-duel-best-score";
 
 /** A ship plus whatever drives it (keyboard / AI / future network). */
 interface Combatant {
@@ -105,6 +112,8 @@ export class Game {
   /** Which side the human pilot flies, and the side they fight. */
   private readonly playerFaction: Faction;
   private readonly enemyFaction: Faction;
+  /** Which catalog ship the pilot (and, by default, their wing) flies. */
+  private readonly playerShipTypeId: ShipTypeId;
 
   /** Each faction's own laser bolts (humans fire humansLasers, etc.). */
   private readonly factionLasers: Record<Faction, LaserSystem>;
@@ -129,6 +138,16 @@ export class Game {
     humans: [],
     machines: [],
   };
+  /**
+   * Per-faction sensor picture. AI controllers (and, for the player's side,
+   * the radar) target what THEIR faction's sensors report — last-known
+   * contact positions — never the opposing ships' ground truth.
+   */
+  private readonly sensors: SensorSystem;
+  /** Gameplay stealth clouds; their zones feed the sensors and the radar. */
+  private readonly combatNebulas: CombatNebulas;
+  /** Runtime re-tasking for the ENEMY fleet (built with it in start()). */
+  private fleetCommander: FleetCommander | null = null;
   /** Per-faction read-only world view handed to that faction's controllers. */
   private readonly worldByFaction: Record<Faction, ControllerWorld>;
 
@@ -151,6 +170,17 @@ export class Game {
   private playerCombatant: Combatant | null = null;
 
   /**
+   * Run stats — the progression readout. Kills the player personally landed
+   * (lasers tagged fromPlayer + all missiles) score points; the wing's kills
+   * are tallied separately and don't score. Score per kill = the victim's max
+   * hull, so heavies are worth more. Best score persists in localStorage.
+   */
+  private playerKills = 0;
+  private wingKills = 0;
+  private score = 0;
+  private bestScore = 0;
+
+  /**
    * Wall-clock timestamp until which the simulation is paused. While
    * `nowMs < hitstopUntilMs`, the tick skips simulation but still updates the
    * camera (so shake animates) and renders.
@@ -164,7 +194,11 @@ export class Game {
    */
   private readonly lastBumpMs = new Map<Ship, number>();
 
-  constructor(canvas: HTMLCanvasElement, hudRoot: HTMLDivElement) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    hudRoot: HTMLDivElement,
+    loadout?: PlayerLoadout,
+  ) {
     this.engine = new Engine(
       canvas,
       true,
@@ -223,9 +257,19 @@ export class Game {
     );
     this.scene.environmentIntensity = lcfg.environmentIntensity;
 
-    // --- Factions ---
-    this.playerFaction = GameConfig.player.faction;
+    // --- Factions + loadout ---
+    // The splash menu hands in the pilot's chosen side + ship; GameConfig
+    // holds the defaults (used in tests/dev paths with no menu). Copied here
+    // once — GameConfig itself stays read-only at runtime.
+    this.playerFaction = loadout?.faction ?? GameConfig.player.faction;
     this.enemyFaction = opposing(this.playerFaction);
+    this.playerShipTypeId = loadout?.shipType ?? GameConfig.player.shipType;
+
+    try {
+      this.bestScore = Number(localStorage.getItem(BEST_SCORE_KEY)) || 0;
+    } catch {
+      this.bestScore = 0; // storage unavailable — best just won't persist
+    }
 
     // --- Subsystems ---
     this.input = new InputManager();
@@ -236,6 +280,11 @@ export class Game {
     this.arena = new Arena(this.scene);
     this.backdrop = new Backdrop(this.scene);
     new Nebulas(this.scene, this.arena.halfWidth, this.arena.halfDepth);
+    this.combatNebulas = new CombatNebulas(
+      this.scene,
+      this.arena.halfWidth,
+      this.arena.halfDepth,
+    );
     new CapitalShips(
       this.scene,
       this.arena.halfWidth,
@@ -309,11 +358,19 @@ export class Game {
       trailEmissive: new Color3(2.2, 0.7, 0.1),
       materialName: "player_missile_mat",
       obstacles: this.asteroids.obstacles,
-      onHit: (pos) => {
+      onHit: (pos, struck) => {
         this.explosions.spawn(pos);
         this.sound.playExplosion(pos);
         this.cameraRig.addTrauma(this.traumaAtDistance(GameConfig.shake.traumaMissileHit, pos));
         this.applyHitstop(GameConfig.hitstop.missileHitMs);
+        // Missiles are player-fired — a fighter killed by one is the player's.
+        if (
+          struck instanceof Ship &&
+          struck.faction === this.enemyFaction &&
+          !struck.isAlive
+        ) {
+          this.recordKill(struck, true);
+        }
       },
     });
 
@@ -330,7 +387,7 @@ export class Game {
     };
 
     // Enemy AI fighters are built in start(), not here: each fleet type
-    // (GameConfig.enemy.fleet → GameConfig.shipTypes) clones a GLB template
+    // (GameConfig.fleets → GameConfig.shipTypes) clones a GLB template
     // that has to be loaded async first, the same way the player's wingmen
     // clone the player's loaded ship.
 
@@ -341,24 +398,31 @@ export class Game {
     this.hud = new Hud(hudRoot);
     this.radar = new Radar();
 
-    // Each faction's controllers see the OTHER faction as opponents. The
-    // opponents arrays are mutated in place each frame, so these views stay
-    // current without reallocation.
+    // Per-faction sensor pictures — built before the controller worlds, which
+    // hold the contact arrays by reference. The combat nebulas' footprints
+    // are what the sensors treat as concealment.
+    this.sensors = new SensorSystem(this.motherships);
+    this.sensors.concealmentZones = this.combatNebulas.zones;
+
+    // Each faction's controllers see the OTHER faction as opponents — through
+    // their own faction's SENSOR PICTURE, not ground truth. The contact
+    // arrays are rebuilt in place each frame, so these views stay current
+    // without reallocation.
     this.worldByFaction = {
       humans: {
-        opponents: this.shipsByFaction.machines,
+        opponents: this.sensors.contacts.humans,
         opponentMothership: this.motherships.machines,
         homeMothership: this.motherships.humans,
-        leader: null, // set to the player ship in start() if humans is the player side
+        leader: null, // set in start(): the player ship (player side) or the lead striker (AI side)
         obstacles: this.asteroids.asteroids,
         arenaHalfX: this.arena.halfWidth,
         arenaHalfZ: this.arena.halfDepth,
       },
       machines: {
-        opponents: this.shipsByFaction.humans,
+        opponents: this.sensors.contacts.machines,
         opponentMothership: this.motherships.humans,
         homeMothership: this.motherships.machines,
-        leader: null, // set to the player ship in start() if machines is the player side
+        leader: null, // set in start(): the player ship (player side) or the lead striker (AI side)
         obstacles: this.asteroids.asteroids,
         arenaHalfX: this.arena.halfWidth,
         arenaHalfZ: this.arena.halfDepth,
@@ -423,18 +487,20 @@ export class Game {
     const loader = new AssetLoader(this.scene);
     // Resolve the player's ship TYPE from the catalog — every stat (movement,
     // HP, per-bolt damage, missile rack, hit radius, model, fire sound) flows
-    // from this one entry. Flip GameConfig.player.shipType to fly another ship.
-    const playerType = GameConfig.shipTypes[GameConfig.player.shipType];
+    // from this one entry, chosen on the splash loadout menu.
+    const playerType = GameConfig.shipTypes[this.playerShipTypeId];
     const loaded = await loader.loadPlayerShip(playerType.model);
+    // The AI opposition flies the OTHER faction's fleet; the wing list is the
+    // player's faction's.
+    const enemyFleet = GameConfig.fleets[this.enemyFaction];
+    const wingTypes = GameConfig.player.wingmen.shipTypes[this.playerFaction];
     // One clone template per unique GLB an AI ship needs: the enemy fleet
     // composition, plus any wingman flying a type OTHER than the player's
     // (same-type wingmen clone the player's loaded model instead). A type
     // with model: null falls back to the procedural FighterMesh.
     const templateTypeIds: ShipTypeId[] = [
-      ...GameConfig.enemy.fleet.map((e) => e.type),
-      ...GameConfig.player.wingmen.shipTypes.filter(
-        (t) => t !== GameConfig.player.shipType,
-      ),
+      ...enemyFleet.fleet.map((e) => e.type),
+      ...wingTypes.filter((t) => t !== this.playerShipTypeId),
     ];
     const shipTemplates = new Map<string, TransformNode | null>();
     for (const id of templateTypeIds) {
@@ -468,11 +534,11 @@ export class Game {
     const wcfg = GameConfig.player.wingmen;
     for (let i = 0; i < wcfg.count; i++) {
       const typeId =
-        wcfg.shipTypes.length > 0
-          ? wcfg.shipTypes[i % wcfg.shipTypes.length]
-          : GameConfig.player.shipType;
+        wingTypes.length > 0
+          ? wingTypes[i % wingTypes.length]
+          : this.playerShipTypeId;
       let ship: Ship;
-      if (typeId === GameConfig.player.shipType) {
+      if (typeId === this.playerShipTypeId) {
         // Two-tier root like the player's: gameplay drives `root.rotation.y`, the
         // cloned model carries its own alignment. Clone modelRoot (the visual) — NOT
         // the player root — so the player-only engine glow / thrusters / damage
@@ -549,21 +615,41 @@ export class Game {
     // The player ship is the wing leader its faction's wingmen form on.
     this.worldByFaction[this.playerFaction].leader = this.playerShip;
 
-    // Enemy AI fleet, composed from GameConfig.enemy.fleet: the first
-    // `strikeCount` ships (counted across the whole fleet, in spawn order)
-    // press the player's mothership (the objective); the rest patrol/dogfight
-    // (the default order). Each ship is a clone of its TYPE's GLB template
-    // (or the procedural mesh if that type has none).
+    // Enemy AI fleet, composed from the opposing faction's fleet default.
+    // Initial orders implement the FleetCommander's role split: the first
+    // `strikeCount` ships fly "strike" at the player's mothership (the first
+    // of them doubles as the fleet's wing LEADER), the next
+    // `commander.escortCount` fly "cover" on that leader (an escorted strike
+    // package), and the rest start on "patrol" — the dynamic pool the
+    // commander re-tasks at runtime (hunt/defend/patrol). Each ship is a
+    // clone of its TYPE's GLB template (or the procedural mesh if none).
+    const enemyPilots: CommandedPilot[] = [];
+    const escortEnd = enemyFleet.strikeCount + GameConfig.commander.escortCount;
     let fleetIndex = 0;
-    for (const entry of GameConfig.enemy.fleet) {
+    for (const entry of enemyFleet.fleet) {
       const type = GameConfig.shipTypes[entry.type];
       const template = type.model ? (shipTemplates.get(type.model) ?? null) : null;
       for (let i = 0; i < entry.count; i++, fleetIndex++) {
         const ship = this.makeFighter(this.enemyFaction, type, template);
-        const order = fleetIndex < GameConfig.enemy.strikeCount ? "strike" : "patrol";
+        let controller: AIController;
+        if (fleetIndex < enemyFleet.strikeCount) {
+          controller = new AIController({ order: "strike" });
+        } else if (fleetIndex < escortEnd) {
+          // Escorts reuse the wing's slot generator — a generic expanding V
+          // around any leader, not something player-specific.
+          controller = new AIController({
+            order: "cover",
+            slot: GameConfig.player.wingmen.formationSlot(
+              fleetIndex - enemyFleet.strikeCount,
+            ),
+          });
+        } else {
+          controller = new AIController({ order: "patrol" });
+        }
+        enemyPilots.push({ ship, ai: controller });
         this.combatants.push({
           ship,
-          controller: new AIController({ order }),
+          controller,
           launch: null,
           bayIndex: 0,
         });
@@ -585,6 +671,18 @@ export class Game {
         this.aiDamageFlashes.set(ship, new DamageFlash(this.scene, ship.root, this.glowLayer, new Color3(2.5, 1.5, 0.2)));
       }
     }
+
+    // The lead striker is the enemy wing leader its escorts form on; the
+    // doctrine that re-tasks the rest of the fleet is the FleetCommander's,
+    // reading the SAME sensor picture the fleet flies on (fair play).
+    if (enemyPilots.length > 0) {
+      this.worldByFaction[this.enemyFaction].leader = enemyPilots[0].ship;
+    }
+    this.fleetCommander = new FleetCommander(
+      enemyPilots,
+      enemyFleet.strikeCount,
+      this.worldByFaction[this.enemyFaction],
+    );
 
     // Wire combat targets: every ship is a target of the opposing faction's
     // lasers; the player's missiles target every enemy ship + their mothership.
@@ -643,6 +741,37 @@ export class Game {
         // The player (not an AI wingman) landed the hit — add camera confirm.
         this.cameraRig.addTrauma(GameConfig.shake.traumaEnemyLaserHit);
         this.applyHitstop(GameConfig.hitstop.enemyLaserHitMs);
+      }
+      // The bolt landed on a live target (LaserSystem skips dead ones), so
+      // "dead now" means THIS shot was the killing blow.
+      if (
+        target instanceof Ship &&
+        target.faction === this.enemyFaction &&
+        !target.isAlive
+      ) {
+        this.recordKill(target, fromPlayer);
+      }
+    }
+  }
+
+  /**
+   * Credit a confirmed kill of an enemy fighter. Only the player's own kills
+   * score (and roll the persistent best); wing kills get their own tally so
+   * the HUD can still show the wing pulling its weight.
+   */
+  private recordKill(target: Ship, fromPlayer: boolean): void {
+    if (!fromPlayer) {
+      this.wingKills++;
+      return;
+    }
+    this.playerKills++;
+    this.score += target.maxHp;
+    if (this.score > this.bestScore) {
+      this.bestScore = this.score;
+      try {
+        localStorage.setItem(BEST_SCORE_KEY, String(this.bestScore));
+      } catch {
+        // Storage unavailable — the in-session best still shows.
       }
     }
   }
@@ -709,6 +838,15 @@ export class Game {
       const dz = enemy.position.z - pz;
       const dist = Math.hypot(dx, dz);
       if (dist > cfg.lockRange || dist >= bestDist) continue;
+      // A nebula denies the seeker head its sensor return: concealed ships
+      // can't be locked from outside eyeball range. (Symmetric with the AI's
+      // radar — hiding breaks missile locks too.)
+      if (
+        this.sensors.isConcealed(enemy.position) &&
+        dist > GameConfig.sensors.visualRange
+      ) {
+        continue;
+      }
       const angleToEnemy = Math.atan2(dx, dz);
       if (Math.abs(wrapAngle(angleToEnemy - this.playerShip.rotationY)) > cfg.lockConeAngle) {
         continue;
@@ -808,10 +946,16 @@ export class Game {
       if (anyInputHeld) this.sound.unlock();
 
       this.refreshRosters();
+      // Sensors run even during hitstop/end so the radar picture stays honest
+      // (tracks still age out); detection itself is throttled internally.
+      this.sensors.update(nowMs, this.shipsByFaction);
       const lockTarget = this.computeLockTarget();
 
       // --- Simulation (skipped during hitstop or after the match ends) ---
       if (!inHitstop && !ended) {
+        // Enemy fleet doctrine: re-task the dynamic pool (throttled internally).
+        this.fleetCommander?.update(nowMs);
+
         for (const c of this.combatants) {
           const ship = c.ship;
           const isPlayer = ship === this.playerShip;
@@ -993,12 +1137,23 @@ export class Game {
 
       // HUD.
       if (this.playerShip) {
+        // The stealth cue asks the ENEMY's sensor picture about the player.
+        const signature = this.sensors.isTracked(this.enemyFaction, this.playerShip)
+          ? "detected"
+          : this.sensors.isConcealed(this.playerShip.position)
+            ? "hidden"
+            : "untracked";
         this.hud.update(
           this.playerShip,
           this.factionLasers[this.playerFaction],
           nowMs,
           lockTarget !== null,
           this.cameraRig.currentZoom,
+          signature,
+          this.playerKills,
+          this.wingKills,
+          this.score,
+          this.bestScore,
         );
       }
       this.hud.setMothershipHp(
@@ -1008,14 +1163,20 @@ export class Game {
       if (this.playerShip) {
         this.radar.update(
           this.playerShip,
-          this.shipsByFaction,
+          this.shipsByFaction[this.playerFaction],
+          this.sensors.contacts[this.playerFaction],
           this.motherships,
           this.asteroids.asteroids,
+          this.combatNebulas.zones,
+          nowMs,
         );
       }
       this.hud.setLaunchOverlay(this.playerLaunch?.overlayText ?? null);
       this.hud.setEndBanner(
         this.state === "victory" ? "victory" : this.state === "defeat" ? "defeat" : null,
+        `KILLS ${this.playerKills} · SCORE ${this.score}${
+          this.score > 0 && this.score >= this.bestScore ? " · NEW BEST" : ""
+        }`,
       );
 
       this.scene.render();

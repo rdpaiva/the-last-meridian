@@ -153,6 +153,35 @@ and explicitly skipped. Update this when you finish or start work.
   Hunt now re-plans every frame (like formation/cover) so the escort heading
   stays fresh and the chase tracks tightly.
 
+### Sensors, stealth & fleet command (Phase 6)
+- **SensorSystem** — one shared sensor picture per faction (`SensorContact`s
+  with last-known positions + decay into ghosts). `ControllerWorld.opponents`
+  IS the picture: every AI pilot targets contacts, never ground truth, so both
+  sides can lose track of ships. Knobs in `GameConfig.sensors`.
+- **Combat nebulas** (`CombatNebulas`) — gameplay stealth clouds just above the
+  fighter plane; their footprints are SensorSystem concealment zones. Inside
+  one you vanish from the opposing radar (eyeball `visualRange` excepted),
+  missile locks are denied, and your own radar degrades. Fully symmetric.
+- **Sensor-driven radar** — friendlies from ground truth, hostiles from the
+  player faction's picture (fresh dots / fading ghost rings), nebula zones
+  drawn as violet discs. HUD `sig` line: DETECTED / HIDDEN / NO TRACK.
+- **FleetCommander** — enemy fleet doctrine on a 2s think: permanent strikers
+  (lead striker = enemy wing leader with cover escorts — the full order
+  palette now runs on the enemy side too) + a dynamic pool re-tasked between
+  defend (carrier threatened) / hunt (contacts exist) / patrol. Reads only its
+  own faction's sensor picture. `AIController.setOrder()` is the seam.
+
+### Loadout menu & progression (Phase 6)
+- **Splash loadout select** — pick a side (Commonwealth / Novari) and a ship
+  (that faction's fighter or gunship) on card UI with stat bars read from
+  `GameConfig.shipTypes`. Keyboard-driven, saved to localStorage, restart
+  replays the saved loadout; `GameConfig.fleets` is per-faction so the AI
+  flies whichever fleet you didn't pick. Wraith/Reaver gained reverse/strafe
+  authority so humans can fly them.
+- **Kills + score** — per-shooter kill attribution (player lasers tagged
+  `fromPlayer`, missiles, wing kills tallied separately); score = victim max
+  hull; best score persists in localStorage; HUD rows + end-banner summary.
+
 ### Asteroid field (terrain + cover)
 - **`AsteroidField` + `Asteroid`** — a drifting, tumbling field of procedural
   low-poly rocks (faceted icospheres with jittered verts) on the gameplay plane.
@@ -346,8 +375,8 @@ implemented yet. Roughly ordered by gameplay value.
 > Z. Flipping `GameConfig.player.faction` to `"machines"` now launches correctly
 > from the north pod.
 
-- **Score + combo multiplier** — kills earn points; quick consecutive
-  kills build a multiplier. Persist best score to localStorage.
+- **Combo multiplier** — quick consecutive kills build a score multiplier.
+  (Base kills/score + localStorage best landed in Phase 6.)
 - **Wave system** — replace single respawning enemy with escalating
   waves (1 enemy → 2 → 3 → 4, capped at 4). Wave counter in HUD.
 - **Invulnerability frames on respawn** — 1.5s with ship flicker so

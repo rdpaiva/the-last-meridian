@@ -1,6 +1,8 @@
 // Type-only import — erased at compile time, so no runtime cycle with Ship.ts
 // (which imports the GameConfig value from here).
 import type { ShipTypeConfig } from "./Ship";
+// Type-only as well — keys the per-faction records below (fleets, rosters).
+import type { Faction } from "./Faction";
 
 /**
  * Central tuning constants. Adjust to tune feel.
@@ -115,15 +117,16 @@ const shipTypes = {
   },
 
   /**
-   * Wraith — the Novari dogfighter the enemy fleet flies. (Values were
-   * GameConfig.enemy before the catalog existed.) reverse/strafe stay 0:
-   * the AIController never sets those inputs.
+   * Wraith — the Novari dogfighter. (Values were GameConfig.enemy before the
+   * catalog existed.) Carries reverse/strafe authority now that the loadout
+   * menu lets a human fly it (the AI formation servo uses them too); tuned a
+   * touch below the Spitfire's so the two fighters stay distinct.
    */
   wraith: {
     model: "wraith.glb",
     thrust: 38,
-    reverseThrust: 0,
-    strafeThrust: 0,
+    reverseThrust: 16,
+    strafeThrust: 28,
     maxSpeed: 20,
     dragRate: 0.9,
     rotationSpeed: 3.5,
@@ -147,14 +150,14 @@ const shipTypes = {
    * Slow scythe-winged weapons platform: out-hits and out-soaks the Breaker
    * slightly, carries the biggest missile rack in the catalog, and turns
    * like a barge. Four muzzles (twin long chin cannons + the two wing gun
-   * pods) ripple in alternate mode. reverse/strafe stay 0 like the Wraith's:
-   * the AIController never sets those inputs.
+   * pods) ripple in alternate mode. Reverse/strafe sit at Breaker-class
+   * authority so a human can fly it off the loadout menu.
    */
   reaver: {
     model: "reaver.glb",
     thrust: 36,
-    reverseThrust: 0,
-    strafeThrust: 0,
+    reverseThrust: 12,
+    strafeThrust: 18,
     /** Between the Wraith (20) and Breaker (17) — heavy but Novari-smooth. */
     maxSpeed: 18,
     dragRate: 0.9,
@@ -195,11 +198,12 @@ export const GameConfig = {
   player: {
     /**
      * Which catalog entry (GameConfig.shipTypes) the human pilot flies — and,
-     * by extension, the player's wingmen, who clone the same ship. Flip to
-     * "breaker" to take the heavy gunship out instead of the Spitfire; every
-     * stat (speed, HP, per-bolt damage, missile rack) follows the type.
+     * by extension, the player's wingmen, who clone the same ship. Every stat
+     * (speed, HP, per-bolt damage, missile rack) follows the type. This is the
+     * DEFAULT only: the splash loadout menu picks the ship per run and
+     * persists the choice in localStorage (see Loadout.ts).
      */
-    shipType: "breaker" as ShipTypeId,
+    shipType: "spitfire" as ShipTypeId,
 
     /**
      * Which procedural fallback ship to build (used when the type's GLB is
@@ -215,10 +219,11 @@ export const GameConfig = {
     /**
      * Which faction the human pilot flies for. The player is simply the one
      * Ship wearing a LocalInputController; this flag decides which side that
-     * is and which mothership is "home". Flip to "machines" to fly the red
-     * side from the north mothership — everything mirrors. No UI (by design).
+     * is and which mothership is "home" — everything mirrors when it flips.
+     * Like shipType above, this is the DEFAULT only: the splash loadout menu
+     * chooses the side per run.
      */
-    faction: "humans" as import("./Faction").Faction,
+    faction: "humans" as Faction,
 
     /**
      * AI wingmen that fly on the player's side (Phase 5). Each is an ordinary
@@ -250,14 +255,14 @@ export const GameConfig = {
       /** How many AI wingmen launch on the player's side. 0 disables the wing. */
       count: 2,
       /**
-       * Per-wingman SHIP TYPE (wraps if shorter than count, like `orders`).
-       * EMPTY = every wingman flies the player's own type, cloning the
-       * player's loaded model — the original behavior, and what keeps the wing
-       * mechanically identical to you (never faster, same drag, quiet slots).
+       * Per-wingman SHIP TYPE, one list per side the player might fly (the
+       * wing has to match the chosen faction). Within a list, entries wrap if
+       * shorter than count, like `orders`. An EMPTY list = every wingman flies
+       * the player's own type, cloning the player's loaded model — what keeps
+       * the wing mechanically identical to you (never faster, same drag).
        *
-       * Non-empty mixes the wing, e.g. fly the Breaker with two Spitfire
-       * escorts:  shipTypes: ["spitfire"]
-       * …or one of each:     shipTypes: ["spitfire", "breaker"]
+       * The defaults give either side's pilot a light-fighter escort (fly the
+       * gunship and the interceptors fly with you).
        *
        * Caveats for a wingman whose type differs from the player's:
        * - It is built like an enemy fleet clone: muzzles come from the type's
@@ -267,7 +272,10 @@ export const GameConfig = {
        *   the leader's ship (e.g. a Breaker escorting a Spitfire) cannot hold
        *   a slot at your full speed — it will trail when you burn flat-out.
        */
-      shipTypes: ["spitfire"] as ReadonlyArray<ShipTypeId>,
+      shipTypes: {
+        humans: ["spitfire"],
+        machines: ["wraith"],
+      } as Record<Faction, ReadonlyArray<ShipTypeId>>,
       /** Per-wingman standing order (wraps if shorter than count). */
       orders: ["cover"] as ReadonlyArray<
         "cover" | "formation" | "hunt" | "strike" | "defend"
@@ -595,6 +603,46 @@ export const GameConfig = {
     viewportColor: { r: 1.6, g: 1.05, b: 0.55 },
   },
 
+  /**
+   * Per-faction sensor model (SensorSystem) — what each side can SEE. Every
+   * AI pilot targets its faction's shared sensor picture (not ground truth),
+   * and the player's radar draws the same picture, so both sides can lose
+   * track of ships that break contact — most deliberately, by hiding inside
+   * a combat nebula (see scenery.combatNebulas, Phase 3).
+   */
+  sensors: {
+    /** Radar radius (world units) of every live fighter. */
+    shipRange: 220,
+    /**
+     * Radar radius of the carrier — the faction's long-range AWACS. Covers
+     * the home half of the field so strikers approaching the objective are
+     * seen coming; blind to concealed (nebula) ships at any range.
+     */
+    mothershipRange: 450,
+    /**
+     * Unconditional EYEBALL range: even a concealed ship is detected this
+     * close to a live enemy fighter. You can't be invisible in a knife fight.
+     */
+    visualRange: 40,
+    /**
+     * How long (sec) a lost contact's last-known position stays on the
+     * picture as a targetable "ghost" before the track fully expires. AI
+     * pilots fly to the ghost and search there; the radar fades it out.
+     */
+    memorySec: 6,
+    /**
+     * Detection sweep cadence (sec). Detection doesn't need per-frame
+     * precision; fresh contacts' POSITIONS still update every frame so AI
+     * aim points don't lag a sweep behind a fast target.
+     */
+    sweepIntervalSec: 0.25,
+    /**
+     * Factor on a fighter's OWN shipRange while it sits inside a nebula —
+     * hiding costs awareness, so cloud-camping isn't free. 1 = no penalty.
+     */
+    nebulaSensorFactor: 0.4,
+  },
+
   radar: {
     /** Canvas edge length (px); the dish is a circle inscribed in it. */
     sizePx: 190,
@@ -799,6 +847,39 @@ export const GameConfig = {
       /** Visual size of each nebula plane. */
       size: 320,
     },
+    /**
+     * COMBAT nebulas — gameplay clouds, unlike `nebulas` above (deep
+     * background scenery). Each is an alpha-blended painted cloud rendered
+     * slightly ABOVE the fighter plane, so ships that fly in are visibly
+     * veiled by it — and its X/Z footprint registers as a SensorSystem
+     * concealment zone: inside it a ship drops off the opposing radar except
+     * at eyeball range (see GameConfig.sensors). Hiding works both ways —
+     * enemies use the same clouds against the player's wing.
+     */
+    combatNebulas: {
+      /** Y level of the cloud quads: above the fighters (y=0), under the camera. */
+      yLevel: 7,
+      /** Opacity cap (the PNG's feathered alpha modulates per-pixel). */
+      alpha: 0.6,
+      /**
+       * The clouds: position as fractions of the arena half-extents (like the
+       * background nebulas) + the CONCEALMENT radius in world units. Placed
+       * midfield-ish so breaking contact is a route choice, not a spawn camp.
+       */
+      zones: [
+        { xFrac: -0.45, zFrac: 0.05, radius: 55 },
+        { xFrac: 0.5, zFrac: 0.4, radius: 48 },
+        { xFrac: 0.12, zFrac: -0.45, radius: 60 },
+      ] as ReadonlyArray<{ xFrac: number; zFrac: number; radius: number }>,
+      /**
+       * Visual quad edge = radius × this. The painted cloud feathers out well
+       * inside its quad, so >2 keeps the VISIBLE cloud roughly covering the
+       * hard sensor footprint. If hiding feels off (concealed while looking
+       * outside the cloud, or vice versa) tune this against `radius`.
+       */
+      visualScale: 2.6,
+    },
+
     /**
      * Deep-space image rendered as a full-screen background Layer (a 2D blit
      * behind the whole scene), not a 3D plane — see Backdrop.ts for why.
@@ -1060,48 +1141,91 @@ export const GameConfig = {
     enemyRespawnDelayMs: 3000,
   },
 
-  enemy: {
-    /**
-     * Fleet COMPOSITION: how many of each catalog type (GameConfig.shipTypes)
-     * the enemy launches. Entries spawn in order, so the strike ships (below)
-     * are drawn from the first entries. Mix types freely, e.g. to escort two
-     * heavy gunships with four fighters:
-     *
-     *   fleet: [
-     *     { type: "breaker", count: 2 },
-     *     { type: "wraith",  count: 4 },
-     *   ]
-     *
-     * Each type's GLB is loaded once and cloned per fighter; a type with
-     * `model: null` gets the procedural faction-themed FighterMesh instead.
-     */
-    fleet: [
+  /**
+   * Which catalog ships each faction fields: fighter first, then gunship.
+   * The loadout menu offers exactly this list for the chosen side, and saved
+   * loadouts are validated against it (see Loadout.ts).
+   */
+  factionShips: {
+    humans: ["spitfire", "breaker"],
+    machines: ["wraith", "reaver"],
+  } as Record<Faction, ReadonlyArray<ShipTypeId>>,
+
+  /**
+   * Per-faction fleet defaults. The AI opposition flies the fleet of whichever
+   * faction the player did NOT pick on the loadout menu (the player's own side
+   * fields the player + their wingmen instead — see player.wingmen).
+   *
+   * `fleet` is the COMPOSITION: how many of each catalog type
+   * (GameConfig.shipTypes) launch. Entries spawn in order, so the strike ships
+   * (below) are drawn from the first entries. Mix types freely. Each type's
+   * GLB is loaded once and cloned per fighter; a type with `model: null` gets
+   * the procedural faction-themed FighterMesh instead.
+   *
+   * `strikeCount`: how many fighters (counted across the whole fleet, in spawn
+   * order) fly a "strike" order — pressing the player's mothership and firing
+   * on it — instead of the default "patrol" (which only wanders toward the
+   * carrier and dogfights your fighters). This is what actually threatens the
+   * win/lose objective. The rest patrol/escort. Set 0 for a fleet that never
+   * attacks the carrier.
+   */
+  fleets: {
+    humans: {
+      // Breakers FIRST so strikeCount's strike orders land on the heavies.
+      fleet: [
+        { type: "breaker", count: 2 },
+        { type: "spitfire", count: 5 },
+      ],
+      strikeCount: 2,
+    },
+    machines: {
       // Reavers FIRST so strikeCount's strike orders land on the heavies —
       // they press the player's mothership while the wraith swarm escorts.
-      { type: "reaver", count: 2 },
-      { type: "wraith", count: 5 },
-    ] as ReadonlyArray<{
-      type: ShipTypeId;
-      count: number;
-    }>,
+      fleet: [
+        { type: "reaver", count: 2 },
+        { type: "wraith", count: 5 },
+      ],
+      strikeCount: 2,
+    },
+  } as Record<
+    Faction,
+    {
+      fleet: ReadonlyArray<{ type: ShipTypeId; count: number }>;
+      strikeCount: number;
+    }
+  >,
+
+  /**
+   * FleetCommander doctrine knobs — the ENEMY fleet's runtime re-tasking
+   * (the player's own wing keeps its static configured orders). See
+   * FleetCommander.ts for the full doctrine; roles split strikers (the first
+   * `fleets.*.strikeCount` ships) / escorts / a dynamic pool.
+   */
+  commander: {
+    /** Seconds between command re-evaluations. */
+    thinkIntervalSec: 2,
+    /** Ships (after the strikers, in spawn order) flying "cover" on the lead striker. */
+    escortCount: 2,
+    /** Max pool ships scrambled to "defend" while the carrier is threatened. */
+    defendCount: 2,
     /**
-     * How many enemy fighters (counted across the whole fleet, in spawn order)
-     * fly a "strike" order — pressing the player's mothership and firing on it
-     * — instead of the default "patrol" (which only wanders toward the carrier
-     * and dogfights your fighters). This is what actually threatens the
-     * win/lose objective. The rest patrol/escort. Set 0 for the old behavior
-     * (no enemy ever attacks the mothership).
+     * A contact this close to the home carrier (on the fleet's own sensor
+     * picture) trips the defense scramble. Hull damage since the last think
+     * trips it too, regardless of contacts.
      */
-    strikeCount: 2,
+    defendAlertRadius: 240,
+    /** Thinks the scramble persists after the last alert (4 × 2s = 8s calm-down). */
+    defendHoldThinks: 4,
+    /** Max pool ships sent to "hunt" while any contact (fresh or ghost) exists. */
+    huntCount: 2,
   },
 
   /**
    * Shared AI piloting tuning, read by `AIController` for BOTH sides' computer
    * fighters: the machine fighters AND the player's human wingmen (Phase 5).
    * These are *decision* knobs (when to engage, when to fire, how to wander) —
-   * the *movement* profile a fighter flies with (thrust/maxSpeed/muzzles) still
-   * comes from its faction's own block (the AI-fighter profile lives in
-   * `enemy`, which both sides' fighters share so the dogfight stays symmetric).
+   * the *movement* profile a fighter flies with (thrust/maxSpeed/muzzles)
+   * comes from its ship type in the catalog (GameConfig.shipTypes).
    */
   ai: {
     /**
