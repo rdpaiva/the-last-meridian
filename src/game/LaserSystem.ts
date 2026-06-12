@@ -207,17 +207,24 @@ export class LaserSystem {
 
       // Collision: swept X/Z test of the path segment against each live target.
       // Y axis is ignored — gameplay is on one plane. First overlap consumes
-      // the bolt.
+      // the bolt. The hitRadius circle is the broad phase; targets with an
+      // exact silhouette (mothership hull boxes) refine it via
+      // intersectsSegmentXZ so the bolt only dies on the visible hull.
       for (const target of targets) {
         if (!target.isAlive) continue;
         const distSq = distSqSegmentToPoint(target.position.x, target.position.z, ax, az, bx, bz);
         const radiusSq = target.hitRadius * target.hitRadius;
-        if (distSq <= radiusSq) {
-          target.takeDamage(laser.damage);
-          laser.kill();
-          this.onHit?.(target, laser.shooter);
-          break;
+        if (distSq > radiusSq) continue;
+        if (
+          target.intersectsSegmentXZ &&
+          !target.intersectsSegmentXZ(ax, az, bx, bz)
+        ) {
+          continue;
         }
+        target.takeDamage(laser.damage);
+        laser.kill();
+        this.onHit?.(target, laser.shooter);
+        break;
       }
     }
 

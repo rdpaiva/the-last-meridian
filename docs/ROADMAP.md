@@ -72,8 +72,9 @@ and explicitly skipped. Update this when you finish or start work.
   break to engage threats within `ai.coverBreakRange` of the leader, reform),
   `formation` (hold the wing slot, opportunistic fire only), `hunt` (seek &
   destroy the nearest enemy fighter, ignore the carrier), `strike` (press the
-  enemy mothership and fire on it — `fireRange` widens to the carrier's hitRadius
-  so it strafes from stand-off — self-defense fire only). Default loadout:
+  enemy mothership and fire on it — aims at the nearest point on the carrier's
+  hull boxes and fires within `ai.carrierFireStandoff` of that surface, so it
+  strafes from stand-off — self-defense fire only). Default loadout:
   2× `cover` + `hunt`.
 - **Wingmen fly the player's ship**, piloted with the same control inputs a human
   presses — the `AIController` only ever emits an `InputState` (thrust/turn/
@@ -327,6 +328,17 @@ and explicitly skipped. Update this when you finish or start work.
 - **Carrier fleet launch** — both motherships launch their full fighter complement
   from their pod bays at match start; ships respawn back through their carrier bay
   on death, so reinforcements always re-enter from the mothership
+- **Solid carrier hulls** (`MothershipSection`): each carrier's footprint is a
+  per-faction stack of world-space rectangles (`GameConfig.mothership.hullRects`)
+  fitted near-exactly to its GLB by `scripts/measure-carrier-footprint.mjs`.
+  Weapons hit the full visible hull (exact segment-vs-box via the optional
+  `DamageTarget.intersectsSegmentXZ` hook; damage forwards to the carrier's one
+  HP pool), ships are bumped out of the boxes (no more fighters hidden inside
+  the model), and the AI steers around coarse circles auto-derived from the
+  boxes (`Mothership.avoidanceCircles`). Strikers aim at the nearest hull
+  surface point and fire from `ai.carrierFireStandoff`. Replaces the old single
+  center-circle `hitRadius`, which left the bow/stern intangible and let
+  fighters fly (and fire from) inside the carriers.
 - `CameraRig.setZoom()` for programmatic zoom override during launch (bypasses
   `maxZoom` upper clamp so the cinematic wide-shot can exceed the player range)
 - Arena `halfDepth` expanded 400→600 to accommodate the post-launch glide path

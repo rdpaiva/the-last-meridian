@@ -54,4 +54,14 @@ export interface DamageTarget {
    * (the conservative max extent) when absent.
    */
   surfaceRadiusToward?(dirX: number, dirZ: number): number;
+  /**
+   * Optional exact X/Z silhouette test for non-round targets: does the
+   * segment (ax,az)→(bx,bz) touch this target? Pass a zero-length segment
+   * (ax=bx, az=bz) for a point test. Collision code uses `hitRadius` as the
+   * BROAD phase (it must circumscribe the silhouette), then calls this for
+   * the exact verdict when present. Mothership hull sections implement it
+   * as a segment-vs-rectangle test so the carriers' boxy hulls collide to
+   * their visible footprint instead of a circle.
+   */
+  intersectsSegmentXZ?(ax: number, az: number, bx: number, bz: number): boolean;
 }

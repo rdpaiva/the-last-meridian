@@ -584,11 +584,54 @@ export const GameConfig = {
      */
     maxHp: 1500,
     /**
-     * Flat X/Z collision radius for laser/missile tests. Generous (~central
-     * hull footprint) since we use one circle for the whole ship for now;
-     * per-part hitboxes (pods/turrets) come with mothership defenses later.
+     * Legacy single-circle radius. Kept only for DamageTarget interface
+     * compliance on Mothership itself — weapons and the ship keep-out use
+     * the hull-section rectangles below instead, which cover the full hull
+     * instead of just the midship.
      */
     hitRadius: 90,
+    /**
+     * Solid hull footprint, PER FACTION: a stack of rectangles along the keel
+     * in carrier-LOCAL coordinates (z along the keel, bow = +z; symmetric in
+     * x, halfWidth each side). Each becomes a MothershipSection — a
+     * world-space axis-aligned box (the carriers sit at rotY 0/π) that is a
+     * DamageTarget proxy forwarding to the carrier's single HP pool and the
+     * keep-out box ships are bumped out of. The AI's avoidance pass steers
+     * around COARSE CIRCLES derived from these boxes (Mothership.
+     * avoidanceCircles) — steering tolerates over-cover, damage doesn't.
+     *
+     * FITTED TO THE GLBs as the game builds them (model correction rotY=π,
+     * scale 10.6), measured with scripts/measure-carrier-footprint.mjs —
+     * near-exact: worst slack/phantom ≈ 1 unit (the measured silhouette is
+     * itself a stack of rectangles).
+     *
+     * INVARIANT: the forward-most rect's z1 must stay short of the launch
+     * exit (model bow extent + 25: Bastion ≈ 165, Choirship ≈ 171) so a
+     * fighter completing its catapult run is already outside the keep-out.
+     * Re-measure with the script if a carrier GLB is re-exported.
+     * NOTE: sized to the GLBs, not the procedural fallback carrier (whose
+     * pods run wider, to x≈±84) — under the fallback the pod flanks are
+     * partly intangible, which is acceptable for a missing-model fallback.
+     */
+    hullRects: {
+      humans: [
+        { z0: -134, z1: -100, halfWidth: 17 }, // stern spine
+        { z0: -100, z1: 120, halfWidth: 51 },  // main body (pods)
+        { z0: 120, z1: 130, halfWidth: 44 },   // bow taper
+        { z0: 130, z1: 140, halfWidth: 17 },   // bow tip
+      ],
+      machines: [
+        { z0: -148, z1: -110, halfWidth: 48 }, // stern block
+        { z0: -110, z1: -80, halfWidth: 40 },  // waist
+        { z0: -80, z1: 60, halfWidth: 53 },    // main body
+        { z0: 60, z1: 80, halfWidth: 28 },     // bow taper
+        { z0: 80, z1: 120, halfWidth: 18 },    // bow spike
+        { z0: 120, z1: 147, halfWidth: 12 },   // spike tip
+      ],
+    } as Record<
+      import("./Faction").Faction,
+      ReadonlyArray<{ z0: number; z1: number; halfWidth: number }>
+    >,
 
     // --- Death spectacle (played once when a mothership is destroyed). ---
     /** Number of explosions scattered across the hull on death. */
@@ -1283,6 +1326,15 @@ export const GameConfig = {
     fireRange: 26,
     /** Half-angle of the fire cone (rad). 0.22 ≈ 12.6°. */
     fireConeAngle: 0.22,
+    /**
+     * Strike order: open fire on the enemy carrier from this far off its hull
+     * SURFACE (the nearest point on any hull-section rectangle, not the
+     * carrier center). Set just above avoidLookahead so a striker starts
+     * shooting on approach right before the avoidance pass peels it into a
+     * strafing run along the hull — it never has to (and can't) enter the
+     * hull to shoot.
+     */
+    carrierFireStandoff: 60,
 
     /** How often the wander heading gets nudged (seconds). */
     wanderRetargetSec: 1.4,

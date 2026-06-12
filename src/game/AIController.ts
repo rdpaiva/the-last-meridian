@@ -82,6 +82,12 @@ export class AIController implements ShipController {
    */
   private readonly escortSlot: { x: number; z: number };
   /**
+   * Scratch aim target for the strike order's carrier attack, reused each
+   * think so targeting the hull stays allocation-free. Holds the nearest
+   * point on the enemy carrier's hull boxes (not the carrier center).
+   */
+  private readonly carrierAim = { position: { x: 0, z: 0 } };
+  /**
    * Scratch output of `stationKeep`, reused each frame so the servo stays
    * allocation-free. Both the formation/cover orders and the hunt loiter fill
    * it, then copy its fields into the per-frame control locals.
@@ -224,12 +230,34 @@ export class AIController implements ShipController {
             steerHeading = this.headingTo(self, close.position.x, close.position.z);
             aim = close;
           } else if (world.opponentMothership) {
-            const m = world.opponentMothership;
-            steerHeading = this.headingTo(self, m.position.x, m.position.z);
-            aim = m;
-            // The carrier is huge — fire from its hit radius, not the fighter range,
-            // so strikers strafe it from stand-off instead of ramming the hull.
-            fireRange = m.hitRadius;
+            // Press the NEAREST POINT on the carrier's hull boxes, not its
+            // center — the hull is hundreds of units long, and center-seeking
+            // flew strikers INTO the bow before they were "in range". Aiming
+            // at the clamped surface point makes the fire gate (dist <
+            // carrierFireStandoff) a distance-to-surface test, so a striker
+            // opens up on approach and the avoidance pass (the carrier's
+            // steering circles are obstacles) then peels it into a strafing
+            // run along the hull instead of letting it ram or enter the model.
+            let bestSq = Infinity;
+            for (const s of world.opponentMothership.hullSections) {
+              const px = clamp(self.position.x, s.minX, s.maxX);
+              const pz = clamp(self.position.z, s.minZ, s.maxZ);
+              const dx = px - self.position.x;
+              const dz = pz - self.position.z;
+              const dSq = dx * dx + dz * dz;
+              if (dSq < bestSq) {
+                bestSq = dSq;
+                this.carrierAim.position.x = px;
+                this.carrierAim.position.z = pz;
+              }
+            }
+            steerHeading = this.headingTo(
+              self,
+              this.carrierAim.position.x,
+              this.carrierAim.position.z,
+            );
+            aim = this.carrierAim;
+            fireRange = cfg.carrierFireStandoff;
           } else {
             steerHeading = this.wander(deltaSeconds, self, world);
           }

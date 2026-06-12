@@ -200,7 +200,8 @@ src/
     Nebulas.ts             alpha-blended cloud quads from PNG textures (count via GameConfig)
     Backdrop.ts            full-screen deep-space background Layer (2D blit)
     CapitalShips.ts        3 procedural destroyer composites in deep background
-    Mothership.ts          BSG-style carrier; DamageTarget objective (HP) + multi-bay launch helpers (getLaunchStartPosition(bayIndex))
+    Mothership.ts          BSG-style carrier; DamageTarget objective (HP) + multi-bay launch helpers (getLaunchStartPosition(bayIndex)); hullSections = solid hull footprint, avoidanceCircles = AI steering shapes
+    MothershipSection.ts   one world-space rectangle of a carrier's hull footprint: weapons-collision proxy via intersectsSegmentXZ (damage forwards to the carrier's single HP pool) + ship keep-out box
     LaunchSequence.ts      per-ship catapult (hold→launching→complete); player's hold is the cinematic intro+3-2-1 countdown, others a staggered wait. Both fleets launch from their carrier's two bays at match start (Game.assignInitialLaunches/launchFleet); skipIntro = respawn relaunch
     Hud.ts                 DOM HUD: HP cue + sig (DETECTED/HIDDEN) + kills/score + mothership bars + victory/defeat banner
     Radar.ts               player-centered north-up canvas minimap (friendlies = truth; hostiles = sensor picture w/ ghost rings; nebula zones)
@@ -208,6 +209,8 @@ public/
   models/                  drop fighter.glb here if you want a real ship
   sounds/                  5 CC0 MP3s + SOURCES.md attribution
   textures/                nebula cloud PNGs + space-backdrop.jpg (+ SOURCES.md)
+scripts/
+  measure-carrier-footprint.mjs  headless (NullEngine) GLB footprint measurer — run after re-exporting a carrier model to re-fit GameConfig.mothership.hullRects + verify the launch-exit clearance
 ```
 
 ---
@@ -224,7 +227,8 @@ The whole game's tuning lives in `src/game/GameConfig.ts`. Major sections:
 | `fleets` | PER-FACTION fleet defaults: `fleet` composition (`{ type, count }` picks) + `strikeCount`. The AI flies the fleet of whichever side the player didn't pick |
 | `sensors` | Per-faction awareness: ship/carrier radar ranges, eyeball `visualRange`, ghost `memorySec`, sweep cadence, nebula penalty |
 | `commander` | Enemy fleet doctrine: think cadence, escort/defend/hunt counts, carrier-alert radius |
-| `ai` | Shared AI decision knobs: engage/fire ranges, fire cone, wander, leash, formation gains |
+| `ai` | Shared AI decision knobs: engage/fire ranges, fire cone, carrier-strike standoff, wander, leash, formation gains |
+| `mothership` | Carrier objective: HP, GLB models + correction, launch bays, death FX — and `hullRects`, the PER-FACTION solid hull footprint (fitted to the GLBs via `scripts/measure-carrier-footprint.mjs`; re-fit after re-exporting a carrier model) |
 | `player.wingmen` | Wing size, per-wingman orders + formation slots + PER-FACTION `shipTypes` lists (empty list = wing clones the player's type) |
 | `laser` | Bolt speed/lifetime/visuals (shared across both factions; per-bolt damage comes from the firing ship's type) |
 | `missile` | Homing secondary: speed, turnRate, damage range, lock range/cone, mesh + trail dims (rack size is per ship type) |

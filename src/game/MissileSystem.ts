@@ -266,18 +266,27 @@ export class MissileSystem {
       if (blocked) continue;
 
       // Collision: X/Z distance vs. each live target (Y ignored — single
-      // plane). First overlap detonates the missile.
+      // plane). First overlap detonates the missile. hitRadius is the broad
+      // phase; targets with an exact silhouette (mothership hull boxes)
+      // refine it via intersectsSegmentXZ with a zero-length segment.
       for (const target of targets) {
         if (!target.isAlive) continue;
-        const dx = missile.mesh.position.x - target.position.x;
-        const dz = missile.mesh.position.z - target.position.z;
+        const mx = missile.mesh.position.x;
+        const mz = missile.mesh.position.z;
+        const dx = mx - target.position.x;
+        const dz = mz - target.position.z;
         const radiusSq = target.hitRadius * target.hitRadius;
-        if (dx * dx + dz * dz <= radiusSq) {
-          target.takeDamage(this.rollDamage());
-          this.onHit?.(missile.mesh.position, target);
-          missile.kill();
-          break;
+        if (dx * dx + dz * dz > radiusSq) continue;
+        if (
+          target.intersectsSegmentXZ &&
+          !target.intersectsSegmentXZ(mx, mz, mx, mz)
+        ) {
+          continue;
         }
+        target.takeDamage(this.rollDamage());
+        this.onHit?.(missile.mesh.position, target);
+        missile.kill();
+        break;
       }
     }
 

@@ -47,8 +47,12 @@
   (`AIOrder`) + optional formation slot:
   - `patrol` (default = the original enemy behavior): wander leashed toward the
     objective mothership, engage the nearest opponent in `engagementRange`.
-  - `strike`: press the enemy mothership and fire on it (fire range widens to the
-    carrier's `hitRadius` so it strafes from stand-off), self-defense fire only.
+  - `strike`: press the enemy mothership and fire on it — aims at the **nearest
+    point on the carrier's hull boxes** (not the carrier center) and fires
+    within `carrierFireStandoff` of that surface point; the carrier's steering
+    circles are avoidance obstacles, so a striker opens fire on approach and
+    gets peeled into a strafing run along the hull instead of entering it.
+    Self-defense fire only.
   - `hunt`: chase the nearest enemy fighter, ignore the carrier; with no prey,
     **loiter on the leader** (station-keep on an escort slot trailing it via the
     shared `stationKeep` servo) instead of charging its position and looping back.
@@ -190,12 +194,37 @@ friendly-fire-free without per-bolt faction checks.
   is as blind as the fleet.
 
 ## Mothership (the objective)
-- Implements `DamageTarget`: large `maxHp` + generous single `hitRadius`
-  (`GameConfig.mothership`) covering the central hull. Per-part hitboxes are a
-  later defenses pass.
-- It is registered as a target of the **opposing** faction's lasers/missiles.
-  Destroying the enemy's mothership → **victory**; losing yours → **defeat**
-  (see `Game.checkObjectives` / `endMatch`).
+- Implements `DamageTarget`, but weapons never test the carrier itself —
+  collision is per **hull section** (`Mothership.hullSections`,
+  `MothershipSection.ts`): world-space axis-aligned **rectangles** stacked
+  along the keel, **per faction** (`GameConfig.mothership.hullRects` — the
+  Bastion and the Choirship are different shapes), fitted near-exactly to
+  each GLB's measured footprint by `scripts/measure-carrier-footprint.mjs`
+  (re-run it after re-exporting a carrier model). A single center circle had
+  left the bow/stern intangible and let fighters fly (and fire from) inside
+  the model. Weapons broad-phase against each section's bounding circle
+  (`hitRadius`), then resolve the exact hit with the optional
+  `DamageTarget.intersectsSegmentXZ` hook (segment-vs-box; a zero-length
+  segment = the missile point test). Each section forwards `takeDamage` to
+  the carrier's **one HP pool** — the ship is damaged as a whole; sections
+  have no HP of their own. The carrier's own `hitRadius` is legacy, kept for
+  the `DamageTarget` interface.
+- The boxes are also the carrier's **solid footprint**:
+  `Game.resolveMothershipCollisions` bumps any overlapping ship back to the
+  nearest box surface (no ram damage, unlike rocks). The AI's circle-only
+  avoidance pass steers around `Mothership.avoidanceCircles` — coarse circles
+  auto-derived from the boxes (roughly-square slices, circumscribed) and fed
+  to `Game.refreshAiObstacles`. The asymmetry is deliberate: over-covering is
+  harmless for steering (a wide berth looks natural) but broken-looking for
+  damage (bolts dying in empty space), so steering and damage use different
+  shapes. **Launching ships are exempt from the bump** — the catapult starts
+  them inside the hull; the forward rects stop short of the launch exit
+  distance, so control hands back outside the keep-out. Mind that invariant
+  if you grow a faction's `hullRects` toward the bow or shrink the launch
+  exit margin (the measure script prints both numbers).
+- Each SECTION is registered as a target of the **opposing** faction's
+  lasers/missiles. Destroying the enemy's mothership → **victory**; losing
+  yours → **defeat** (see `Game.checkObjectives` / `endMatch`).
 - `onLaserHit` deliberately gives mothership chips only a light hit cue (no
   trauma/hitstop) — otherwise sustained fire on the stationary 1500-HP target
   would spam hitstop and crawl the whole game.

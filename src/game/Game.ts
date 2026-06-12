@@ -38,6 +38,7 @@ import { SoundSystem } from "./SoundSystem";
 import { MusicSystem } from "./MusicSystem";
 import { DamageFlash } from "./DamageFlash";
 import { Mothership } from "./Mothership";
+import { MothershipSection } from "./MothershipSection";
 import { LaunchSequence } from "./LaunchSequence";
 import { opposing, FACTION_THEME, type Faction } from "./Faction";
 import { LocalInputController } from "./LocalInputController";
@@ -45,7 +46,7 @@ import { AIController } from "./AIController";
 import type { PlayerLoadout } from "./Loadout";
 import { SensorSystem } from "./SensorSystem";
 import { FleetCommander, type CommandedPilot } from "./FleetCommander";
-import type { ShipController, ControllerWorld } from "./ShipController";
+import type { ShipController, ControllerWorld, AvoidObstacle } from "./ShipController";
 import { buildFighterMesh } from "./FighterMesh";
 import type { DamageTarget } from "./types";
 
@@ -150,6 +151,13 @@ export class Game {
   private fleetCommander: FleetCommander | null = null;
   /** Per-faction read-only world view handed to that faction's controllers. */
   private readonly worldByFaction: Record<Faction, ControllerWorld>;
+  /**
+   * Combined obstacle list the AI avoidance pass flies around: live asteroids
+   * plus BOTH carriers' hull sections. Rebuilt in place each frame (the
+   * asteroid array mutates as rocks shatter); both factions share it — every
+   * pilot should steer around every carrier, its own included.
+   */
+  private readonly aiObstacles: AvoidObstacle[] = [];
 
   /** The locally-controlled ship (built on async asset load). */
   private playerShip: Ship | null = null;
@@ -416,7 +424,7 @@ export class Game {
         opponentMothership: this.motherships.machines,
         homeMothership: this.motherships.humans,
         leader: null, // set in start(): the player ship (player side) or the lead striker (AI side)
-        obstacles: this.asteroids.asteroids,
+        obstacles: this.aiObstacles,
         arenaHalfX: this.arena.halfWidth,
         arenaHalfZ: this.arena.halfDepth,
       },
@@ -425,7 +433,7 @@ export class Game {
         opponentMothership: this.motherships.humans,
         homeMothership: this.motherships.machines,
         leader: null, // set in start(): the player ship (player side) or the lead striker (AI side)
-        obstacles: this.asteroids.asteroids,
+        obstacles: this.aiObstacles,
         arenaHalfX: this.arena.halfWidth,
         arenaHalfZ: this.arena.halfDepth,
       },
@@ -694,10 +702,17 @@ export class Game {
         this.playerMissiles.addTarget(c.ship);
       }
     }
+    // Carriers are targeted per HULL SECTION (overlapping circles covering the
+    // full hull, each forwarding damage to the one HP pool) — not via the
+    // center hitRadius, which left the bow/stern intangible.
     for (const f of ["humans", "machines"] as Faction[]) {
-      this.factionLasers[opposing(f)].addTarget(this.motherships[f]);
+      for (const section of this.motherships[f].hullSections) {
+        this.factionLasers[opposing(f)].addTarget(section);
+      }
     }
-    this.playerMissiles.addTarget(this.motherships[this.enemyFaction]);
+    for (const section of this.motherships[this.enemyFaction].hullSections) {
+      this.playerMissiles.addTarget(section);
+    }
 
     // Upgrade both carriers from the procedural box build to their faction's
     // Blender GLB — Bastion Carrier for the humans, Choirship for the Novari
@@ -733,8 +748,9 @@ export class Game {
   private onLaserHit(target: DamageTarget, shooter: Ship | null): void {
     const fromPlayer = shooter !== null && shooter === this.playerShip;
     this.sound.playHit(target.position);
-    // Chipping a mothership: light cue only (avoid hitstop spam on the objective).
-    if (target === this.motherships.humans || target === this.motherships.machines) {
+    // Chipping a mothership: light cue only (avoid hitstop spam on the
+    // objective). Carriers are hit through their hull-section proxies.
+    if (target instanceof MothershipSection) {
       return;
     }
     if (target === this.playerShip) {
@@ -933,6 +949,92 @@ export class Game {
     }
   }
 
+  /**
+   * Rebuild the shared AI obstacle list in place: the asteroid field's live
+   * rocks (its array mutates as rocks shatter into chunks) plus both
+   * carriers' steering circles, so pilots steer around the motherships with
+   * the same avoidance pass that dodges asteroids. (The circles deliberately
+   * over-cover the hull boxes — see Mothership.avoidanceCircles.)
+   */
+  private refreshAiObstacles(): void {
+    this.aiObstacles.length = 0;
+    for (const rock of this.asteroids.asteroids) this.aiObstacles.push(rock);
+    for (const f of ["humans", "machines"] as Faction[]) {
+      for (const circle of this.motherships[f].avoidanceCircles) {
+        this.aiObstacles.push(circle);
+      }
+    }
+  }
+
+  /**
+   * Bump any ship overlapping a carrier hull box back to its surface and
+   * cancel the inward velocity component — the carriers are solid, so nothing
+   * can sit inside the model (where the top-down camera loses it under the
+   * superstructure). Unlike asteroid bumps this deals no ram damage: brushing
+   * the objective shouldn't shred a fighter, it just can't get in. Ships in
+   * the launch tube are exempt — the catapult starts them INSIDE the hull and
+   * its exit distance hands control back past the bow boxes.
+   */
+  private resolveMothershipCollisions(): void {
+    for (const c of this.combatants) {
+      const ship = c.ship;
+      if (!ship.isAlive) continue;
+      if (c.launch && !c.launch.isComplete) continue;
+      for (const f of ["humans", "machines"] as Faction[]) {
+        for (const s of this.motherships[f].hullSections) {
+          const r = ship.hitRadius;
+          // Closest point on the box to the ship center. No early-out after
+          // a bump: at a seam between two boxes the next iteration resolves
+          // any remaining penetration.
+          const px = Math.min(Math.max(ship.position.x, s.minX), s.maxX);
+          const pz = Math.min(Math.max(ship.position.z, s.minZ), s.maxZ);
+          const dx = ship.position.x - px;
+          const dz = ship.position.z - pz;
+          const distSq = dx * dx + dz * dz;
+          if (distSq > 0) {
+            // Center outside the box: overlapping iff closer than the ship's
+            // radius. Push out along the surface normal and kill the inward
+            // velocity component (vn < 0).
+            if (distSq >= r * r) continue;
+            const dist = Math.sqrt(distSq);
+            const nx = dx / dist;
+            const nz = dz / dist;
+            ship.position.x = px + nx * r;
+            ship.position.z = pz + nz * r;
+            const vn = ship.velocity.x * nx + ship.velocity.z * nz;
+            if (vn < 0) {
+              ship.velocity.x -= vn * nx;
+              ship.velocity.z -= vn * nz;
+            }
+          } else {
+            // Center INSIDE the box (deep overlap in one frame): exit through
+            // the nearest face and zero the velocity component driving in.
+            const left = ship.position.x - s.minX;
+            const right = s.maxX - ship.position.x;
+            const near = ship.position.z - s.minZ;
+            const far = s.maxZ - ship.position.z;
+            const min = Math.min(left, right, near, far);
+            if (min === left) {
+              ship.position.x = s.minX - r;
+              if (ship.velocity.x > 0) ship.velocity.x = 0;
+            } else if (min === right) {
+              ship.position.x = s.maxX + r;
+              if (ship.velocity.x < 0) ship.velocity.x = 0;
+            } else if (min === near) {
+              ship.position.z = s.minZ - r;
+              if (ship.velocity.z > 0) ship.velocity.z = 0;
+            } else {
+              ship.position.z = s.maxZ + r;
+              if (ship.velocity.z < 0) ship.velocity.z = 0;
+            }
+          }
+          // Re-sync the visual with the corrected sim position.
+          ship.root.position.copyFrom(ship.position);
+        }
+      }
+    }
+  }
+
   private readonly tick = (): void => {
     try {
       const deltaSeconds = Math.min(
@@ -955,6 +1057,7 @@ export class Game {
       if (anyInputHeld) this.sound.unlock();
 
       this.refreshRosters();
+      this.refreshAiObstacles();
       // Sensors run even during hitstop/end so the radar picture stays honest
       // (tracks still age out); detection itself is throttled internally.
       this.sensors.update(nowMs, this.shipsByFaction);
@@ -1059,6 +1162,8 @@ export class Game {
 
         // Ships that rammed a rock this frame: hard-bump them off it + damage.
         this.resolveAsteroidCollisions(nowMs);
+        // The carriers are solid: bump out anyone overlapping a hull section.
+        this.resolveMothershipCollisions();
 
         // Death FX + respawn, per combatant.
         for (const c of this.combatants) {
