@@ -268,11 +268,15 @@ export const GameConfig = {
       /**
        * Per-wingman SHIP TYPE, one list per side the player might fly (the
        * wing has to match the chosen faction). Within a list, entries wrap if
-       * shorter than count, like `orders`. An EMPTY list = every wingman flies
-       * the player's own type, cloning the player's loaded model — what keeps
-       * the wing mechanically identical to you (never faster, same drag).
+       * shorter than count, like `orders`. A wingman whose type matches the
+       * player's flies a CLONE of the player's loaded model — mechanically
+       * identical to you (never faster, same drag); an EMPTY list defaults
+       * every wingman to that same clone-the-player behavior.
        *
-       * The defaults give either side's pilot a light-fighter escort (fly the
+       * One EXPLICIT entry per slot, padded to the max wing size (6) — the
+       * match-settings screen exposes one ship-type dropdown per slot
+       * (TuningSchema reads this array's length, mirroring `orders`). The
+       * defaults give either side's pilot a light-fighter escort (fly the
        * gunship and the interceptors fly with you).
        *
        * Caveats for a wingman whose type differs from the player's:
@@ -284,8 +288,8 @@ export const GameConfig = {
        *   a slot at your full speed — it will trail when you burn flat-out.
        */
       shipTypes: {
-        humans: ["spitfire"],
-        machines: ["wraith"],
+        humans: ["spitfire", "spitfire", "spitfire", "spitfire", "spitfire", "spitfire"],
+        machines: ["wraith", "wraith", "wraith", "wraith", "wraith", "wraith"],
       } as Record<Faction, ReadonlyArray<ShipTypeId>>,
       /**
        * Per-wingman standing order (wraps if shorter than count). One

@@ -160,6 +160,32 @@ function wingmanOrderEntries(): TuningEntry[] {
   );
 }
 
+/**
+ * One ship-type dropdown per wingman SLOT, PER faction — generated from the
+ * shipTypes list's length (GameConfig pads each to the max wing size), so slot
+ * i's dropdown is exactly `player.wingmen.shipTypes.<faction>.i`. Per-faction
+ * because a ship type is faction-specific (a humans wing can't fly a wraith);
+ * only the side the player actually picks is read at launch. Options come from
+ * the faction's roster (factionShips) — and picking your OWN ship's type makes
+ * that wingman a clone of your loaded fighter (Game.ts), so "match me" is just
+ * "pick the same type".
+ */
+function wingmanShipEntries(faction: Faction): TuningEntry[] {
+  const side = capitalize(faction);
+  const options = GameConfig.factionShips[faction].map((id) => ({
+    value: id,
+    label: capitalize(id),
+  }));
+  return GameConfig.player.wingmen.shipTypes[faction].map((_, i) =>
+    choice(
+      `player.wingmen.shipTypes.${faction}.${i}`,
+      `${side} wing — ship ${i + 1}`,
+      options,
+      `Which ship wingman ${i + 1} flies when you pick the ${side.toLowerCase()} side. Picking your own ship's type makes that wingman a clone of your loaded fighter. (Only matters if you fly this side and field this many wingmen.)`,
+    ),
+  );
+}
+
 export const TUNING_SCHEMA: ReadonlyArray<TuningGroup> = [
   {
     title: "Arena & Asteroids",
@@ -220,6 +246,8 @@ export const TUNING_SCHEMA: ReadonlyArray<TuningGroup> = [
       num("player.wingmen.count", "Player wingmen", 0, 6, 1,
         "How many AI teammates fly at your side. 0 = you fly alone."),
       ...wingmanOrderEntries(),
+      ...wingmanShipEntries("humans"),
+      ...wingmanShipEntries("machines"),
       ...fleetEntries("humans"),
       ...fleetEntries("machines"),
     ],
