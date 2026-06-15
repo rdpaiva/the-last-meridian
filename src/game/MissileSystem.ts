@@ -12,7 +12,7 @@ import "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { GameConfig } from "./GameConfig";
 import { wrapAngle } from "./math";
 import { Missile } from "./Missile";
-import type { DamageTarget } from "./types";
+import type { DamageTarget, Interceptable } from "./types";
 import type { Ship } from "./Ship";
 
 /**
@@ -182,8 +182,21 @@ export class MissileSystem {
         cfg.speed,
         cfg.turnRate,
         cfg.lifetimeMs,
+        cfg.interceptRadius,
       ),
     );
+  }
+
+  /**
+   * The live missiles, as point-defense targets for the OPPOSING faction's
+   * lasers. Held by reference (like the laser systems' obstacles array): the
+   * pool mutates in place as missiles spawn/expire, so a LaserSystem handed
+   * this once sees the current set every frame for free. Expired rounds stay
+   * in the array until the end-of-update sweep, but report isAlive === false,
+   * so the lasers skip them.
+   */
+  get interceptables(): readonly Interceptable[] {
+    return this.missiles;
   }
 
   /**

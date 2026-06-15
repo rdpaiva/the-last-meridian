@@ -9,7 +9,7 @@ import "@babylonjs/core/Meshes/Builders/boxBuilder";
 
 import { GameConfig } from "./GameConfig";
 import { Laser } from "./Laser";
-import type { DamageTarget } from "./types";
+import type { DamageTarget, Interceptable } from "./types";
 import type { Ship } from "./Ship";
 
 /**
@@ -54,6 +54,21 @@ export type LaserSystemOptions = {
    * shatter/are destroyed, and the system sees the changes for free.
    */
   obstacles?: DamageTarget[];
+  /**
+   * Live missiles (the OPPOSING faction's) this system's bolts can shoot down
+   * as point defense. Checked AFTER cover but BEFORE ship targets, so a
+   * defensive shot prioritizes an incoming round over the ship behind it. One
+   * bolt destroys one missile (Interceptable has no HP). Held by reference —
+   * the pool mutates as missiles spawn/expire; dead rounds report isAlive
+   * false and are skipped.
+   */
+  interceptables?: readonly Interceptable[];
+  /**
+   * Called once per missile a bolt shoots down, with the impact point and the
+   * SHIP that fired the bolt (null = unattributed). Lets the caller pop a
+   * small explosion + sound at the kill, the same way onHit drives feedback.
+   */
+  onIntercept?: (position: Vector3, shooter: Ship | null) => void;
 };
 
 export class LaserSystem {
@@ -65,6 +80,11 @@ export class LaserSystem {
     | null;
   /** Asteroid cover bolts are blocked by (held by reference; may be empty). */
   private readonly obstacles: DamageTarget[];
+  /** Opposing missiles bolts can shoot down (held by reference; may be empty). */
+  private readonly interceptables: readonly Interceptable[];
+  private readonly onIntercept:
+    | ((position: Vector3, shooter: Ship | null) => void)
+    | null;
   /**
    * Targets this system's bolts test against each frame. The player system
    * registers every enemy (multi-target); the enemy system registers just
@@ -80,6 +100,8 @@ export class LaserSystem {
     this.damage = options.damage;
     this.onHit = options.onHit ?? null;
     this.obstacles = options.obstacles ?? [];
+    this.interceptables = options.interceptables ?? [];
+    this.onIntercept = options.onIntercept ?? null;
 
     const mat = new StandardMaterial(
       options.materialName ?? "laser_mat",
@@ -159,6 +181,7 @@ export class LaserSystem {
   update(deltaSeconds: number, deltaMs: number): void {
     const targets = this.targets;
     const obstacles = this.obstacles;
+    const interceptables = this.interceptables;
 
     for (const laser of this.lasers) {
       // Capture the bolt's position BEFORE it moves, then sweep the segment
@@ -204,6 +227,31 @@ export class LaserSystem {
         }
       }
       if (blocked) continue;
+
+      // Point defense: a bolt can shoot an opposing missile out of the air.
+      // Same swept-segment test, against the missile's intercept bubble; the
+      // first one the path crosses is destroyed and consumes the bolt. Checked
+      // before ship targets so a defensive shot favors the incoming round.
+      let intercepted = false;
+      for (const missile of interceptables) {
+        if (!missile.isAlive) continue;
+        const distSq = distSqSegmentToPoint(
+          missile.position.x,
+          missile.position.z,
+          ax,
+          az,
+          bx,
+          bz,
+        );
+        const r = missile.interceptRadius;
+        if (distSq > r * r) continue;
+        missile.intercept();
+        laser.kill();
+        this.onIntercept?.(missile.position, laser.shooter);
+        intercepted = true;
+        break;
+      }
+      if (intercepted) continue;
 
       // Collision: swept X/Z test of the path segment against each live target.
       // Y axis is ignored — gameplay is on one plane. First overlap consumes

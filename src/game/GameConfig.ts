@@ -346,8 +346,13 @@ export const GameConfig = {
     // NOTE: rack size (ammo) is PER SHIP TYPE — see shipTypes[*].missileAmmo.
     /** Travel speed (world units / sec). Constant — no acceleration. */
     speed: 45,
-    /** Time before an in-flight missile self-destructs. */
-    lifetimeMs: 4000,
+    /**
+     * Time before an in-flight missile self-destructs. At `speed` 45 this is
+     * the "outlast the motor" escape: survive ~3.2s of jukes and the missile
+     * burns out. Kept above the AI launch envelope (ai.missileMaxRange 110 ≈
+     * 2.4s of straight flight) so a clean, non-juking shot still connects.
+     */
+    lifetimeMs: 3200,
     /**
      * Body-tube length (world units). Kept well under the ~1.6-unit player
      * ship so the missile reads as a small sub-munition. Total mesh (nose +
@@ -365,10 +370,23 @@ export const GameConfig = {
      */
     fireCooldownMs: 600,
     /**
-     * Homing turn limit (radians / sec). Below the player's rotationSpeed
-     * (4.5) so a missile can be out-maneuvered if the target jukes hard.
+     * Homing turn limit (radians / sec). Well below every ship's rotationSpeed
+     * (Spitfire 4.5, Wraith 5.4) so a hard juke at close range forces the
+     * missile to overshoot — its turn radius (speed/turnRate ≈ 18 units) can't
+     * follow the break, and it has to loop back around for another pass. This
+     * is the main "out-maneuver it" lever; lower = easier to shake.
      */
-    turnRate: 3.2,
+    turnRate: 2.5,
+    /**
+     * Point-defense window: X/Z radius within which a laser bolt's path
+     * destroys a missile in flight (one bolt kills it — missiles have no HP).
+     * The missile mesh is tiny (radius ~0.06), so this is a deliberate aim-
+     * assist bubble — generous enough that shooting one down is satisfying,
+     * small enough that it still takes a led shot, not a spray. Any faction's
+     * lasers can intercept the OPPOSING faction's missiles (so the AI can swat
+     * yours too, incidentally — it doesn't aim at them on purpose).
+     */
+    interceptRadius: 0.9,
     /** Damage is rolled uniformly in [minDamage, maxDamage] per hit. */
     minDamage: 30,
     maxDamage: 50,
