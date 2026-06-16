@@ -224,27 +224,31 @@ export class HeadlessBattle {
       ],
     );
 
-    // --- Weapon systems (no onHit: feedback/score is view-side) ---
+    // --- Weapon systems (no onHit/onIntercept: feedback/score is view-side) ---
+    // Missiles are built BEFORE lasers so each laser system can hold the
+    // OPPOSING pool's live missiles by reference as point-defense
+    // interceptables — mirrors Game's construction order exactly (Game.ts).
+    const humansMissiles = new MissileSystem({
+      minDamage: GameConfig.missile.minDamage,
+      maxDamage: GameConfig.missile.maxDamage,
+      obstacles: this.asteroids.obstacles,
+    });
+    const machinesMissiles = new MissileSystem({
+      minDamage: GameConfig.missile.minDamage,
+      maxDamage: GameConfig.missile.maxDamage,
+      obstacles: this.asteroids.obstacles,
+    });
+    this.factionMissiles = { humans: humansMissiles, machines: machinesMissiles };
     this.factionLasers = {
       humans: new LaserSystem({
         damage: GameConfig.combat.laserDamage,
         obstacles: this.asteroids.obstacles,
+        interceptables: machinesMissiles.interceptables,
       }),
       machines: new LaserSystem({
         damage: GameConfig.combat.laserDamage,
         obstacles: this.asteroids.obstacles,
-      }),
-    };
-    this.factionMissiles = {
-      humans: new MissileSystem({
-        minDamage: GameConfig.missile.minDamage,
-        maxDamage: GameConfig.missile.maxDamage,
-        obstacles: this.asteroids.obstacles,
-      }),
-      machines: new MissileSystem({
-        minDamage: GameConfig.missile.minDamage,
-        maxDamage: GameConfig.missile.maxDamage,
-        obstacles: this.asteroids.obstacles,
+        interceptables: humansMissiles.interceptables,
       }),
     };
 
