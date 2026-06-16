@@ -71,3 +71,19 @@ export interface DamageTarget {
    */
   intersectsSegmentXZ?(ax: number, az: number, bx: number, bz: number): boolean;
 }
+
+/**
+ * A small, fragile projectile a laser bolt can shoot down — point defense.
+ * Implemented by Missile. Unlike a DamageTarget it has no HP: a single bolt
+ * that crosses its `interceptRadius` destroys it outright (intercept()).
+ * LaserSystem tests the opposing faction's interceptables each frame with the
+ * same swept-segment primitive it uses for ships.
+ */
+export interface Interceptable {
+  readonly position: Vector3;
+  /** X/Z radius within which a bolt's path destroys this projectile. */
+  readonly interceptRadius: number;
+  readonly isAlive: boolean;
+  /** Destroy this projectile (a bolt shot it down). */
+  intercept(): void;
+}

@@ -1,7 +1,9 @@
 import { Game, RESTART_FLAG } from "./game/Game";
 import { LoadoutMenu, SHIP_INFO } from "./game/LoadoutMenu";
 import { ShipPreview } from "./game/ShipPreview";
+import { SettingsMenu } from "./game/SettingsMenu";
 import { FACTION_THEME } from "./game/Faction";
+import { applyStoredOverrides, overrideCount } from "./game/ConfigOverrides";
 import {
   hasSavedLoadout,
   hasSeenIntro,
@@ -39,6 +41,8 @@ const changeBtn = document.getElementById("splash-change") as HTMLButtonElement 
 const replayBtn = document.getElementById("splash-replay") as HTMLButtonElement | null;
 const continueLoadout = document.getElementById("splash-continue-loadout");
 const loadoutRoot = document.getElementById("loadout") as HTMLDivElement | null;
+const settingsBtn = document.getElementById("splash-settings") as HTMLButtonElement | null;
+const settingsRoot = document.getElementById("settings") as HTMLDivElement | null;
 
 if (!canvas) throw new Error("Canvas #renderCanvas not found in DOM");
 if (!hudRoot) throw new Error("HUD root #hud not found in DOM");
@@ -51,6 +55,14 @@ if (!changeBtn) throw new Error("#splash-change not found in DOM");
 if (!replayBtn) throw new Error("#splash-replay not found in DOM");
 if (!continueLoadout) throw new Error("#splash-continue-loadout not found in DOM");
 if (!loadoutRoot) throw new Error("#loadout not found in DOM");
+if (!settingsBtn) throw new Error("#splash-settings not found in DOM");
+if (!settingsRoot) throw new Error("#settings not found in DOM");
+
+// Write any saved match-settings overrides into GameConfig BEFORE anything
+// reads it — both Game-construction paths below and the loadout menu's stat
+// bars read the live config. (Every system copies its config at construction,
+// so this one early call is the whole "apply" step.)
+applyStoredOverrides();
 
 // Set src via JS so BASE_URL is resolved correctly for GitHub Pages.
 splashPoster.src = `${import.meta.env.BASE_URL}images/The-Last-Meridian-Poster.jpg`;
@@ -131,8 +143,18 @@ function startGame(): void {
 
 // ── Splash state machine ───────────────────────────────────────────────────
 
-type SplashState = "landing" | "intro" | "factionSelect" | "quickPlay";
+type SplashState = "landing" | "intro" | "factionSelect" | "quickPlay" | "settings";
 let state: SplashState = "landing";
+let settings: SettingsMenu | null = null;
+/** Where BACK/Esc returns to from the settings overlay. */
+let settingsReturn: SplashState = "landing";
+
+/** "Match Settings · N modified" when off defaults — the at-a-glance cue
+ *  that the next launch won't run stock tuning. */
+function updateSettingsBadge(): void {
+  const n = overrideCount();
+  settingsBtn!.textContent = n > 0 ? `Match Settings · ${n} modified` : "Match Settings";
+}
 
 function setState(next: SplashState): void {
   state = next;
@@ -166,6 +188,17 @@ function setState(next: SplashState): void {
       if (!preview) preview = new ShipPreview();
       if (!menu) menu = new LoadoutMenu(loadoutRoot!, preview, startGame);
       preview.start();
+      break;
+    case "settings":
+      // Built lazily on first entry; survives return visits with its
+      // section-open state intact.
+      if (!settings) {
+        settings = new SettingsMenu(
+          settingsRoot!,
+          () => setState(settingsReturn),
+          updateSettingsBadge,
+        );
+      }
       break;
   }
   if (next !== "factionSelect") preview?.stop();
@@ -230,6 +263,13 @@ if (sessionStorage.getItem(RESTART_FLAG)) {
     setState("intro");
   });
 
+  updateSettingsBadge();
+  settingsBtn.addEventListener("click", () => {
+    unlockAudio();
+    if (state !== "settings") settingsReturn = state;
+    setState("settings");
+  });
+
   // The crawl finished on its own → remember that and reveal the selection.
   story.addEventListener("animationend", () => {
     if (state !== "intro") return;
@@ -241,7 +281,14 @@ if (sessionStorage.getItem(RESTART_FLAG)) {
   // remains keyboard-walkable (landing → intro → [Enter skips] → select →
   // launch; quick play is a single Enter).
   window.addEventListener("keydown", (e) => {
-    if (game || e.code !== "Enter") return;
+    if (game) return;
+    if (state === "settings") {
+      // Enter must NOT launch the game while the user is editing inputs;
+      // Esc mirrors the BACK button.
+      if (e.code === "Escape") setState(settingsReturn);
+      return;
+    }
+    if (e.code !== "Enter") return;
     switch (state) {
       case "landing":
         enterMeridian();

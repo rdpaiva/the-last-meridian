@@ -179,6 +179,9 @@ src/
     Loadout.ts             PlayerLoadout {faction, shipType} + localStorage persistence (lastMeridian_* keys incl. introSeen; validated vs GameConfig.factionShips; hasSavedLoadout gates quick play)
     LoadoutMenu.ts         splash faction/ship select: faction cards → per-faction ship cards w/ thumbnails → hangar preview + PLAY (plain DOM, keyboard-driven; stats read from shipTypes)
     ShipPreview.ts         standalone Babylon engine for the splash: rotating selected-ship GLB turntable + cached ship-card thumbnails (disposed at launch)
+    TuningSchema.ts        CURATED declarative tuning surface (~70 gameplay knobs w/ label+bounds+step) — the match-settings GUI renders from this; add an entry = expose a knob
+    ConfigOverrides.ts     sparse {dot-path: value} override map (lastMeridian_tuning) written into the live GameConfig at startup; schema-clamped; JSON export/import for sharing setups
+    SettingsMenu.ts        splash match-settings screen (data-state="settings"): slider+number per knob w/ ⓘ hint popover, collapsible groups, per-row/global reset, COPY/PASTE SETUP share blob (plain DOM; JSON textarea only appears on paste/clipboard-fallback)
     SensorSystem.ts        per-faction sensor picture: SensorContacts w/ last-known positions, ghost decay, nebula concealment
     CombatNebulas.ts       gameplay stealth clouds above the fighter plane; zones[] feeds SensorSystem + Radar
     FleetCommander.ts      enemy fleet doctrine (strikers/escorts/dynamic pool) re-tasked ~2s via AIController.setOrder()
@@ -382,7 +385,9 @@ matching detail doc — keep CLAUDE.md to always-relevant orientation only.
   "unused" imports will check first.
 - **GameConfig is read-only at runtime.** If a value needs to change
   during play (e.g. wave difficulty), copy it into the system's own
-  state on construction.
+  state on construction. ONE sanctioned writer exists: `ConfigOverrides`
+  (the match-settings overrides) mutates GameConfig at STARTUP, before any
+  system constructs — never mid-match. Don't add others.
 - **Use `disableLighting = true` on emissive materials** that should
   glow regardless of scene lighting (lasers, engines, stars, lights).
 
@@ -404,7 +409,10 @@ for one, do it. Otherwise: don't.
 - **A complex menu system**. The staged splash flow (landing → intro crawl →
   faction/ship select, with one-click quick play for returning players) is
   the deliberate ceiling — keyboard-first, saved choice, Enter back into
-  play. Don't grow it into settings screens / pause menus unprompted.
+  play. ONE sanctioned exception: the match-settings tuning screen
+  (`SettingsMenu`, dev/playtest tooling — see `docs/SUBSYSTEMS.md`). Don't
+  grow it into general settings (audio/video/keybinds) or pause menus
+  unprompted.
 - **Asset preloading splash screens**.
 
 ---

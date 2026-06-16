@@ -353,38 +353,13 @@ export class Game {
     this.sound = new SoundSystem(this.scene);
     this.music = new MusicSystem(this.scene);
 
-    // Faction-keyed laser systems (sim) + their mesh-pooling views. onHit
-    // scales feedback by what was struck: hitting the player's ship flashes +
-    // jolts hard; chipping the (huge, stationary) mothership only plays a
-    // light hit cue so sustained fire on it doesn't spam hitstop and crawl
-    // the whole game.
-    const humansLasers = new LaserSystem({
-      damage: GameConfig.combat.laserDamage,
-      onHit: (target, shooter) => this.onLaserHit(target, shooter),
-      obstacles: this.asteroids.obstacles,
-    });
-    const machinesLasers = new LaserSystem({
-      damage: GameConfig.combat.laserDamage,
-      onHit: (target, shooter) => this.onLaserHit(target, shooter),
-      obstacles: this.asteroids.obstacles,
-    });
-    this.factionLasers = { humans: humansLasers, machines: machinesLasers };
-    this.factionLaserViews = {
-      humans: new LaserSystemView(this.scene, humansLasers, {
-        emissive: FACTION_THEME.humans.laserEmissive,
-        materialName: FACTION_THEME.humans.laserMaterialName,
-      }),
-      machines: new LaserSystemView(this.scene, machinesLasers, {
-        emissive: FACTION_THEME.machines.laserEmissive,
-        materialName: FACTION_THEME.machines.laserMaterialName,
-      }),
-    };
-
     // Faction-keyed heat-seeker systems (sim, parallel to the lasers) + their
     // per-round views. Each side fires from its own pool — the player and any
     // wingman with a rack on the player faction's system, the enemy fleet on
     // theirs — and every missile carries its shooter, so onMissileHit
     // attributes kills and scales feedback exactly like the laser path.
+    // Built BEFORE the lasers so each laser system can hold the opposing
+    // pool's live missiles by reference for point defense (see below).
     const humansMissiles = new MissileSystem({
       minDamage: GameConfig.missile.minDamage,
       maxDamage: GameConfig.missile.maxDamage,
@@ -413,6 +388,41 @@ export class Game {
         finColor: new Color3(0.5, 0.12, 0.14),
         trailEmissive: new Color3(0.5, 2.2, 0.6),
         materialName: "machines_missile_mat",
+      }),
+    };
+
+    // Faction-keyed laser systems (sim) + their mesh-pooling views. onHit
+    // scales feedback by what was struck: hitting the player's ship flashes +
+    // jolts hard; chipping the (huge, stationary) mothership only plays a
+    // light hit cue so sustained fire on it doesn't spam hitstop and crawl
+    // the whole game.
+    // Each side's bolts also act as point defense against the OPPOSING
+    // faction's missiles (interceptables): a led shot can swat an incoming
+    // heat-seeker out of the air. Symmetric, so the AI's fire can clip yours
+    // too — though it doesn't aim for them on purpose.
+    const humansLasers = new LaserSystem({
+      damage: GameConfig.combat.laserDamage,
+      onHit: (target, shooter) => this.onLaserHit(target, shooter),
+      obstacles: this.asteroids.obstacles,
+      interceptables: machinesMissiles.interceptables,
+      onIntercept: (pos) => this.onMissileIntercepted(pos),
+    });
+    const machinesLasers = new LaserSystem({
+      damage: GameConfig.combat.laserDamage,
+      onHit: (target, shooter) => this.onLaserHit(target, shooter),
+      obstacles: this.asteroids.obstacles,
+      interceptables: humansMissiles.interceptables,
+      onIntercept: (pos) => this.onMissileIntercepted(pos),
+    });
+    this.factionLasers = { humans: humansLasers, machines: machinesLasers };
+    this.factionLaserViews = {
+      humans: new LaserSystemView(this.scene, humansLasers, {
+        emissive: FACTION_THEME.humans.laserEmissive,
+        materialName: FACTION_THEME.humans.laserMaterialName,
+      }),
+      machines: new LaserSystemView(this.scene, machinesLasers, {
+        emissive: FACTION_THEME.machines.laserEmissive,
+        materialName: FACTION_THEME.machines.laserMaterialName,
       }),
     };
 
@@ -846,6 +856,21 @@ export class Game {
         this.recordKill(struck, shooter);
       }
     }
+  }
+
+  /**
+   * A laser bolt shot a missile out of the air (point defense). Pop a small
+   * explosion + sound at the kill and a light, proximity-scaled jolt — the
+   * same vocabulary as a missile detonation, just no damage/kill bookkeeping
+   * since the round died harmlessly. Trauma is distance-scaled so the AI
+   * swatting a round across the arena doesn't shake the player's camera.
+   */
+  private onMissileIntercepted(pos: Vector3): void {
+    this.explosions.spawn(pos);
+    this.sound.playExplosion(pos);
+    this.cameraRig.addTrauma(
+      this.traumaAtDistance(GameConfig.shake.traumaMissileHit, pos),
+    );
   }
 
   /**

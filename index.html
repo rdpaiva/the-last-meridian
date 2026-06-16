@@ -47,6 +47,7 @@
             <button class="splash-link" id="splash-skip">Skip Intro</button>
             <button class="splash-link" id="splash-change">Change Faction</button>
             <button class="splash-link" id="splash-replay">Replay Intro</button>
+            <button class="splash-link" id="splash-settings">Match Settings</button>
           </div>
         </div>
       </div>
@@ -62,6 +63,9 @@
           <div class="ctrl-row"><span class="ctrl-key">+ / −</span><span class="ctrl-desc">Zoom</span></div>
         </div>
       </div>
+      <!-- Match-settings overlay (data-state="settings") — SettingsMenu.ts
+           renders the schema-driven tuning screen into it. -->
+      <div id="settings"></div>
     </div>
     <canvas id="renderCanvas"></canvas>
     <div id="hud"></div>

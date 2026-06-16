@@ -535,3 +535,44 @@ friendly-fire-free without per-bolt faction checks.
 - Fast entry invariants: the saved loadout is preselected everywhere, quick
   play is a single click/Enter, and the end-of-match restart (`RESTART_FLAG`)
   skips the splash entirely and replays the saved loadout.
+
+## Match settings (TuningSchema + ConfigOverrides + SettingsMenu)
+- Dev/playtest tuning GUI, reachable as splash state `settings` ("Match
+  Settings" link on landing / quick play / faction select; BACK or Esc
+  returns to wherever the user came from). Three pieces:
+  - `TuningSchema.ts` — the CURATED declarative knob list (`{path, label,
+    kind, min, max, step, options, hint}` grouped into sections; kinds:
+    `number` = slider+field, `boolean` = checkbox, `choice` = dropdown over
+    `options` — e.g. the per-wingman order dropdowns, one per slot of the
+    padded `player.wingmen.orders` array). The GUI renders itself from
+    this; adding an entry is the WHOLE job of exposing a new knob (it
+    auto-persists and round-trips through JSON). Deliberately
+    gameplay-only (~70 knobs: arena/asteroids, per-ship stats, weapons,
+    fleets, AI/commander, sensors, objective) — juice/visuals stay out.
+    `hint` is REQUIRED and plain-language: it feeds each row's clickable ⓘ
+    popover (what the knob does in play + its default), written for testers
+    who've never read GameConfig.ts.
+  - `ConfigOverrides.ts` — a sparse `{dot-path: value}` override map
+    persisted under `lastMeridian_tuning`, written INTO the live GameConfig
+    object. Every external value (localStorage, pasted JSON) is validated
+    against the schema and clamped to its bounds. Source defaults are
+    captured before the first write, so reset always recovers them.
+  - `SettingsMenu.ts` — the plain-DOM screen (slider + number field per
+    knob, checkboxes for booleans, collapsible groups, per-row + arm-to-
+    confirm global reset). COPY SETUP / PASTE SETUP round-trip the override
+    blob so testers can share setups; the JSON textarea stays hidden until
+    PASTE opens it (or COPY falls back to it when the clipboard is blocked)
+    — raw JSON never sits on the screen by default.
+- KEY INVARIANT: `applyStoredOverrides()` must run before ANYTHING reads
+  GameConfig — main.ts calls it at module init, ahead of both Game-
+  construction paths (splash launch and the `RESTART_FLAG` relaunch).
+  Because every system copies its config at construction, that single call
+  is the entire "apply" step; edits take effect on the NEXT launch, never
+  mid-match (live tuning is deliberately out of scope).
+- The override JSON blob is the planned MULTIPLAYER host match-config
+  document (docs/MULTIPLAYER.md): the schema doubles as the server settings
+  surface, and a host's blob is what the server would apply before a match.
+- Gotcha: `LoadoutMenu`'s keydown handler ignores events targeting
+  INPUT/TEXTAREA — the settings overlay can sit above the (still-attached)
+  loadout menu, and the menu's `preventDefault` on arrows would otherwise
+  freeze the sliders/number fields.

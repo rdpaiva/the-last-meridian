@@ -1,7 +1,7 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 
 import { wrapAngle } from "../math";
-import type { DamageTarget } from "../types";
+import type { DamageTarget, Interceptable } from "../types";
 import type { Ship } from "./Ship";
 
 /**
@@ -18,7 +18,7 @@ import type { Ship } from "./Ship";
  * its current heading, so an unguided missile still detonates on whatever it
  * runs into (collision lives in MissileSystem).
  */
-export class Missile {
+export class Missile implements Interceptable {
   ageMs = 0;
   private readonly velocity = new Vector3();
 
@@ -46,6 +46,8 @@ export class Missile {
     private readonly speed: number,
     private readonly turnRate: number,
     readonly lifetimeMs: number,
+    /** X/Z radius a laser bolt must cross to shoot this missile down. */
+    readonly interceptRadius: number,
   ) {
     this.canReacquire = target === null;
     this.setVelocityFromHeading();
@@ -54,6 +56,20 @@ export class Missile {
   /** Heading (radians) the missile is currently flying along. */
   get heading(): number {
     return this.rotationY;
+  }
+
+  /**
+   * Interceptable contract: a missile is a live shoot-down target until it
+   * detonates or its motor burns out. Mirrors !isExpired so a killed/expired
+   * round drops out of the lasers' point-defense scan the same frame.
+   */
+  get isAlive(): boolean {
+    return !this.isExpired;
+  }
+
+  /** A laser bolt shot this missile down — expire it (no detonation damage). */
+  intercept(): void {
+    this.kill();
   }
 
   /** True while the missile has a live target it is homing on. */
