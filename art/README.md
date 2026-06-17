@@ -3,6 +3,12 @@
 Editable source files for assets that ship as exported formats elsewhere in
 the repo. Edit the source here, re-export, and commit both.
 
+> **Carrier deck skins:** the motherships can wear a top-down painted livery
+> (`textures/<ship>_skin.png`, planar-projected onto the deck). The Bastion
+> already has one (`textures/bastion_skin.png`, MCS AEGIS). To skin the
+> Choirship the same way, follow the step-by-step in
+> `docs/RECIPES.md` → "Apply a top-down deck skin to a carrier".
+
 ## `bastion_carrier.blend` → `public/models/bastion_carrier.glb`
 
 Low-poly Bastion Carrier mothership (the human capital ship). Built from simple
