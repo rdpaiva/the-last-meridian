@@ -45,10 +45,10 @@
  *     omitted (they only drive feedback + kill tallies in Game).
  *   - No ShipViews: post Ship/ShipView split the ship sim is depiction-free,
  *     so headless ships simply have no view attached.
- *   - Combat-nebula concealment zones are computed from GameConfig directly
- *     (the same three lines CombatNebulas runs) instead of constructing the
- *     textured view class. Keep in sync until the zone math is split out of
- *     the view (Phase 0 "verify AI + sensors are scene-free" task).
+ *   - Combat-nebula concealment zones come from the shared scene-free
+ *     computeConcealmentZones (sim/CombatNebulaZones.ts) — the SAME math the
+ *     CombatNebulas view feeds the sensors in the browser — instead of
+ *     constructing the textured view class. One source of truth, no drift.
  *   - Sim time: tick() advances its own clock and passes nowMs everywhere —
  *     no wall-clock reads anywhere in the sim (Ship death stamps come from
  *     takeDamage's nowMs parameter since the Ship/ShipView split).
@@ -75,6 +75,7 @@ import { MissileSystem } from "../../src/game/sim/MissileSystem";
 import { AsteroidField } from "../../src/game/AsteroidField";
 import { LaunchSequence } from "../../src/game/LaunchSequence";
 import { seedSimRng } from "../../src/game/sim/SimRng";
+import { computeConcealmentZones } from "../../src/game/sim/CombatNebulaZones";
 
 type ShipTypeId = keyof typeof GameConfig.shipTypes;
 
@@ -242,14 +243,14 @@ export class HeadlessBattle {
       }),
     };
 
-    // --- Sensors + concealment (zones = CombatNebulas' footprint math) ---
+    // --- Sensors + concealment (zones = the shared scene-free footprint math,
+    // the SAME computeConcealmentZones the CombatNebulas view feeds the sensors
+    // in the browser — no duplication, so no "keep in sync" hazard) ---
     this.sensors = new SensorSystem(this.motherships);
-    const neb = GameConfig.scenery.combatNebulas;
-    this.sensors.concealmentZones = neb.zones.map((z) => ({
-      x: z.xFrac * GameConfig.arena.halfWidth,
-      z: z.zFrac * GameConfig.arena.halfDepth,
-      radius: z.radius,
-    }));
+    this.sensors.concealmentZones = computeConcealmentZones(
+      GameConfig.arena.halfWidth,
+      GameConfig.arena.halfDepth,
+    );
 
     // --- Controller worlds (sensor-picture views, same shape as Game) ---
     this.worldByFaction = {

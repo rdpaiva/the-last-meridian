@@ -146,9 +146,9 @@ on a branch ready for local eyeball QA.
 
 > **Status (2026-06-17):** Smoke harness + the `Ship`, `Laser`/`LaserSystem`,
 > `Missile`/`MissileSystem`, and `Mothership` splits are landed, plus the
-> sim→view event channel and the `Game.tick` split (`advanceSim` /
-> `updateViews`); the baseline trace stays clean across them.
-> Remaining: the AI/sensors scene-free audit, and the human eyeball pass.
+> sim→view event channel, the `Game.tick` split (`advanceSim` /
+> `updateViews`), and the AI/sensors scene-free audit; the baseline trace
+> stays clean across them. Remaining: only the `[human]` eyeball pass.
 
 The prerequisite refactor: separate gameplay truth (sim — runs anywhere)
 from its Babylon depiction (view — client only). The game must play
@@ -214,9 +214,15 @@ timing).
       gameplay body on its own. The engine-glow/maneuvering-plume visuals that
       used to sit inline in the sim loop are bridged to updateViews via each
       combatant's `lastInput`, so advanceSim touches no scene state.
-- [ ] **Verify AI + sensors are scene-free** — `AIController`,
-      `FleetCommander`, `SensorSystem`, `CombatNebulas` zone math should
-      already be pure; audit imports and fix any stragglers.
+- [x] **Verify AI + sensors are scene-free** — audited: `AIController`,
+      `FleetCommander`, `SensorSystem`, `ShipController` and every `sim/*`
+      module import only `Maths/*` from Babylon (pure). The one straggler was
+      `CombatNebulas`'s concealment-zone math, trapped in the textured view
+      and duplicated in the smoke harness; extracted to scene-free
+      `sim/CombatNebulaZones.ts` (`computeConcealmentZones`), now the single
+      source both the view and the harness consume. (`AsteroidField`/`Asteroid`
+      are mesh-builders run under NullEngine headless — not on the split list;
+      a later sim/view split, if ever needed.)
 - [ ] `[human]` **Local eyeball pass** — pull the branch, play a full
       match: meshes track ships, bank rolls the right way, FX/SFX/shake
       fire at the right moments, launch + respawn + victory/defeat all

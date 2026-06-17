@@ -9,6 +9,7 @@ import "@babylonjs/core/Meshes/Builders/planeBuilder";
 
 import { GameConfig } from "./GameConfig";
 import type { ConcealmentZone } from "./SensorSystem";
+import { computeConcealmentZones } from "./sim/CombatNebulaZones";
 
 /**
  * Combat nebulas — the gameplay stealth clouds, distinct from the deep
@@ -41,18 +42,17 @@ const TEXTURE_FILES = [
 export class CombatNebulas {
   /**
    * Hard sensor footprints (world units), consumed by SensorSystem and drawn
-   * on the radar. Held by reference by both — never reallocated.
+   * on the radar. Held by reference by both — never reallocated. The math is
+   * the scene-free computeConcealmentZones (the gameplay truth); this view just
+   * paints a textured quad over each one.
    */
-  readonly zones: ConcealmentZone[] = [];
+  readonly zones: ConcealmentZone[];
 
   constructor(scene: Scene, arenaHalfWidth: number, arenaHalfDepth: number) {
     const cfg = GameConfig.scenery.combatNebulas;
+    this.zones = computeConcealmentZones(arenaHalfWidth, arenaHalfDepth);
 
-    cfg.zones.forEach((z, i) => {
-      const x = z.xFrac * arenaHalfWidth;
-      const zPos = z.zFrac * arenaHalfDepth;
-      this.zones.push({ x, z: zPos, radius: z.radius });
-
+    this.zones.forEach((zone, i) => {
       const file = TEXTURE_FILES[i % TEXTURE_FILES.length];
       const tex = new Texture(`${import.meta.env.BASE_URL}textures/${file}`, scene);
       tex.hasAlpha = true;
@@ -69,10 +69,10 @@ export class CombatNebulas {
 
       const quad = MeshBuilder.CreatePlane(
         `combat_nebula_${i}`,
-        { size: z.radius * cfg.visualScale },
+        { size: zone.radius * cfg.visualScale },
         scene,
       );
-      quad.position = new Vector3(x, cfg.yLevel, zPos);
+      quad.position = new Vector3(zone.x, cfg.yLevel, zone.z);
       // Lie flat, normal +Y, facing the top-down camera.
       quad.rotation.x = -Math.PI / 2;
       // Vary the art's rotation so repeated textures don't read as copies.
