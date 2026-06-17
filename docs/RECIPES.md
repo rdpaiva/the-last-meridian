@@ -139,7 +139,9 @@ Blender via the MCP; its module docstring shows the call sequence). The steps:
    `foreach_set` or the buffer reads back as zeros.
 4. **`make_skin_material(...)`** — image → Base Color, `metallic 0`,
    `roughness ~0.85`. Matte on purpose: high metallic reflects the markings
-   away from the top-down camera and washes them out.
+   away from the top-down camera and washes them out. Uses **`Linear`**
+   texture interpolation (exports a LINEAR sampler) — `Closest`/nearest makes
+   painted text look blocky/pixelated up close.
 5. **`skin_top_faces(...)`** — assigns the skin to **top faces only**
    (`world-normal.z > 0.5`) of the *structural* objects (skips emitters:
    `engine/window/viewport/runlight/bay/spine/cheek/groove/light/glow`) and

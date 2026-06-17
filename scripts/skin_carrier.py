@@ -98,7 +98,10 @@ def make_skin_material(name, img, metallic=0.0, roughness=0.85):
         nt.nodes.remove(n)
     tex = nt.nodes.new("ShaderNodeTexImage")
     tex.image = img
-    tex.interpolation = "Closest"
+    # Linear (bilinear) — exports a LINEAR sampler so Babylon smooths the
+    # texture. "Closest" (nearest) makes painted text/markings look blocky and
+    # pixelated up close; only use it for hard-edged tile patterns.
+    tex.interpolation = "Linear"
     tex.extension = "CLIP"
     nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
     bsdf.inputs["Metallic"].default_value = metallic
