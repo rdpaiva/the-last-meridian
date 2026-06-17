@@ -145,10 +145,10 @@ on a branch ready for local eyeball QA.
 ## Phase 0 — Sim/view split (no networking yet)
 
 > **Status (2026-06-17):** Smoke harness + the `Ship`, `Laser`/`LaserSystem`,
-> `Missile`/`MissileSystem`, and `Mothership` splits are landed; the baseline
-> trace stays clean across them. Remaining: the sim→view event channel,
-> the `Game.tick` split, the AI/sensors scene-free audit, and the human
-> eyeball pass.
+> `Missile`/`MissileSystem`, and `Mothership` splits are landed, plus the
+> sim→view event channel; the baseline trace stays clean across them.
+> Remaining: the `Game.tick` split, the AI/sensors scene-free audit, and
+> the human eyeball pass.
 
 The prerequisite refactor: separate gameplay truth (sim — runs anywhere)
 from its Babylon depiction (view — client only). The game must play
@@ -190,11 +190,21 @@ timing).
 - [x] **Mothership split** — HP/`DamageTarget`/hull-rect logic +
       launch-bay geometry = sim; GLB, materials, death FX = view.
       `MothershipSection` is already pure math — verify, don't touch.
-- [ ] **Sim → view event channel** — explosions, hit/death SFX, camera
-      trauma, hitstop, damage flash currently fire inline in `Game.tick`
-      next to sim calls. Sim emits events (`shipDied`, `laserHit`,
-      `missileLaunched`, …); client-side systems subscribe. These events
-      become the network messages for transient FX in Phase 2.
+- [x] **Sim → view event channel** — explosions, hit/death SFX, camera
+      trauma, hitstop, damage flash used to fire inline in `Game.tick`
+      next to sim calls. Now the sim sites EMIT facts on a typed
+      `SimEventBus` (`src/game/sim/SimEvents.ts`: `laserHit`, `missileHit`,
+      `missileIntercepted`, `shipFiredLaser`, `missileFired`, `shipLaunched`,
+      `shipRammedAsteroid`, `shipDied`, `mothershipDied`, `asteroidShattered`)
+      and `Game.wireSimEventFeedback()` subscribes the client-side FX. The
+      bus is synchronous (listeners run in emit order) so it was a
+      behavior-identical move — baseline trace unchanged. A headless/server
+      run simply doesn't subscribe. Payloads carry raw sim refs (ship/
+      shooter/position), NOT an `isPlayer` flag — the subscriber derives
+      "is this the local pilot" via `ship === playerShip`, so attribution
+      stays per-SHIP. These events become the network messages for
+      transient FX in Phase 2 (the live object refs are where Phase 2's
+      serialization boundary lands).
 - [ ] **Split `Game.tick`** into `advanceSim(dt, nowMs)` (server-safe:
       controllers → ships → weapons → sensors → commander → win/lose)
       and `updateViews(dt)` (camera, shake, hitstop, HUD, radar, render).

@@ -24,6 +24,7 @@ import { LaserSystem } from "./sim/LaserSystem";
 import { LaserSystemView } from "./view/LaserSystemView";
 import { MissileSystem } from "./sim/MissileSystem";
 import { MissileSystemView } from "./view/MissileSystemView";
+import { SimEventBus } from "./sim/SimEvents";
 import { wrapAngle } from "./math";
 import { CameraRig } from "./CameraRig";
 import { Hud } from "./Hud";
@@ -112,6 +113,11 @@ export class Game {
   private readonly asteroids: AsteroidField;
   private readonly explosions: ExplosionSystem;
   private readonly sound: SoundSystem;
+  /**
+   * Sim→view event channel. Sim sites EMIT facts; the client-side feedback
+   * listeners (wireSimEventFeedback) depict them. See sim/SimEvents.ts.
+   */
+  private readonly events = new SimEventBus();
   private readonly music: MusicSystem;
   private readonly cameraRig: CameraRig;
   private readonly starfield: Starfield;
@@ -363,13 +369,15 @@ export class Game {
       minDamage: GameConfig.missile.minDamage,
       maxDamage: GameConfig.missile.maxDamage,
       obstacles: this.asteroids.obstacles,
-      onHit: (pos, struck, shooter) => this.onMissileHit(pos, struck, shooter),
+      onHit: (pos, struck, shooter) =>
+        this.events.emit("missileHit", { position: pos, struck, shooter }),
     });
     const machinesMissiles = new MissileSystem({
       minDamage: GameConfig.missile.minDamage,
       maxDamage: GameConfig.missile.maxDamage,
       obstacles: this.asteroids.obstacles,
-      onHit: (pos, struck, shooter) => this.onMissileHit(pos, struck, shooter),
+      onHit: (pos, struck, shooter) =>
+        this.events.emit("missileHit", { position: pos, struck, shooter }),
     });
     this.factionMissiles = { humans: humansMissiles, machines: machinesMissiles };
     // Visuals are faction-themed: Commonwealth rounds keep the classic
@@ -401,17 +409,21 @@ export class Game {
     // too — though it doesn't aim for them on purpose.
     const humansLasers = new LaserSystem({
       damage: GameConfig.combat.laserDamage,
-      onHit: (target, shooter) => this.onLaserHit(target, shooter),
+      onHit: (target, shooter) =>
+        this.events.emit("laserHit", { target, shooter }),
       obstacles: this.asteroids.obstacles,
       interceptables: machinesMissiles.interceptables,
-      onIntercept: (pos) => this.onMissileIntercepted(pos),
+      onIntercept: (pos) =>
+        this.events.emit("missileIntercepted", { position: pos }),
     });
     const machinesLasers = new LaserSystem({
       damage: GameConfig.combat.laserDamage,
-      onHit: (target, shooter) => this.onLaserHit(target, shooter),
+      onHit: (target, shooter) =>
+        this.events.emit("laserHit", { target, shooter }),
       obstacles: this.asteroids.obstacles,
       interceptables: humansMissiles.interceptables,
-      onIntercept: (pos) => this.onMissileIntercepted(pos),
+      onIntercept: (pos) =>
+        this.events.emit("missileIntercepted", { position: pos }),
     });
     this.factionLasers = { humans: humansLasers, machines: machinesLasers };
     this.factionLaserViews = {
@@ -427,15 +439,13 @@ export class Game {
 
     this.explosions = new ExplosionSystem(this.scene, this.glowLayer);
 
-    // Pop an explosion + sound + (distance-scaled) trauma when a rock shatters.
-    this.asteroids.onShatter = (pos, radius) => {
-      this.explosions.spawn(pos);
-      this.sound.playExplosion(pos);
-      this.cameraRig.addTrauma(
-        this.traumaAtDistance(GameConfig.asteroids.shatterTrauma, pos) *
-          Math.min(1, radius / GameConfig.asteroids.radiusMax),
-      );
-    };
+    // A rock shattered — the feedback (explosion + sound + trauma) is depicted
+    // by the asteroidShattered listener.
+    this.asteroids.onShatter = (pos, radius) =>
+      this.events.emit("asteroidShattered", { position: pos, radius });
+
+    // Wire the client-side feedback listeners now that the FX systems exist.
+    this.wireSimEventFeedback();
 
     // Enemy AI fighters are built in start(), not here: each fleet type
     // (GameConfig.fleets → GameConfig.shipTypes) clones a GLB template
@@ -785,6 +795,107 @@ export class Game {
   // ─── Combat feedback ───────────────────────────────────────────────────────
 
   /**
+   * Subscribe the client-side feedback (sound, explosions, camera trauma,
+   * hitstop, damage flash) to the sim event channel. The sim sites only
+   * EMIT facts; everything depicted here is presentation, so a headless/
+   * server run never registers these (sim/SimEvents.ts). Listeners run
+   * synchronously in emit order, so this is a behavior-identical move of
+   * the formerly-inline FX calls.
+   */
+  private wireSimEventFeedback(): void {
+    this.events.on("laserHit", ({ target, shooter }) =>
+      this.onLaserHit(target, shooter),
+    );
+    this.events.on("missileHit", ({ position, struck, shooter }) =>
+      this.onMissileHit(position, struck, shooter),
+    );
+    this.events.on("missileIntercepted", ({ position }) =>
+      this.onMissileIntercepted(position),
+    );
+
+    // Fire SFX — player fire is full-volume (no position); everyone else is
+    // spatial, attenuating with distance from the player/listener.
+    this.events.on("shipFiredLaser", ({ ship }) => {
+      const isPlayer = ship === this.playerShip;
+      this.sound.playFireSound(
+        ship.fireSound,
+        isPlayer ? undefined : ship.position,
+      );
+    });
+    this.events.on("missileFired", ({ ship }) => {
+      const isPlayer = ship === this.playerShip;
+      this.sound.playMissileLaunch(isPlayer ? undefined : ship.position);
+    });
+
+    // Catapult fire: the player's launch is full-volume trauma; everyone
+    // else's scales with distance (a far enemy catapult barely registers).
+    this.events.on("shipLaunched", ({ ship }) => {
+      const isPlayer = ship === this.playerShip;
+      this.cameraRig.addTrauma(
+        isPlayer
+          ? GameConfig.launch.launchTrauma
+          : this.traumaAtDistance(GameConfig.launch.launchTrauma, ship.position),
+      );
+    });
+
+    // Ram: the player gets the heavy cue (trauma + flash + hit SFX); an AI
+    // ship just flashes so the impact is still visible.
+    this.events.on("shipRammedAsteroid", ({ ship }) => {
+      if (ship === this.playerShip) {
+        this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
+        this.playerDamageFlash?.trigger();
+        this.sound.playHit(ship.position);
+      } else {
+        this.aiDamageFlashes.get(ship)?.trigger();
+      }
+    });
+
+    // Ship death: explosion + sound + (distance-scaled for AI) trauma/hitstop.
+    this.events.on("shipDied", ({ ship }) => {
+      const isPlayer = ship === this.playerShip;
+      this.explosions.spawn(ship.position);
+      this.sound.playExplosion(ship.position);
+      this.cameraRig.addTrauma(
+        isPlayer
+          ? GameConfig.shake.traumaPlayerExplosion
+          : this.traumaAtDistance(GameConfig.shake.traumaEnemyExplosion, ship.position),
+      );
+      this.applyHitstop(
+        isPlayer
+          ? GameConfig.hitstop.playerExplosionMs
+          : GameConfig.hitstop.enemyExplosionMs,
+      );
+    });
+
+    // Mothership death spectacle: a scatter of explosions + sound + the
+    // heaviest trauma/hitstop in the game.
+    this.events.on("mothershipDied", ({ mothership }) => {
+      const cfg = GameConfig.mothership;
+      const center = mothership.position;
+      for (let i = 0; i < cfg.deathExplosionCount; i++) {
+        const ox = (Math.random() * 2 - 1) * cfg.deathExplosionSpread;
+        const oz = (Math.random() * 2 - 1) * cfg.deathExplosionSpread;
+        this.explosions.spawn(
+          new Vector3(center.x + ox, center.y, center.z + oz),
+        );
+      }
+      this.sound.playExplosion(center);
+      this.cameraRig.addTrauma(cfg.deathTrauma);
+      this.applyHitstop(cfg.deathHitstopMs);
+    });
+
+    // Rock shatter: explosion + sound + trauma scaled by distance AND size.
+    this.events.on("asteroidShattered", ({ position, radius }) => {
+      this.explosions.spawn(position);
+      this.sound.playExplosion(position);
+      this.cameraRig.addTrauma(
+        this.traumaAtDistance(GameConfig.asteroids.shatterTrauma, position) *
+          Math.min(1, radius / GameConfig.asteroids.radiusMax),
+      );
+    });
+  }
+
+  /**
    * A laser struck `target`; scale feedback to the hit (and to who fired).
    * `shooter` is the firing SHIP — "is this the local pilot's shot" is
    * derived here by comparing against the local player ship, so attribution
@@ -1021,13 +1132,7 @@ export class Game {
         if (nowMs - last >= bumpCooldownMs) {
           this.lastBumpMs.set(ship, nowMs);
           ship.takeDamage(cfg.collisionDamage, nowMs);
-          if (ship === this.playerShip) {
-            this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
-            this.playerDamageFlash?.trigger();
-            this.sound.playHit(ship.position);
-          } else {
-            this.aiDamageFlashes.get(ship)?.trigger();
-          }
+          this.events.emit("shipRammedAsteroid", { ship });
         }
         break; // one bump per ship per frame
       }
@@ -1173,13 +1278,7 @@ export class Game {
             if (ship.isAlive) {
               c.launch.update(deltaSeconds, ship);
               if (c.launch.justLaunched) {
-                // The player's launch is full-volume trauma; everyone else's
-                // scales with distance (a far enemy catapult barely registers).
-                this.cameraRig.addTrauma(
-                  isPlayer
-                    ? GameConfig.launch.launchTrauma
-                    : this.traumaAtDistance(GameConfig.launch.launchTrauma, ship.position),
-                );
+                this.events.emit("shipLaunched", { ship });
               }
               // Keep the engine glow OFF for the whole launch: while the ship is
               // in the tube / streaking out it's occluded by the carrier, but the
@@ -1236,10 +1335,8 @@ export class Game {
               // bolts hit harder than a Spitfire's on the same faction system).
               this.factionLasers[ship.faction].spawn(p, ship.rotationY, ship, ship.laserDamage);
             }
-            // Player fire: no position (always full-volume at the listener).
-            // All other ships: spatial — attenuates with distance from player.
             if (positions.length > 0) {
-              this.sound.playFireSound(ship.fireSound, isPlayer ? undefined : ship.position);
+              this.events.emit("shipFiredLaser", { ship });
             }
           }
 
@@ -1263,7 +1360,7 @@ export class Game {
                 homing,
                 ship,
               );
-              this.sound.playMissileLaunch(isPlayer ? undefined : ship.position);
+              this.events.emit("missileFired", { ship });
             }
           }
         }
@@ -1278,18 +1375,7 @@ export class Game {
           const ship = c.ship;
           const isPlayer = ship === this.playerShip;
           if (!ship.isAlive && !ship.explosionFired) {
-            this.explosions.spawn(ship.position);
-            this.sound.playExplosion(ship.position);
-            this.cameraRig.addTrauma(
-              isPlayer
-                ? GameConfig.shake.traumaPlayerExplosion
-                : this.traumaAtDistance(GameConfig.shake.traumaEnemyExplosion, ship.position),
-            );
-            this.applyHitstop(
-              isPlayer
-                ? GameConfig.hitstop.playerExplosionMs
-                : GameConfig.hitstop.enemyExplosionMs,
-            );
+            this.events.emit("shipDied", { ship });
             ship.explosionFired = true;
           }
           if (ship.shouldRespawn(nowMs)) this.respawnShip(c, isPlayer);
@@ -1623,16 +1709,7 @@ export class Game {
     // clears and the catapult stops driving a ship under the end banner.
     for (const c of this.combatants) c.launch = null;
 
-    const cfg = GameConfig.mothership;
-    const center = destroyed.position;
-    for (let i = 0; i < cfg.deathExplosionCount; i++) {
-      const ox = (Math.random() * 2 - 1) * cfg.deathExplosionSpread;
-      const oz = (Math.random() * 2 - 1) * cfg.deathExplosionSpread;
-      this.explosions.spawn(new Vector3(center.x + ox, center.y, center.z + oz));
-    }
-    this.sound.playExplosion(center);
-    this.cameraRig.addTrauma(cfg.deathTrauma);
-    this.applyHitstop(cfg.deathHitstopMs);
+    this.events.emit("mothershipDied", { mothership: destroyed });
   }
 
   handleResize(): void {

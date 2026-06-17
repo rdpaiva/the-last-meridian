@@ -185,6 +185,7 @@ src/
     SensorSystem.ts        per-faction sensor picture: SensorContacts w/ last-known positions, ghost decay, nebula concealment
     CombatNebulas.ts       gameplay stealth clouds above the fighter plane; zones[] feeds SensorSystem + Radar
     FleetCommander.ts      enemy fleet doctrine (strikers/escorts/dynamic pool) re-tasked ~2s via AIController.setOrder()
+    sim/SimEvents.ts       sim→view event channel: typed SimEventBus (synchronous on/emit) — sim sites EMIT facts (laserHit/missileHit/shipDied/mothershipDied/…), Game.wireSimEventFeedback() subscribes the client FX. Headless/server runs don't subscribe. Becomes the Phase 2 FX network messages (docs/MULTIPLAYER.md)
     Ship.ts                unified ship sim + HP + DamageTarget + muzzle/fire (config-injected; merges old PlayerShip/EnemyShip)
     ShipController.ts      controller interface + ControllerWorld (opponents/mothership/leader → InputState)
     LocalInputController.ts  keyboard controller (surfaces InputManager.state) = the player
