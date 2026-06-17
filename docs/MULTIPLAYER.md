@@ -146,9 +146,9 @@ on a branch ready for local eyeball QA.
 
 > **Status (2026-06-17):** Smoke harness + the `Ship`, `Laser`/`LaserSystem`,
 > `Missile`/`MissileSystem`, and `Mothership` splits are landed, plus the
-> sim→view event channel; the baseline trace stays clean across them.
-> Remaining: the `Game.tick` split, the AI/sensors scene-free audit, and
-> the human eyeball pass.
+> sim→view event channel and the `Game.tick` split (`advanceSim` /
+> `updateViews`); the baseline trace stays clean across them.
+> Remaining: the AI/sensors scene-free audit, and the human eyeball pass.
 
 The prerequisite refactor: separate gameplay truth (sim — runs anywhere)
 from its Babylon depiction (view — client only). The game must play
@@ -205,10 +205,15 @@ timing).
       stays per-SHIP. These events become the network messages for
       transient FX in Phase 2 (the live object refs are where Phase 2's
       serialization boundary lands).
-- [ ] **Split `Game.tick`** into `advanceSim(dt, nowMs)` (server-safe:
-      controllers → ships → weapons → sensors → commander → win/lose)
-      and `updateViews(dt)` (camera, shake, hitstop, HUD, radar, render).
-      Hitstop/shake stay client-only concepts.
+- [x] **Split `Game.tick`** into `advanceSim(dt, nowMs)` (server-safe:
+      sensors → commander → controllers → ships → weapons → collisions →
+      death/respawn → projectiles → win/lose) and `updateViews(dt)` (poses →
+      FX → camera → HUD → radar → render). Hitstop stays a client-only freeze
+      the browser gates OUTSIDE advanceSim (the server never freezes); the
+      end-of-match gate lives INSIDE advanceSim so a headless caller no-ops the
+      gameplay body on its own. The engine-glow/maneuvering-plume visuals that
+      used to sit inline in the sim loop are bridged to updateViews via each
+      combatant's `lastInput`, so advanceSim touches no scene state.
 - [ ] **Verify AI + sensors are scene-free** — `AIController`,
       `FleetCommander`, `SensorSystem`, `CombatNebulas` zone math should
       already be pure; audit imports and fix any stragglers.

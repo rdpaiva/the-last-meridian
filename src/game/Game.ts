@@ -54,7 +54,7 @@ import { SensorSystem } from "./SensorSystem";
 import { FleetCommander, type CommandedPilot } from "./FleetCommander";
 import type { ShipController, ControllerWorld, AvoidObstacle } from "./ShipController";
 import { buildFighterMesh } from "./FighterMesh";
-import type { DamageTarget } from "./types";
+import type { DamageTarget, InputState } from "./types";
 
 /** Match lifecycle. The match has a beginning (launch), middle (playing), end. */
 type GameState = "launching" | "playing" | "victory" | "defeat";
@@ -89,6 +89,14 @@ interface Combatant {
    * streams back out of the same tube.
    */
   bayIndex: number;
+  /**
+   * The InputState this ship flew on in the last advanced sim step — the bridge
+   * that lets updateViews drive the ship's engine FX (glow + maneuvering plumes)
+   * from the inputs the (scene-free) sim already consumed. `null` means the ship
+   * was mid-launch this step, where the engine FX is forced dark (it's occluded
+   * by the carrier; a lit glow bleeds through the hull via the GlowLayer).
+   */
+  lastInput: InputState | null;
 }
 
 /**
@@ -219,6 +227,14 @@ export class Game {
    * camera (so shake animates) and renders.
    */
   private hitstopUntilMs = 0;
+
+  /**
+   * The enemy a player missile would currently lock onto (computeLockTarget),
+   * refreshed every frame in advanceSim. Drives both the launched missile's
+   * homing target (sim) and the HUD lock indicator (view), so it's cached here
+   * rather than threaded as a local.
+   */
+  private lockTarget: Ship | null = null;
 
   /**
    * Per-ship wall-clock timestamp of the last asteroid ram-damage, so a ship
@@ -653,7 +669,7 @@ export class Game {
         order: wcfg.orders[i % wcfg.orders.length],
         slot: wcfg.formationSlot(i),
       });
-      this.combatants.push({ ship, view, controller, launch: null, bayIndex: 0 });
+      this.combatants.push({ ship, view, controller, launch: null, bayIndex: 0, lastInput: null });
       this.aiDamageFlashes.set(ship, new DamageFlash(this.scene, view.root, this.glowLayer, new Color3(2.5, 1.5, 0.2)));
     }
 
@@ -677,6 +693,7 @@ export class Game {
       controller: this.playerController,
       launch: null,
       bayIndex: 0,
+      lastInput: null,
     };
     this.combatants.push(this.playerCombatant);
 
@@ -721,6 +738,7 @@ export class Game {
           controller,
           launch: null,
           bayIndex: 0,
+          lastInput: null,
         });
         // GLB enemies have no emissive engine of their own, so give them an
         // EngineGlow at their rear so they read in combat. Procedural fighters
@@ -1243,6 +1261,10 @@ export class Game {
       const nowMs = performance.now();
       const inHitstop = nowMs < this.hitstopUntilMs;
       const ended = this.state === "victory" || this.state === "defeat";
+      // Did the gameplay sim actually advance this frame? Drives the engine-FX
+      // gate in updateViews (those used to live inside the now-extracted sim
+      // loop, so they only ran when it did).
+      const simStepRan = !inHitstop && !ended;
 
       this.input.update();
 
@@ -1254,273 +1276,338 @@ export class Game {
         this.input.state.fire;
       if (anyInputHeld) this.sound.unlock();
 
-      this.refreshRosters();
-      this.refreshAiObstacles();
-      // Sensors run even during hitstop/end so the radar picture stays honest
-      // (tracks still age out); detection itself is throttled internally.
-      this.sensors.update(nowMs, this.shipsByFaction);
-      const lockTarget = this.computeLockTarget();
-
-      // --- Simulation (skipped during hitstop or after the match ends) ---
-      if (!inHitstop && !ended) {
-        // Enemy fleet doctrine: re-task the dynamic pool (throttled internally).
-        this.fleetCommander?.update(nowMs);
-
-        for (const c of this.combatants) {
-          const ship = c.ship;
-          const isPlayer = ship === this.playerShip;
-
-          // Catapult launch: the sequence drives the ship and its controller is
-          // suppressed (frozen in the tube, then flung out) until it clears the
-          // bow. Every launching ship runs this — player, wingmen, and enemy
-          // fleet alike — so nobody moves until their own launch fires.
-          if (c.launch && !c.launch.isComplete) {
-            if (ship.isAlive) {
-              c.launch.update(deltaSeconds, ship);
-              if (c.launch.justLaunched) {
-                this.events.emit("shipLaunched", { ship });
-              }
-              // Keep the engine glow OFF for the whole launch: while the ship is
-              // in the tube / streaking out it's occluded by the carrier, but the
-              // GlowLayer composites emissive over the hull with no depth test, so
-              // a lit glow would bleed through as "ghost lights" under the carrier.
-              // update() re-shows it (spooling up) on the first frame after the
-              // launch completes. (Idle RCS thrusters are already invisible.)
-              const vis = this.aiVisuals.get(ship);
-              if (vis) {
-                vis.glow?.hide();
-                vis.thrusters?.update(deltaSeconds, false, false, false);
-              }
-              if (c.launch.isComplete) {
-                // The match goes live the instant the PLAYER clears the bow;
-                // the rest of the wing may still be launching behind them.
-                if (isPlayer && this.state === "launching") this.state = "playing";
-                c.launch = null;
-              }
-              continue;
-            }
-            // Died mid-launch (a stray hit) — abandon the catapult and fall
-            // through to normal death handling below.
-            c.launch = null;
-          }
-
-          const input = c.controller.update(deltaSeconds, ship, this.worldByFaction[ship.faction]);
-          ship.update(deltaSeconds, input);
-
-          // Light a wingman's exhaust from the same inputs it just flew on (the
-          // player's equivalent visuals update further down). Dead ships pass
-          // all-false (the AIController already emits that), so the glow/plumes
-          // taper off rather than freezing lit.
-          const vis = this.aiVisuals.get(ship);
-          if (vis) {
-            const alive = ship.isAlive;
-            vis.glow?.update(
-              deltaSeconds,
-              ship.speed,
-              ship.maxSpeed,
-              alive && input.thrust,
-            );
-            vis.thrusters?.update(
-              deltaSeconds,
-              alive && input.reverse,
-              alive && input.strafeLeft,
-              alive && input.strafeRight,
-            );
-          }
-
-          if (ship.isAlive && input.fire) {
-            const positions = ship.tryFire();
-            for (const p of positions) {
-              // Each bolt carries ITS shooter + per-type damage (a Breaker's
-              // bolts hit harder than a Spitfire's on the same faction system).
-              this.factionLasers[ship.faction].spawn(p, ship.rotationY, ship, ship.laserDamage);
-            }
-            if (positions.length > 0) {
-              this.events.emit("shipFiredLaser", { ship });
-            }
-          }
-
-          // Missiles: any ship whose type carries a rack. The player's round
-          // homes on their HUD lock; an AI pilot's homes on the fresh contact
-          // its controller chose (AIController.missileTarget). No lock =
-          // ballistic (it may still reacquire mid-flight). Like the lasers,
-          // the round spawns into the SHOOTER's faction system carrying the
-          // shooter for attribution.
-          if (ship.isAlive && input.fireMissile) {
-            const missilePos = ship.tryFireMissile();
-            if (missilePos) {
-              const homing = isPlayer
-                ? lockTarget
-                : c.controller instanceof AIController
-                  ? c.controller.missileTarget
-                  : null;
-              this.factionMissiles[ship.faction].spawn(
-                missilePos,
-                ship.rotationY,
-                homing,
-                ship,
-              );
-              this.events.emit("missileFired", { ship });
-            }
-          }
-        }
-
-        // Ships that rammed a rock this frame: hard-bump them off it + damage.
-        this.resolveAsteroidCollisions(nowMs);
-        // The carriers are solid: bump out anyone overlapping a hull section.
-        this.resolveMothershipCollisions();
-
-        // Death FX + respawn, per combatant.
-        for (const c of this.combatants) {
-          const ship = c.ship;
-          const isPlayer = ship === this.playerShip;
-          if (!ship.isAlive && !ship.explosionFired) {
-            this.events.emit("shipDied", { ship });
-            ship.explosionFired = true;
-          }
-          if (ship.shouldRespawn(nowMs)) this.respawnShip(c, isPlayer);
-        }
-
-        this.factionLasers.humans.update(deltaSeconds, deltaMs, nowMs);
-        this.factionLasers.machines.update(deltaSeconds, deltaMs, nowMs);
-        this.factionMissiles.humans.update(deltaSeconds, deltaMs, nowMs);
-        this.factionMissiles.machines.update(deltaSeconds, deltaMs, nowMs);
-
-        // Drift/tumble the rocks + process any shattered by the fire above.
-        this.asteroids.update(deltaSeconds);
-
-        this.checkObjectives();
+      // --- Simulation (server-safe). Hitstop is a CLIENT-only freeze, so the
+      // browser gates it here rather than inside advanceSim: during a freeze
+      // frame we still refresh the sensor picture (so the radar keeps aging
+      // tracks honestly) and the player's missile lock, but hold the rest of
+      // the sim. Otherwise advance the full step — which itself no-ops the
+      // gameplay body once the match has ended. The headless harness has no
+      // hitstop and calls advanceSim() unconditionally.
+      if (inHitstop) {
+        this.updateSensorPicture(nowMs);
+        this.lockTarget = this.computeLockTarget();
+      } else {
+        this.advanceSim(deltaSeconds, deltaMs, nowMs);
       }
 
-      // --- Depictions: copy every ship's sim pose into its scene root, and
-      // every weapon system's live projectiles onto its mesh pool. Runs
-      // every frame (during hitstop the poses simply haven't changed) and
-      // BEFORE the camera/FX below so anything parented to a ship root sees
-      // this frame's transform.
-      for (const c of this.combatants) c.view.update(c.ship);
-      this.factionLaserViews.humans.update();
-      this.factionLaserViews.machines.update();
-      this.factionMissileViews.humans.update();
-      this.factionMissileViews.machines.update();
-
-      // Explosions animate through the end screen (so the death spectacle plays
-      // out) but pause during hitstop, like the rest of the sim.
-      if (!inHitstop) this.explosions.update(deltaSeconds, deltaMs);
-
-      // --- Animations that continue THROUGH hitstop ---
-      if (this.playerShip && this.playerShip.isAlive) {
-        const playerLaunch = this.playerLaunch;
-        if (playerLaunch) {
-          this.cameraRig.setZoom(playerLaunch.desiredZoom);
-        }
-        const zoomInput =
-          (this.input.state.zoomIn ? 1 : 0) - (this.input.state.zoomOut ? 1 : 0);
-        this.cameraRig.update(
-          deltaSeconds,
-          this.playerShip.position,
-          this.playerShip.velocity,
-          zoomInput,
-        );
-        this.starfield.update();
-        this.backdrop.update(this.cameraRig.camera.getTarget());
-        if (!inHitstop) {
-          // Keep the glow off through the player's launch (it's occluded by the
-          // carrier; a lit glow would bleed through the hull via the GlowLayer).
-          // update() re-shows it the first frame after the catapult completes.
-          if (playerLaunch) {
-            this.engineGlow?.hide();
-          } else {
-            this.engineGlow?.update(
-              deltaSeconds,
-              this.playerShip.speed,
-              this.playerShip.maxSpeed,
-              this.input.state.thrust,
-            );
-          }
-          const alive = this.playerShip.isAlive;
-          this.secondaryThrusters?.update(
-            deltaSeconds,
-            alive && this.input.state.reverse,
-            alive && this.input.state.strafeLeft,
-            alive && this.input.state.strafeRight,
-          );
-        }
-      }
-      this.playerDamageFlash?.update();
-      for (const flash of this.aiDamageFlashes.values()) flash.update();
-
-      const engineIntensity =
-        this.playerShip && this.playerShip.isAlive
-          ? (this.engineGlow?.currentIntensity ?? 0)
-          : 0;
-      this.sound.updateEngine(deltaSeconds, engineIntensity);
-
-      // Incoming-missile warning (RWR). Presentation, so it runs THROUGH
-      // hitstop with the rest of this block (audio + HUD continue during
-      // freeze frames; the threat picture is simply static while the sim is
-      // paused). Passing player = null outside live play — launch countdown,
-      // end screens, death gaps — forces it quiet, fading any active pulse.
-      const rwrActive =
-        this.state === "playing" &&
-        this.playerShip !== null &&
-        this.playerShip.isAlive;
-      this.missileWarning.update(
-        deltaSeconds,
-        nowMs,
-        this.factionMissiles[this.enemyFaction],
-        rwrActive ? this.playerShip : null,
-      );
-
-      // HUD.
-      if (this.playerShip) {
-        // The stealth cue asks the ENEMY's sensor picture about the player.
-        const signature = this.sensors.isTracked(this.enemyFaction, this.playerShip)
-          ? "detected"
-          : this.sensors.isConcealed(this.playerShip.position)
-            ? "hidden"
-            : "untracked";
-        this.hud.update(
-          this.playerShip,
-          this.factionLasers[this.playerFaction],
-          nowMs,
-          lockTarget !== null,
-          this.cameraRig.currentZoom,
-          signature,
-          this.playerKills,
-          this.wingKills,
-          this.score,
-          this.bestScore,
-        );
-      }
-      this.hud.setMothershipHp(
-        this.motherships.humans.hp / this.motherships.humans.maxHp,
-        this.motherships.machines.hp / this.motherships.machines.maxHp,
-      );
-      if (this.playerShip) {
-        this.radar.update(
-          this.playerShip,
-          this.shipsByFaction[this.playerFaction],
-          this.sensors.contacts[this.playerFaction],
-          this.missileWarning.threats,
-          this.motherships,
-          this.asteroids.asteroids,
-          this.combatNebulas.zones,
-          nowMs,
-        );
-      }
-      this.hud.setLaunchOverlay(this.playerLaunch?.overlayText ?? null);
-      this.hud.setEndBanner(
-        this.state === "victory" ? "victory" : this.state === "defeat" ? "defeat" : null,
-        `KILLS ${this.playerKills} · SCORE ${this.score}${
-          this.score > 0 && this.score >= this.bestScore ? " · NEW BEST" : ""
-        }`,
-      );
+      this.updateViews(deltaSeconds, deltaMs, nowMs, inHitstop, simStepRan);
 
       this.scene.render();
     } catch (err) {
       console.error("[Game] render loop frame failed", err);
     }
   };
+
+  /**
+   * Refresh the sensor picture: the per-faction rosters that back the
+   * controller world, the shared AI avoidance obstacles, then the sensor
+   * sweep. Runs even during a client hitstop freeze (the radar keeps aging
+   * tracks honestly while the sim is paused); detection itself is throttled
+   * inside SensorSystem.
+   */
+  private updateSensorPicture(nowMs: number): void {
+    this.refreshRosters();
+    this.refreshAiObstacles();
+    this.sensors.update(nowMs, this.shipsByFaction);
+  }
+
+  /**
+   * Advance the gameplay simulation one fixed step — the server-safe half of
+   * the old monolithic tick(). Touches NO scene/view state: controllers →
+   * ships → weapons fire → collisions → death/respawn → projectile sim →
+   * win/lose, all driving sim objects only. Transient FX (explosions, SFX,
+   * shake, hitstop, damage flash) are EMITTED on the SimEventBus, never fired
+   * inline; the engine-glow/plume visuals are bridged to updateViews via each
+   * combatant's `lastInput`. This is the method a future Colyseus room runs on
+   * its tick, and the method the headless smoke harness mirrors.
+   */
+  private advanceSim(deltaSeconds: number, deltaMs: number, nowMs: number): void {
+    this.updateSensorPicture(nowMs);
+    this.lockTarget = this.computeLockTarget();
+
+    // The match is over — the sensor picture above keeps ticking, but the
+    // gameplay sim freezes on the end screen.
+    if (this.state === "victory" || this.state === "defeat") return;
+
+    // Enemy fleet doctrine: re-task the dynamic pool (throttled internally).
+    this.fleetCommander?.update(nowMs);
+
+    for (const c of this.combatants) {
+      const ship = c.ship;
+      const isPlayer = ship === this.playerShip;
+
+      // Catapult launch: the sequence drives the ship and its controller is
+      // suppressed (frozen in the tube, then flung out) until it clears the
+      // bow. Every launching ship runs this — player, wingmen, and enemy
+      // fleet alike — so nobody moves until their own launch fires.
+      if (c.launch && !c.launch.isComplete) {
+        if (ship.isAlive) {
+          c.launch.update(deltaSeconds, ship);
+          if (c.launch.justLaunched) {
+            this.events.emit("shipLaunched", { ship });
+          }
+          // Engine FX stays dark for the whole launch (updateViews reads this):
+          // the ship is occluded by the carrier, and the GlowLayer composites
+          // emissive over the hull with no depth test, so a lit glow would
+          // bleed through as "ghost lights". Cleared input = forced-off FX.
+          c.lastInput = null;
+          if (c.launch.isComplete) {
+            // The match goes live the instant the PLAYER clears the bow;
+            // the rest of the wing may still be launching behind them.
+            if (isPlayer && this.state === "launching") this.state = "playing";
+            c.launch = null;
+          }
+          continue;
+        }
+        // Died mid-launch (a stray hit) — abandon the catapult and fall
+        // through to normal death handling below.
+        c.launch = null;
+      }
+
+      const input = c.controller.update(deltaSeconds, ship, this.worldByFaction[ship.faction]);
+      ship.update(deltaSeconds, input);
+      // Record the input the ship flew on so updateViews can light its exhaust
+      // from it (the engine glow + maneuvering plumes are view-only).
+      c.lastInput = input;
+
+      if (ship.isAlive && input.fire) {
+        const positions = ship.tryFire();
+        for (const p of positions) {
+          // Each bolt carries ITS shooter + per-type damage (a Breaker's
+          // bolts hit harder than a Spitfire's on the same faction system).
+          this.factionLasers[ship.faction].spawn(p, ship.rotationY, ship, ship.laserDamage);
+        }
+        if (positions.length > 0) {
+          this.events.emit("shipFiredLaser", { ship });
+        }
+      }
+
+      // Missiles: any ship whose type carries a rack. The player's round
+      // homes on their HUD lock; an AI pilot's homes on the fresh contact
+      // its controller chose (AIController.missileTarget). No lock =
+      // ballistic (it may still reacquire mid-flight). Like the lasers,
+      // the round spawns into the SHOOTER's faction system carrying the
+      // shooter for attribution.
+      if (ship.isAlive && input.fireMissile) {
+        const missilePos = ship.tryFireMissile();
+        if (missilePos) {
+          const homing = isPlayer
+            ? this.lockTarget
+            : c.controller instanceof AIController
+              ? c.controller.missileTarget
+              : null;
+          this.factionMissiles[ship.faction].spawn(
+            missilePos,
+            ship.rotationY,
+            homing,
+            ship,
+          );
+          this.events.emit("missileFired", { ship });
+        }
+      }
+    }
+
+    // Ships that rammed a rock this frame: hard-bump them off it + damage.
+    this.resolveAsteroidCollisions(nowMs);
+    // The carriers are solid: bump out anyone overlapping a hull section.
+    this.resolveMothershipCollisions();
+
+    // Death FX + respawn, per combatant.
+    for (const c of this.combatants) {
+      const ship = c.ship;
+      const isPlayer = ship === this.playerShip;
+      if (!ship.isAlive && !ship.explosionFired) {
+        this.events.emit("shipDied", { ship });
+        ship.explosionFired = true;
+      }
+      if (ship.shouldRespawn(nowMs)) this.respawnShip(c, isPlayer);
+    }
+
+    this.factionLasers.humans.update(deltaSeconds, deltaMs, nowMs);
+    this.factionLasers.machines.update(deltaSeconds, deltaMs, nowMs);
+    this.factionMissiles.humans.update(deltaSeconds, deltaMs, nowMs);
+    this.factionMissiles.machines.update(deltaSeconds, deltaMs, nowMs);
+
+    // Drift/tumble the rocks + process any shattered by the fire above.
+    this.asteroids.update(deltaSeconds);
+
+    this.checkObjectives();
+  }
+
+  /**
+   * Depict the current sim state — the client-only half of the old tick().
+   * Copies sim poses into scene nodes, drives every transient/continuous FX,
+   * camera, HUD, radar, and renders. `inHitstop` is the freeze frame (sim
+   * static, but camera shake / audio / HUD keep animating — the intentional
+   * hitstop asymmetry); `simStepRan` is whether advanceSim advanced the
+   * gameplay body this frame, which gates the engine FX that used to live
+   * inside the sim loop.
+   */
+  private updateViews(
+    deltaSeconds: number,
+    deltaMs: number,
+    nowMs: number,
+    inHitstop: boolean,
+    simStepRan: boolean,
+  ): void {
+    // --- Depictions: copy every ship's sim pose into its scene root, and
+    // every weapon system's live projectiles onto its mesh pool. Runs
+    // every frame (during hitstop the poses simply haven't changed) and
+    // BEFORE the camera/FX below so anything parented to a ship root sees
+    // this frame's transform.
+    for (const c of this.combatants) c.view.update(c.ship);
+    this.factionLaserViews.humans.update();
+    this.factionLaserViews.machines.update();
+    this.factionMissileViews.humans.update();
+    this.factionMissileViews.machines.update();
+
+    // Light each AI ship's exhaust (engine glow + maneuvering plumes) from the
+    // input it flew on this sim step. Only when the sim actually advanced —
+    // these used to sit inside the sim loop, so they froze during hitstop and
+    // after the match ends. Dead ships pass all-false (the AIController emits
+    // that), so the FX tapers off rather than freezing lit. The player uses the
+    // standalone engineGlow/secondaryThrusters below, so it has no aiVisuals
+    // entry and is skipped here.
+    if (simStepRan) {
+      for (const c of this.combatants) {
+        const vis = this.aiVisuals.get(c.ship);
+        if (!vis) continue;
+        if (c.lastInput === null) {
+          // Mid-launch: keep the glow dark (occluded by the carrier; a lit glow
+          // bleeds through the hull via the GlowLayer). Re-shows next step.
+          vis.glow?.hide();
+          vis.thrusters?.update(deltaSeconds, false, false, false);
+        } else {
+          const alive = c.ship.isAlive;
+          vis.glow?.update(
+            deltaSeconds,
+            c.ship.speed,
+            c.ship.maxSpeed,
+            alive && c.lastInput.thrust,
+          );
+          vis.thrusters?.update(
+            deltaSeconds,
+            alive && c.lastInput.reverse,
+            alive && c.lastInput.strafeLeft,
+            alive && c.lastInput.strafeRight,
+          );
+        }
+      }
+    }
+
+    // Explosions animate through the end screen (so the death spectacle plays
+    // out) but pause during hitstop, like the rest of the sim.
+    if (!inHitstop) this.explosions.update(deltaSeconds, deltaMs);
+
+    // --- Animations that continue THROUGH hitstop ---
+    if (this.playerShip && this.playerShip.isAlive) {
+      const playerLaunch = this.playerLaunch;
+      if (playerLaunch) {
+        this.cameraRig.setZoom(playerLaunch.desiredZoom);
+      }
+      const zoomInput =
+        (this.input.state.zoomIn ? 1 : 0) - (this.input.state.zoomOut ? 1 : 0);
+      this.cameraRig.update(
+        deltaSeconds,
+        this.playerShip.position,
+        this.playerShip.velocity,
+        zoomInput,
+      );
+      this.starfield.update();
+      this.backdrop.update(this.cameraRig.camera.getTarget());
+      if (!inHitstop) {
+        // Keep the glow off through the player's launch (it's occluded by the
+        // carrier; a lit glow would bleed through the hull via the GlowLayer).
+        // update() re-shows it the first frame after the catapult completes.
+        if (playerLaunch) {
+          this.engineGlow?.hide();
+        } else {
+          this.engineGlow?.update(
+            deltaSeconds,
+            this.playerShip.speed,
+            this.playerShip.maxSpeed,
+            this.input.state.thrust,
+          );
+        }
+        const alive = this.playerShip.isAlive;
+        this.secondaryThrusters?.update(
+          deltaSeconds,
+          alive && this.input.state.reverse,
+          alive && this.input.state.strafeLeft,
+          alive && this.input.state.strafeRight,
+        );
+      }
+    }
+    this.playerDamageFlash?.update();
+    for (const flash of this.aiDamageFlashes.values()) flash.update();
+
+    const engineIntensity =
+      this.playerShip && this.playerShip.isAlive
+        ? (this.engineGlow?.currentIntensity ?? 0)
+        : 0;
+    this.sound.updateEngine(deltaSeconds, engineIntensity);
+
+    // Incoming-missile warning (RWR). Presentation, so it runs THROUGH
+    // hitstop with the rest of this block (audio + HUD continue during
+    // freeze frames; the threat picture is simply static while the sim is
+    // paused). Passing player = null outside live play — launch countdown,
+    // end screens, death gaps — forces it quiet, fading any active pulse.
+    const rwrActive =
+      this.state === "playing" &&
+      this.playerShip !== null &&
+      this.playerShip.isAlive;
+    this.missileWarning.update(
+      deltaSeconds,
+      nowMs,
+      this.factionMissiles[this.enemyFaction],
+      rwrActive ? this.playerShip : null,
+    );
+
+    // HUD.
+    if (this.playerShip) {
+      // The stealth cue asks the ENEMY's sensor picture about the player.
+      const signature = this.sensors.isTracked(this.enemyFaction, this.playerShip)
+        ? "detected"
+        : this.sensors.isConcealed(this.playerShip.position)
+          ? "hidden"
+          : "untracked";
+      this.hud.update(
+        this.playerShip,
+        this.factionLasers[this.playerFaction],
+        nowMs,
+        this.lockTarget !== null,
+        this.cameraRig.currentZoom,
+        signature,
+        this.playerKills,
+        this.wingKills,
+        this.score,
+        this.bestScore,
+      );
+    }
+    this.hud.setMothershipHp(
+      this.motherships.humans.hp / this.motherships.humans.maxHp,
+      this.motherships.machines.hp / this.motherships.machines.maxHp,
+    );
+    if (this.playerShip) {
+      this.radar.update(
+        this.playerShip,
+        this.shipsByFaction[this.playerFaction],
+        this.sensors.contacts[this.playerFaction],
+        this.missileWarning.threats,
+        this.motherships,
+        this.asteroids.asteroids,
+        this.combatNebulas.zones,
+        nowMs,
+      );
+    }
+    this.hud.setLaunchOverlay(this.playerLaunch?.overlayText ?? null);
+    this.hud.setEndBanner(
+      this.state === "victory" ? "victory" : this.state === "defeat" ? "defeat" : null,
+      `KILLS ${this.playerKills} · SCORE ${this.score}${
+        this.score > 0 && this.score >= this.bestScore ? " · NEW BEST" : ""
+      }`,
+    );
+  }
 
   /** The player's active launch sequence — what the camera zoom + overlay read. */
   private get playerLaunch(): LaunchSequence | null {

@@ -26,9 +26,13 @@
  *     asteroid collisions → carrier collisions → death flags + respawns →
  *     lasers ×2 → missiles ×2 → asteroid field → objectives.
  *
- *   When Phase 0's "split Game.tick into advanceSim/updateViews" task lands,
- *   this tick body should collapse into a call to the shared advanceSim —
- *   with an UNCHANGED baseline trace proving the extraction was faithful.
+ *   Phase 0's "split Game.tick into advanceSim/updateViews" task HAS landed:
+ *   Game.tick now calls Game.advanceSim (sim) + Game.updateViews (depiction),
+ *   and this tick body mirrors advanceSim's order exactly. The full collapse —
+ *   this fixture CALLING the shared advanceSim instead of re-deriving it —
+ *   waits on Phase 1, when the sim is lifted out of Game (which still owns a
+ *   live Engine/Scene) into the standalone shared coordinator. Until then this
+ *   stays a faithful hand-mirror; the unchanged baseline trace is the proof.
  *
  * DELIBERATE DIFFERENCES from the browser game (all documented so baseline
  * shifts are explainable):
