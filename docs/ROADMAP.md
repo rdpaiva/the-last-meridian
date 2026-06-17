@@ -432,7 +432,11 @@ implemented yet. Roughly ordered by gameplay value.
 - **Multiplayer** — now a planned direction (not out of scope). The
   Ship/`ShipController` spine is built for it: add a `NetworkController`
   alongside `LocalInputController`/`AIController`; `InputState` is already a
-  boolean wire format.
+  boolean wire format. **Phase 0 (sim/view split) is COMPLETE** (2026-06-17):
+  sim and Babylon view are fully separated, `Game.advanceSim` is the
+  server-safe tick a Colyseus room will run, and a deterministic headless
+  smoke harness guards it. Phase 1 (npm-workspace restructure → Colyseus
+  skeleton) is next. Full phased plan + status: `docs/MULTIPLAYER.md`.
 
 > **Carry-over (FIXED in Phase 4):** the catapult launch is now oriented to the
 > carrier's facing. `Mothership.getLaunchForward()` + `getLaunchExitDistance()`

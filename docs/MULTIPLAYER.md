@@ -144,11 +144,13 @@ on a branch ready for local eyeball QA.
 
 ## Phase 0 — Sim/view split (no networking yet)
 
-> **Status (2026-06-17):** Smoke harness + the `Ship`, `Laser`/`LaserSystem`,
-> `Missile`/`MissileSystem`, and `Mothership` splits are landed, plus the
-> sim→view event channel, the `Game.tick` split (`advanceSim` /
-> `updateViews`), and the AI/sensors scene-free audit; the baseline trace
-> stays clean across them. Remaining: only the `[human]` eyeball pass.
+> **Status (2026-06-17): Phase 0 COMPLETE.** Smoke harness + the `Ship`,
+> `Laser`/`LaserSystem`, `Missile`/`MissileSystem`, and `Mothership` splits,
+> the sim→view event channel, the `Game.tick` split (`advanceSim` /
+> `updateViews`), and the AI/sensors scene-free audit all landed with the
+> baseline trace clean throughout; the `[human]` eyeball pass passed (full
+> matches played, depiction confirmed unchanged). Next: Phase 1 — the
+> workspace restructure (`git mv src/game/sim → shared/src`, etc.).
 
 The prerequisite refactor: separate gameplay truth (sim — runs anywhere)
 from its Babylon depiction (view — client only). The game must play
@@ -223,11 +225,12 @@ timing).
       source both the view and the harness consume. (`AsteroidField`/`Asteroid`
       are mesh-builders run under NullEngine headless — not on the split list;
       a later sim/view split, if ever needed.)
-- [ ] `[human]` **Local eyeball pass** — pull the branch, play a full
-      match: meshes track ships, bank rolls the right way, FX/SFX/shake
-      fire at the right moments, launch + respawn + victory/defeat all
-      look right. Headless proves the sim didn't change; this proves
-      the depiction didn't.
+- [x] `[human]` **Local eyeball pass** — DONE (2026-06-17): full matches
+      played on `feat/phase0-smoke-harness`; depiction confirmed unchanged
+      (meshes track, bank rolls right, FX/SFX/shake/hitstop fire on cue,
+      launch + respawn + victory/defeat all correct). Headless proved the
+      sim didn't change; this proved the depiction didn't. Checklist:
+      `docs/PHASE0_EYEBALL_CHECKLIST.md`.
 
 ## Phase 1 — Colyseus skeleton
 
