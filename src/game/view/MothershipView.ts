@@ -11,17 +11,21 @@ import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
 import "@babylonjs/core/Meshes/Builders/boxBuilder";
 // Registers the .glb/.gltf loader plugin used by applyModel() to swap the
 // procedural carrier for the Blender model. AssetLoader also registers it, but
-// importing here too keeps Mothership independent of module load order.
+// importing here too keeps MothershipView independent of module load order.
 import "@babylonjs/loaders/glTF";
 
-import { GameConfig } from "./GameConfig";
-import { MothershipSection } from "./MothershipSection";
-import type { DamageTarget } from "./types";
-import type { Faction } from "./Faction";
-import type { AvoidObstacle } from "./ShipController";
+import { GameConfig } from "../GameConfig";
+import { Mothership } from "../sim/Mothership";
 
 /**
- * Procedural BSG-style carrier/battleship (Galactica silhouette).
+ * Procedural BSG-style carrier/battleship (Galactica silhouette) — the VIEW
+ * half of the Mothership/MothershipView split (docs/MULTIPLAYER.md Phase 0).
+ * Owns the Babylon scene root + meshes + materials + GLB swap; the gameplay
+ * truth (HP, hull footprint, launch geometry) lives in the sim `Mothership`
+ * this view depicts. The view reads the sim's static `position`/`rotationY` to
+ * place its root once at construction (carriers never move) and, after the GLB
+ * loads, feeds the model's launch geometry back to the sim via
+ * `setModelLaunchData()`.
  *
  * Viewed from above the structure is:
  *
@@ -44,48 +48,13 @@ import type { AvoidObstacle } from "./ShipController";
  * At rotationY=π (enemy) the bow faces world -Z.
  *
  * The player fighter launches from the STARBOARD pod (local +X side).
- *
- * Implements DamageTarget: it is the match objective. Destroying the opposing
- * faction's mothership wins; losing yours ends the game. Collision is per
- * HULL SECTION — world-space axis-aligned rectangles stacked along the keel
- * (`hullSections`, from GameConfig.mothership.hullRects[faction]) that match
- * the visible hull near-exactly. Weapons and the ship keep-out consume the
- * boxes; the AI's circle-based avoidance steers around `avoidanceCircles`
- * (coarse circles derived from the boxes). Damage on any section lands on
- * this one shared HP pool. The legacy single `hitRadius` remains only for
- * the DamageTarget interface.
  */
-export class Mothership implements DamageTarget {
+export class MothershipView {
   readonly root: TransformNode;
-  readonly faction: Faction;
-
-  hp: number = GameConfig.mothership.maxHp;
-  readonly maxHp: number = GameConfig.mothership.maxHp;
-  /** Legacy single circle — weapons/avoidance use `hullSections` instead. */
-  readonly hitRadius: number = GameConfig.mothership.hitRadius;
-  /**
-   * The solid hull footprint: world-space axis-aligned boxes along the keel
-   * (carriers never move and face ±Z, so the rects stay axis-aligned). What
-   * lasers/missiles actually test and what ships are bumped out of. Every
-   * section forwards its damage here — one HP pool for the whole ship.
-   */
-  readonly hullSections: ReadonlyArray<MothershipSection>;
-  /**
-   * Coarse circles circumscribing slices of the hull boxes — what the AI's
-   * (circle-only) avoidance pass steers around. Deliberately oversized
-   * relative to hullSections: a pilot giving the hull a wide berth looks
-   * natural, while weapons stopping in that same phantom space would look
-   * broken, which is why steering and damage use different shapes.
-   */
-  readonly avoidanceCircles: ReadonlyArray<AvoidObstacle>;
-
-  // Shared geometry constants — used by both build methods and query helpers.
-  static readonly HULL_HALF_DEPTH = 140; // half of hull Z length
-  static readonly POD_HALF_DEPTH = 110;  // half of pod Z length
-  static readonly STARBOARD_X = 65;      // local X center of the starboard pod
 
   private readonly scene: Scene;
   private readonly glowLayer: GlowLayer;
+  private readonly sim: Mothership;
 
   /**
    * Meshes of the procedural box carrier, captured at construction. Disposed by
@@ -94,51 +63,15 @@ export class Mothership implements DamageTarget {
    */
   private proceduralMeshes: AbstractMesh[] = [];
 
-  /**
-   * Launch-bay positions (carrier-LOCAL x/z) read from the GLB's `launch.*`
-   * empties, or null while running the procedural carrier (then the query
-   * helpers fall back to GameConfig.mothership.launchBays). Set by applyModel().
-   */
-  private modelLaunchBays: ReadonlyArray<{ x: number; z: number }> | null = null;
-
-  /** Bow-clearing exit distance derived from the GLB's forward extent, or null. */
-  private modelExitDistance: number | null = null;
-
-  constructor(
-    scene: Scene,
-    glowLayer: GlowLayer,
-    worldPosition: Vector3,
-    rotationY: number,
-    faction: Faction,
-  ) {
+  constructor(scene: Scene, glowLayer: GlowLayer, sim: Mothership) {
     this.scene = scene;
     this.glowLayer = glowLayer;
-    this.faction = faction;
-    this.root = new TransformNode(`mothership_${faction}_root`, scene);
-    this.root.position.copyFrom(worldPosition);
-    this.root.rotation.y = rotationY;
+    this.sim = sim;
 
-    // Hull footprint rectangles (per-faction — the two carriers are different
-    // shapes), rotated into world space once: the carrier is static, so the
-    // sections are too. Rects are carrier-local (keel along z, bow = +z,
-    // symmetric in x); rotating the two opposite corners and taking min/max
-    // gives the world box — exact for the 0/π facings the carriers use.
-    const sin = Math.sin(rotationY);
-    const cos = Math.cos(rotationY);
-    this.hullSections = GameConfig.mothership.hullRects[faction].map((rect) => {
-      const ax = worldPosition.x + cos * -rect.halfWidth + sin * rect.z0;
-      const az = worldPosition.z - sin * -rect.halfWidth + cos * rect.z0;
-      const bx = worldPosition.x + cos * rect.halfWidth + sin * rect.z1;
-      const bz = worldPosition.z - sin * rect.halfWidth + cos * rect.z1;
-      return new MothershipSection(
-        this,
-        Math.min(ax, bx),
-        Math.max(ax, bx),
-        Math.min(az, bz),
-        Math.max(az, bz),
-      );
-    });
-    this.avoidanceCircles = this.buildAvoidanceCircles();
+    const faction = sim.faction;
+    this.root = new TransformNode(`mothership_${faction}_root`, scene);
+    this.root.position.copyFrom(sim.position);
+    this.root.rotation.y = sim.rotationY;
 
     const hullMat = this.makeHullMat(scene, faction);
     const accentMat = this.makeAccentMat(scene, faction);
@@ -160,40 +93,9 @@ export class Mothership implements DamageTarget {
     this.proceduralMeshes = this.root.getChildMeshes(true);
   }
 
-  /**
-   * Derives the AI steering circles from the hull boxes: each box is split
-   * into roughly-square slices along its long axis, each circumscribed by a
-   * circle. Coverage is guaranteed (no gap a pilot could thread into a wall
-   * — the keep-out bump backstops any residual contact) at the cost of ~40%
-   * corner overshoot, which for steering just reads as a healthy berth.
-   */
-  private buildAvoidanceCircles(): AvoidObstacle[] {
-    const owner = this;
-    const circles: AvoidObstacle[] = [];
-    for (const s of this.hullSections) {
-      const halfX = (s.maxX - s.minX) / 2;
-      const halfZ = (s.maxZ - s.minZ) / 2;
-      const alongZ = halfZ >= halfX;
-      const longHalf = alongZ ? halfZ : halfX;
-      const shortHalf = alongZ ? halfX : halfZ;
-      const n = Math.max(1, Math.ceil(longHalf / Math.max(shortHalf, 1)));
-      const sliceHalf = longHalf / n;
-      const radius = Math.hypot(shortHalf, sliceHalf);
-      for (let i = 0; i < n; i++) {
-        const t = -longHalf + sliceHalf * (2 * i + 1);
-        circles.push({
-          position: {
-            x: s.position.x + (alongZ ? 0 : t),
-            z: s.position.z + (alongZ ? t : 0),
-          },
-          radius,
-          get isAlive() {
-            return owner.isAlive;
-          },
-        });
-      }
-    }
-    return circles;
+  /** Tear down the scene nodes (match end). */
+  dispose(): void {
+    this.root.dispose(false, true);
   }
 
   // ─── Detailed model swap (Blender GLB) ────────────────────────────────────
@@ -202,10 +104,11 @@ export class Mothership implements DamageTarget {
    * Replace the procedural box carrier with the Blender GLB named by
    * `filename` (GameConfig.mothership.model). Imports the model under a
    * correction node (orientation + scale from config), reads the `launch.*`
-   * empties for the bays, registers the emissive parts with the glow layer, then
-   * disposes the procedural meshes. Returns false — and KEEPS the procedural
-   * carrier — if the model is disabled in config or fails to load. Always
-   * resolves; never rejects. Call once, after construction (see Game.start()).
+   * empties for the bays + the forward extent for the exit distance and feeds
+   * both back to the sim, registers the emissive parts with the glow layer,
+   * then disposes the procedural meshes. Returns false — and KEEPS the
+   * procedural carrier — if the model is disabled in config or fails to load.
+   * Always resolves; never rejects. Call once, after construction (Game.start).
    */
   async applyModel(filename: string): Promise<boolean> {
     const cfg = GameConfig.mothership.model;
@@ -221,7 +124,7 @@ export class Mothership implements DamageTarget {
 
       // The glTF loader inserts a "__root__" TransformNode (RHS→LHS handling).
       // Park it (or any loose meshes) under a correction node we own.
-      const modelRoot = new TransformNode(`ms_model_${this.faction}`, this.scene);
+      const modelRoot = new TransformNode(`ms_model_${this.sim.faction}`, this.scene);
       const gltfRoot = result.transformNodes.find((n) => n.name === "__root__");
       if (gltfRoot) {
         gltfRoot.parent = modelRoot;
@@ -234,8 +137,12 @@ export class Mothership implements DamageTarget {
       modelRoot.scaling.setAll(cfg.scale);
       modelRoot.parent = this.root;
 
-      this.captureLaunchMarkers(result.transformNodes);
-      this.captureExitDistance(result.meshes);
+      // Read the model's launch geometry and hand it back to the sim (the sim
+      // owns launch math; the view only measures it off the loaded mesh).
+      this.sim.setModelLaunchData(
+        this.captureLaunchMarkers(result.transformNodes),
+        this.captureExitDistance(result.meshes),
+      );
       this.registerModelGlow(result.meshes);
 
       // The procedural carrier is now redundant — dispose its meshes. The GLB is
@@ -245,7 +152,7 @@ export class Mothership implements DamageTarget {
       return true;
     } catch (err) {
       console.warn(
-        `[Mothership] Failed to load /models/${filename} — keeping the ` +
+        `[MothershipView] Failed to load /models/${filename} — keeping the ` +
           `procedural carrier.`,
         err,
       );
@@ -255,12 +162,14 @@ export class Mothership implements DamageTarget {
 
   /**
    * Reads the GLB's `launch.*` empties into carrier-LOCAL x/z (the same frame
-   * GameConfig.launchBays uses, so getLaunchStartPosition's rotation math is
-   * unchanged). Sorted by X for a deterministic port↔starboard bay order
-   * regardless of node order in the file. No-op (keeps the config fallback) if
-   * the model authored no launch empties.
+   * GameConfig.launchBays uses, so the sim's getLaunchStartPosition rotation
+   * math is unchanged). Sorted by X for a deterministic port↔starboard bay
+   * order regardless of node order in the file. Returns null (keeping the sim's
+   * config fallback) if the model authored no launch empties.
    */
-  private captureLaunchMarkers(nodes: TransformNode[]): void {
+  private captureLaunchMarkers(
+    nodes: TransformNode[],
+  ): ReadonlyArray<{ x: number; z: number }> | null {
     this.root.computeWorldMatrix(true);
     const inv = this.root.getWorldMatrix().clone().invert();
     const pts: { x: number; z: number }[] = [];
@@ -270,18 +179,19 @@ export class Mothership implements DamageTarget {
       const p = Vector3.TransformCoordinates(n.getAbsolutePosition(), inv);
       pts.push({ x: p.x, z: p.z });
     }
-    if (pts.length === 0) return;
+    if (pts.length === 0) return null;
     pts.sort((a, b) => a.x - b.x);
-    this.modelLaunchBays = pts;
+    return pts;
   }
 
   /**
    * Derives the bow-clearing exit distance from the model's forward (+local Z)
    * extent plus a margin, so a fighter hands back to normal control just after
    * clearing the bow regardless of the model's scale. Local +Z is the launch
-   * axis for either carrier (getLaunchForward is the root's facing).
+   * axis for either carrier (getLaunchForward is the root's facing). Returns
+   * null (keeping the sim's procedural fallback) if no finite extent is found.
    */
-  private captureExitDistance(meshes: AbstractMesh[]): void {
+  private captureExitDistance(meshes: AbstractMesh[]): number | null {
     this.root.computeWorldMatrix(true);
     const inv = this.root.getWorldMatrix().clone().invert();
     let maxZ = -Infinity;
@@ -292,7 +202,7 @@ export class Mothership implements DamageTarget {
         if (local.z > maxZ) maxZ = local.z;
       }
     }
-    if (Number.isFinite(maxZ)) this.modelExitDistance = maxZ + 25;
+    return Number.isFinite(maxZ) ? maxZ + 25 : null;
   }
 
   /**
@@ -314,75 +224,6 @@ export class Mothership implements DamageTarget {
       if (nm.includes("bay")) continue; // recessed → emissive only, never glow
       if (GLOW.some((g) => nm.includes(g))) this.glowLayer.addIncludedOnlyMesh(m as Mesh);
     }
-  }
-
-  // ─── DamageTarget ─────────────────────────────────────────────────────────
-
-  /** World-space position (the root's). Used by laser/missile collision. */
-  get position(): Vector3 {
-    return this.root.position;
-  }
-
-  get isAlive(): boolean {
-    return this.hp > 0;
-  }
-
-  takeDamage(amount: number, _nowMs: number): void {
-    if (this.hp <= 0) return;
-    this.hp = Math.max(0, this.hp - amount);
-  }
-
-  // ─── Query helpers ────────────────────────────────────────────────────────
-
-  /**
-   * Launch-bay offsets (carrier-LOCAL x/z): the GLB's `launch.*` empties once
-   * the model has loaded, else the GameConfig procedural-fallback positions.
-   */
-  private launchBays(): ReadonlyArray<{ x: number; z: number }> {
-    return this.modelLaunchBays ?? GameConfig.mothership.launchBays;
-  }
-
-  /** How many catapult launch bays (tubes) this carrier has. */
-  getLaunchBayCount(): number {
-    return this.launchBays().length;
-  }
-
-  /**
-   * World-space start position inside launch bay `bayIndex` (wraps if it runs
-   * past the available bays). Y is forced to 0 so the fighter sits on the
-   * gameplay plane. Works for either carrier — the local bay offset is rotated
-   * by the root's facing. Bay positions come from the model's `launch.*` empties
-   * (else GameConfig.mothership.launchBays); see launchBays().
-   */
-  getLaunchStartPosition(bayIndex = 0): Vector3 {
-    const bays = this.launchBays();
-    const bay = bays[bayIndex % bays.length];
-    const sin = Math.sin(this.root.rotation.y);
-    const cos = Math.cos(this.root.rotation.y);
-    return new Vector3(
-      this.root.position.x + cos * bay.x + sin * bay.z,
-      0,
-      this.root.position.z - sin * bay.x + cos * bay.z,
-    );
-  }
-
-  /**
-   * Unit forward direction (world X/Z) the catapult fires along — the carrier's
-   * facing. Humans (rotationY=0) launch toward +Z; machines (rotationY=π) toward
-   * -Z. Pairs with getLaunchExitDistance() so the launch works for either side.
-   */
-  getLaunchForward(): { x: number; z: number } {
-    return { x: Math.sin(this.root.rotation.y), z: Math.cos(this.root.rotation.y) };
-  }
-
-  /**
-   * Distance (world units) along the launch-forward axis, measured from the
-   * carrier center, that a fighter must travel to fully clear the bow.
-   */
-  getLaunchExitDistance(): number {
-    // From the model's measured forward extent once loaded; else the procedural
-    // hull: bridge cap overhangs to roughly localZ = +148, plus a margin.
-    return this.modelExitDistance ?? Mothership.HULL_HALF_DEPTH + 25;
   }
 
   // ─── Central hull ─────────────────────────────────────────────────────────
@@ -660,7 +501,7 @@ export class Mothership implements DamageTarget {
 
   // ─── Materials ────────────────────────────────────────────────────────────
 
-  private makeHullMat(scene: Scene, faction: Faction): StandardMaterial {
+  private makeHullMat(scene: Scene, faction: string): StandardMaterial {
     const mat = new StandardMaterial(`ms_${faction}_hull_mat`, scene);
     mat.diffuseColor = faction === "humans"
       ? new Color3(0.15, 0.20, 0.34)
@@ -669,7 +510,7 @@ export class Mothership implements DamageTarget {
     return mat;
   }
 
-  private makeAccentMat(scene: Scene, faction: Faction): StandardMaterial {
+  private makeAccentMat(scene: Scene, faction: string): StandardMaterial {
     const mat = new StandardMaterial(`ms_${faction}_accent_mat`, scene);
     mat.diffuseColor = faction === "humans"
       ? new Color3(0.22, 0.30, 0.46)
@@ -687,7 +528,7 @@ export class Mothership implements DamageTarget {
     return mat;
   }
 
-  private makeLightMat(scene: Scene, faction: Faction): StandardMaterial {
+  private makeLightMat(scene: Scene, faction: string): StandardMaterial {
     const mat = new StandardMaterial(`ms_${faction}_light_mat`, scene);
     mat.diffuseColor = Color3.Black();
     mat.specularColor = Color3.Black();

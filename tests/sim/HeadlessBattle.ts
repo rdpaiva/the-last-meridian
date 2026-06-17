@@ -53,7 +53,6 @@
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
 import { Scene } from "@babylonjs/core/scene";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import type { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
 
 import { GameConfig } from "../../src/game/GameConfig";
 import { opposing, type Faction } from "../../src/game/Faction";
@@ -66,7 +65,7 @@ import type {
 import { AIController, type AIOrder } from "../../src/game/AIController";
 import { FleetCommander, type CommandedPilot } from "../../src/game/FleetCommander";
 import { SensorSystem } from "../../src/game/SensorSystem";
-import { Mothership } from "../../src/game/Mothership";
+import { Mothership } from "../../src/game/sim/Mothership";
 import { LaserSystem } from "../../src/game/sim/LaserSystem";
 import { MissileSystem } from "../../src/game/sim/MissileSystem";
 import { AsteroidField } from "../../src/game/AsteroidField";
@@ -177,32 +176,19 @@ export class HeadlessBattle {
     this.engine = new NullEngine();
     this.scene = new Scene(this.engine);
 
-    // Mothership only calls GlowLayer.addIncludedOnlyMesh (its import is
-    // type-only) — a no-op stub keeps the headless build mesh-light.
-    const glowStub = {
-      addIncludedOnlyMesh: () => {},
-    } as unknown as GlowLayer;
-
     this.playerFaction = GameConfig.player.faction;
     this.enemyFaction = opposing(this.playerFaction);
 
     // --- Carriers (Game constructor order: humans south, machines north) ---
+    // Sim only: post Mothership/MothershipView split the carrier sim holds no
+    // scene state, so the harness constructs it directly — no scene, no glow,
+    // no procedural mesh build (all view-side now). The launch geometry it
+    // exposes runs on GameConfig's bays (no GLB load headless), exactly as the
+    // browser does before applyModel() swaps the model in.
     const ms = GameConfig.mothership;
     this.motherships = {
-      humans: new Mothership(
-        this.scene,
-        glowStub,
-        new Vector3(0, ms.yLevel, ms.playerZ),
-        0,
-        "humans",
-      ),
-      machines: new Mothership(
-        this.scene,
-        glowStub,
-        new Vector3(0, ms.yLevel, ms.enemyZ),
-        Math.PI,
-        "machines",
-      ),
+      humans: new Mothership(new Vector3(0, ms.yLevel, ms.playerZ), 0, "humans"),
+      machines: new Mothership(new Vector3(0, ms.yLevel, ms.enemyZ), Math.PI, "machines"),
     };
 
     // --- Asteroid field (sim RNG draws begin here) ---
@@ -626,7 +612,7 @@ export class HeadlessBattle {
     const home = this.motherships[ship.faction];
     if (!home.isAlive) return;
     const start = home.getLaunchStartPosition(c.bayIndex);
-    ship.respawn(start.x, start.z, home.root.rotation.y);
+    ship.respawn(start.x, start.z, home.rotationY);
     c.launch = this.makeLaunchSequence(home, 0, c === this.standIn, true);
     this.stats.respawns++;
   }
@@ -722,7 +708,7 @@ export class HeadlessBattle {
       const bayIndex = Math.min(Math.floor(i / perBay), bays - 1);
       c.bayIndex = bayIndex;
       const start = home.getLaunchStartPosition(bayIndex);
-      c.ship.respawn(start.x, start.z, home.root.rotation.y);
+      c.ship.respawn(start.x, start.z, home.rotationY);
       c.launch = this.makeLaunchSequence(
         home,
         baseHoldSec + i * stagger,

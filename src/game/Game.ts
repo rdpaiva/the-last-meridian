@@ -41,8 +41,9 @@ import { ExplosionSystem } from "./ExplosionSystem";
 import { SoundSystem } from "./SoundSystem";
 import { MusicSystem } from "./MusicSystem";
 import { DamageFlash } from "./DamageFlash";
-import { Mothership } from "./Mothership";
-import { MothershipSection } from "./MothershipSection";
+import { Mothership } from "./sim/Mothership";
+import { MothershipSection } from "./sim/MothershipSection";
+import { MothershipView } from "./view/MothershipView";
 import { LaunchSequence } from "./LaunchSequence";
 import { opposing, FACTION_THEME, type Faction } from "./Faction";
 import { LocalInputController } from "./LocalInputController";
@@ -135,6 +136,8 @@ export class Game {
   /** Per-round mesh+trail depictions of the two missile systems. */
   private readonly factionMissileViews: Record<Faction, MissileSystemView>;
   private readonly motherships: Record<Faction, Mothership>;
+  /** Babylon depictions of the two carriers (sim/view split); the GLB swap lives here. */
+  private readonly mothershipViews: Record<Faction, MothershipView>;
 
   /** All ships, regardless of side, plus their controllers. */
   private readonly combatants: Combatant[] = [];
@@ -321,20 +324,16 @@ export class Game {
     // appear immediately, before asset load.
     const ms = GameConfig.mothership;
     this.motherships = {
-      humans: new Mothership(
-        this.scene,
-        this.glowLayer,
-        new Vector3(0, ms.yLevel, ms.playerZ),
-        0,
-        "humans",
-      ),
-      machines: new Mothership(
-        this.scene,
-        this.glowLayer,
-        new Vector3(0, ms.yLevel, ms.enemyZ),
-        Math.PI,
-        "machines",
-      ),
+      humans: new Mothership(new Vector3(0, ms.yLevel, ms.playerZ), 0, "humans"),
+      machines: new Mothership(new Vector3(0, ms.yLevel, ms.enemyZ), Math.PI, "machines"),
+    };
+    // Depictions of the carriers: the sim objects above hold no scene state, so
+    // each view owns the procedural mesh build (and the later GLB swap), reading
+    // its carrier's static position/rotationY. Built now so the carriers appear
+    // immediately, before asset load.
+    this.mothershipViews = {
+      humans: new MothershipView(this.scene, this.glowLayer, this.motherships.humans),
+      machines: new MothershipView(this.scene, this.glowLayer, this.motherships.machines),
     };
 
     // Drifting destructible asteroid field — the arena terrain. Rocks keep
@@ -768,7 +767,7 @@ export class Game {
     await Promise.all(
       (["humans", "machines"] as Faction[]).map((f) => {
         const file = GameConfig.mothership.model.file[f];
-        return file ? this.motherships[f].applyModel(file) : Promise.resolve(false);
+        return file ? this.mothershipViews[f].applyModel(file) : Promise.resolve(false);
       }),
     );
 
@@ -1509,7 +1508,7 @@ export class Game {
       const bayIndex = Math.min(Math.floor(i / perBay), bays - 1);
       c.bayIndex = bayIndex;
       const start = home.getLaunchStartPosition(bayIndex);
-      c.ship.respawn(start.x, start.z, home.root.rotation.y);
+      c.ship.respawn(start.x, start.z, home.rotationY);
       const isPlayer = c === this.playerCombatant;
       c.launch = this.makeLaunchSequence(home, baseHoldSec + i * stagger, isPlayer);
     });
@@ -1595,7 +1594,7 @@ export class Game {
     // and a fallen enemy carrier means the match is already won).
     if (!home.isAlive) return;
     const start = home.getLaunchStartPosition(c.bayIndex);
-    ship.respawn(start.x, start.z, home.root.rotation.y);
+    ship.respawn(start.x, start.z, home.rotationY);
     // Flush the trail history so no streak appears on the first thrust after
     // teleporting to the respawn position.
     if (isPlayer) {

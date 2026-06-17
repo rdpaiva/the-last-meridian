@@ -1,0 +1,224 @@
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+
+import { GameConfig } from "../GameConfig";
+import { MothershipSection } from "./MothershipSection";
+import type { DamageTarget } from "../types";
+import type { Faction } from "../Faction";
+import type { AvoidObstacle } from "../ShipController";
+
+/**
+ * Mothership SIM — the carrier as gameplay truth, with NO Babylon scene
+ * objects (the sim half of the Mothership/MothershipView split,
+ * docs/MULTIPLAYER.md Phase 0). It runs anywhere: the browser, the headless
+ * smoke harness, and (Phase 1) the server. Its Babylon depiction is a
+ * client-side MothershipView (src/game/view/MothershipView.ts) that reads this
+ * object's `position`/`rotationY` to place its scene root and, after swapping
+ * in the GLB, feeds the model's launch geometry back here via
+ * `setModelLaunchData()`.
+ *
+ * It implements DamageTarget: it is the match objective. Destroying the
+ * opposing faction's mothership wins; losing yours ends the game. Collision is
+ * per HULL SECTION — world-space axis-aligned rectangles stacked along the keel
+ * (`hullSections`, from GameConfig.mothership.hullRects[faction]) that match
+ * the visible hull near-exactly. Weapons and the ship keep-out consume the
+ * boxes; the AI's circle-based avoidance steers around `avoidanceCircles`
+ * (coarse circles derived from the boxes). Damage on any section lands on
+ * this one shared HP pool. The legacy single `hitRadius` remains only for the
+ * DamageTarget interface.
+ *
+ * Facing: at rotationY=0 (player) the bow faces world +Z; at rotationY=π
+ * (enemy) the bow faces world -Z. The carrier is static — position and
+ * rotationY never change after construction, so the hull sections are computed
+ * once and the proxy is fully static.
+ */
+export class Mothership implements DamageTarget {
+  readonly faction: Faction;
+
+  /** World-space position on the gameplay plane (Y = carrier deck level). */
+  readonly position: Vector3;
+  /** Facing (radians): humans 0 (bow +Z), machines π (bow -Z). */
+  readonly rotationY: number;
+
+  hp: number = GameConfig.mothership.maxHp;
+  readonly maxHp: number = GameConfig.mothership.maxHp;
+  /** Legacy single circle — weapons/avoidance use `hullSections` instead. */
+  readonly hitRadius: number = GameConfig.mothership.hitRadius;
+  /**
+   * The solid hull footprint: world-space axis-aligned boxes along the keel
+   * (carriers never move and face ±Z, so the rects stay axis-aligned). What
+   * lasers/missiles actually test and what ships are bumped out of. Every
+   * section forwards its damage here — one HP pool for the whole ship.
+   */
+  readonly hullSections: ReadonlyArray<MothershipSection>;
+  /**
+   * Coarse circles circumscribing slices of the hull boxes — what the AI's
+   * (circle-only) avoidance pass steers around. Deliberately oversized
+   * relative to hullSections: a pilot giving the hull a wide berth looks
+   * natural, while weapons stopping in that same phantom space would look
+   * broken, which is why steering and damage use different shapes.
+   */
+  readonly avoidanceCircles: ReadonlyArray<AvoidObstacle>;
+
+  // Shared geometry constants — used by the view's procedural build and by the
+  // launch-geometry helpers below.
+  static readonly HULL_HALF_DEPTH = 140; // half of hull Z length
+  static readonly POD_HALF_DEPTH = 110;  // half of pod Z length
+  static readonly STARBOARD_X = 65;      // local X center of the starboard pod
+
+  /**
+   * Launch-bay positions (carrier-LOCAL x/z) read from the GLB's `launch.*`
+   * empties by the view, or null while running the procedural carrier (then
+   * the query helpers fall back to GameConfig.mothership.launchBays). Set by
+   * MothershipView via setModelLaunchData() after the model loads.
+   */
+  private modelLaunchBays: ReadonlyArray<{ x: number; z: number }> | null = null;
+
+  /** Bow-clearing exit distance derived from the GLB's forward extent, or null. */
+  private modelExitDistance: number | null = null;
+
+  constructor(worldPosition: Vector3, rotationY: number, faction: Faction) {
+    this.faction = faction;
+    this.position = new Vector3(worldPosition.x, worldPosition.y, worldPosition.z);
+    this.rotationY = rotationY;
+
+    // Hull footprint rectangles (per-faction — the two carriers are different
+    // shapes), rotated into world space once: the carrier is static, so the
+    // sections are too. Rects are carrier-local (keel along z, bow = +z,
+    // symmetric in x); rotating the two opposite corners and taking min/max
+    // gives the world box — exact for the 0/π facings the carriers use.
+    const sin = Math.sin(rotationY);
+    const cos = Math.cos(rotationY);
+    this.hullSections = GameConfig.mothership.hullRects[faction].map((rect) => {
+      const ax = worldPosition.x + cos * -rect.halfWidth + sin * rect.z0;
+      const az = worldPosition.z - sin * -rect.halfWidth + cos * rect.z0;
+      const bx = worldPosition.x + cos * rect.halfWidth + sin * rect.z1;
+      const bz = worldPosition.z - sin * rect.halfWidth + cos * rect.z1;
+      return new MothershipSection(
+        this,
+        Math.min(ax, bx),
+        Math.max(ax, bx),
+        Math.min(az, bz),
+        Math.max(az, bz),
+      );
+    });
+    this.avoidanceCircles = this.buildAvoidanceCircles();
+  }
+
+  /**
+   * Derives the AI steering circles from the hull boxes: each box is split
+   * into roughly-square slices along its long axis, each circumscribed by a
+   * circle. Coverage is guaranteed (no gap a pilot could thread into a wall
+   * — the keep-out bump backstops any residual contact) at the cost of ~40%
+   * corner overshoot, which for steering just reads as a healthy berth.
+   */
+  private buildAvoidanceCircles(): AvoidObstacle[] {
+    const owner = this;
+    const circles: AvoidObstacle[] = [];
+    for (const s of this.hullSections) {
+      const halfX = (s.maxX - s.minX) / 2;
+      const halfZ = (s.maxZ - s.minZ) / 2;
+      const alongZ = halfZ >= halfX;
+      const longHalf = alongZ ? halfZ : halfX;
+      const shortHalf = alongZ ? halfX : halfZ;
+      const n = Math.max(1, Math.ceil(longHalf / Math.max(shortHalf, 1)));
+      const sliceHalf = longHalf / n;
+      const radius = Math.hypot(shortHalf, sliceHalf);
+      for (let i = 0; i < n; i++) {
+        const t = -longHalf + sliceHalf * (2 * i + 1);
+        circles.push({
+          position: {
+            x: s.position.x + (alongZ ? 0 : t),
+            z: s.position.z + (alongZ ? t : 0),
+          },
+          radius,
+          get isAlive() {
+            return owner.isAlive;
+          },
+        });
+      }
+    }
+    return circles;
+  }
+
+  // ─── DamageTarget ─────────────────────────────────────────────────────────
+
+  get isAlive(): boolean {
+    return this.hp > 0;
+  }
+
+  takeDamage(amount: number, _nowMs: number): void {
+    if (this.hp <= 0) return;
+    this.hp = Math.max(0, this.hp - amount);
+  }
+
+  // ─── Launch geometry ──────────────────────────────────────────────────────
+
+  /**
+   * Records the launch geometry the view read off the loaded GLB: bay offsets
+   * (carrier-LOCAL x/z, from the `launch.*` empties) and the bow-clearing exit
+   * distance (from the model's forward extent). Either may be null — the
+   * query helpers keep their GameConfig procedural fallback for whichever the
+   * model didn't author. The headless sim never calls this (no GLB), so it
+   * runs on the config bays exactly as the browser does pre-model-load.
+   */
+  setModelLaunchData(
+    bays: ReadonlyArray<{ x: number; z: number }> | null,
+    exitDistance: number | null,
+  ): void {
+    if (bays && bays.length > 0) this.modelLaunchBays = bays;
+    if (exitDistance !== null && Number.isFinite(exitDistance)) {
+      this.modelExitDistance = exitDistance;
+    }
+  }
+
+  /**
+   * Launch-bay offsets (carrier-LOCAL x/z): the GLB's `launch.*` empties once
+   * the model has loaded, else the GameConfig procedural-fallback positions.
+   */
+  private launchBays(): ReadonlyArray<{ x: number; z: number }> {
+    return this.modelLaunchBays ?? GameConfig.mothership.launchBays;
+  }
+
+  /** How many catapult launch bays (tubes) this carrier has. */
+  getLaunchBayCount(): number {
+    return this.launchBays().length;
+  }
+
+  /**
+   * World-space start position inside launch bay `bayIndex` (wraps if it runs
+   * past the available bays). Y is forced to 0 so the fighter sits on the
+   * gameplay plane. Works for either carrier — the local bay offset is rotated
+   * by the carrier's facing. Bay positions come from the model's `launch.*`
+   * empties (else GameConfig.mothership.launchBays); see launchBays().
+   */
+  getLaunchStartPosition(bayIndex = 0): Vector3 {
+    const bays = this.launchBays();
+    const bay = bays[bayIndex % bays.length];
+    const sin = Math.sin(this.rotationY);
+    const cos = Math.cos(this.rotationY);
+    return new Vector3(
+      this.position.x + cos * bay.x + sin * bay.z,
+      0,
+      this.position.z - sin * bay.x + cos * bay.z,
+    );
+  }
+
+  /**
+   * Unit forward direction (world X/Z) the catapult fires along — the carrier's
+   * facing. Humans (rotationY=0) launch toward +Z; machines (rotationY=π) toward
+   * -Z. Pairs with getLaunchExitDistance() so the launch works for either side.
+   */
+  getLaunchForward(): { x: number; z: number } {
+    return { x: Math.sin(this.rotationY), z: Math.cos(this.rotationY) };
+  }
+
+  /**
+   * Distance (world units) along the launch-forward axis, measured from the
+   * carrier center, that a fighter must travel to fully clear the bow.
+   */
+  getLaunchExitDistance(): number {
+    // From the model's measured forward extent once loaded; else the procedural
+    // hull: bridge cap overhangs to roughly localZ = +148, plus a margin.
+    return this.modelExitDistance ?? Mothership.HULL_HALF_DEPTH + 25;
+  }
+}

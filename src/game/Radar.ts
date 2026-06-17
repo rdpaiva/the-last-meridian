@@ -1,5 +1,5 @@
 import type { Ship } from "./sim/Ship";
-import type { Mothership } from "./Mothership";
+import type { Mothership } from "./sim/Mothership";
 import type { Asteroid } from "./Asteroid";
 import type { Missile } from "./sim/Missile";
 import { opposing, type Faction } from "./Faction";

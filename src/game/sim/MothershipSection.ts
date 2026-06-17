@@ -1,6 +1,6 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 
-import type { DamageTarget } from "./types";
+import type { DamageTarget } from "../types";
 import type { Mothership } from "./Mothership";
 
 /**
