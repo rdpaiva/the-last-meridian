@@ -144,6 +144,12 @@ on a branch ready for local eyeball QA.
 
 ## Phase 0 — Sim/view split (no networking yet)
 
+> **Status (2026-06-17):** Smoke harness + the `Ship`, `Laser`/`LaserSystem`,
+> `Missile`/`MissileSystem`, and `Mothership` splits are landed; the baseline
+> trace stays clean across them. Remaining: the sim→view event channel,
+> the `Game.tick` split, the AI/sensors scene-free audit, and the human
+> eyeball pass.
+
 The prerequisite refactor: separate gameplay truth (sim — runs anywhere)
 from its Babylon depiction (view — client only). The game must play
 identically single-player after every step. Run `npm run typecheck`
@@ -181,7 +187,7 @@ timing).
       steering is sim, composite mesh + trail are view. (While in here:
       see the missile tunneling TODO — port LaserSystem's swept test if
       missile speed is ever raised.)
-- [ ] **`Mothership` split** — HP/`DamageTarget`/hull-rect logic +
+- [x] **Mothership split** — HP/`DamageTarget`/hull-rect logic +
       launch-bay geometry = sim; GLB, materials, death FX = view.
       `MothershipSection` is already pure math — verify, don't touch.
 - [ ] **Sim → view event channel** — explosions, hit/death SFX, camera
