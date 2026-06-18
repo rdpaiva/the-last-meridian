@@ -4,6 +4,7 @@ import { ShipPreview } from "./game/ShipPreview";
 import { SettingsMenu } from "./game/SettingsMenu";
 import { FACTION_THEME } from "./game/Faction";
 import { applyStoredOverrides, overrideCount } from "./game/ConfigOverrides";
+import { applyMap, resolveMapId, type MapId } from "./game/Maps";
 import {
   hasSavedLoadout,
   hasSeenIntro,
@@ -63,6 +64,14 @@ if (!settingsRoot) throw new Error("#settings not found in DOM");
 // bars read the live config. (Every system copies its config at construction,
 // so this one early call is the whole "apply" step.)
 applyStoredOverrides();
+
+// Arena map (docs/ARENA-MAPS.md). Slice 1: the active map is hardcoded here
+// (no picker UI yet — that's slice 3). applyMap runs AFTER applyStoredOverrides
+// so a player's match-settings override of a shared knob (asteroid count,
+// fleet composition) beats the map baseline. Swap ACTIVE_MAP to compare maps;
+// "random" picks one of the presets per load.
+const ACTIVE_MAP: MapId = "asteroidBelt";
+applyMap(resolveMapId(ACTIVE_MAP));
 
 // Set src via JS so BASE_URL is resolved correctly for GitHub Pages.
 splashPoster.src = `${import.meta.env.BASE_URL}images/The-Last-Meridian-Poster.jpg`;

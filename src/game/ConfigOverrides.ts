@@ -169,6 +169,17 @@ export function isOverridden(path: string): boolean {
   return path in overrides;
 }
 
+/**
+ * True if the user has overridden ANY knob whose path starts with `prefix`
+ * (e.g. "fleets.humans." to cover every per-pick count + strikeCount of one
+ * faction). The map applier (Maps.applyMap) uses this so it won't replace a
+ * whole structured section the player has hand-tuned in match settings.
+ */
+export function hasOverrideUnder(prefix: string): boolean {
+  for (const path in overrides) if (path.startsWith(prefix)) return true;
+  return false;
+}
+
 export function overrideCount(): number {
   return Object.keys(overrides).length;
 }

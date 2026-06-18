@@ -499,6 +499,16 @@ export const GameConfig = {
     radiusMin: 8,
     radiusMax: 24,
     /**
+     * Spawn regions (world-space circles). When non-empty, rocks seed INSIDE
+     * these circles (one chosen per rock, weighted by area for even density)
+     * instead of the whole arena — a row of circles reads as a belt, separate
+     * circles as clusters. Empty = scatter across the full arena (the default,
+     * and what the headless smoke harness runs on). Maps set this via applyMap.
+     * NOTE: this is INITIAL placement only — rocks drift (driftSpeed*) and wrap
+     * at the arena edge, so a belt smears out over time unless drift is low.
+     */
+    regions: [] as ReadonlyArray<{ x: number; z: number; radius: number }>,
+    /**
      * Collision radius as a fraction of the visual radius. < 1 so clipping a
      * rock's jagged silhouette reads as a near-miss rather than a phantom hit.
      */

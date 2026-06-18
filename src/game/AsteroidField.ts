@@ -172,9 +172,21 @@ export class AsteroidField {
    */
   private findSpawn(keepClear: KeepClear[]): Vector3 | null {
     const cfg = GameConfig.asteroids;
+    const regions = cfg.regions;
     for (let tries = 0; tries < 30; tries++) {
-      const x = (simRandom() * 2 - 1) * this.halfWidth;
-      const z = (simRandom() * 2 - 1) * this.halfDepth;
+      let x: number;
+      let z: number;
+      if (regions.length === 0) {
+        // Full-arena scatter (the default). This branch MUST keep its exact
+        // simRandom() draw sequence — two draws, x then z — so the headless
+        // smoke harness (which always runs empty regions) stays deterministic.
+        x = (simRandom() * 2 - 1) * this.halfWidth;
+        z = (simRandom() * 2 - 1) * this.halfDepth;
+      } else {
+        const p = this.sampleRegion(regions);
+        x = p.x;
+        z = p.z;
+      }
       let ok = true;
       for (const k of keepClear) {
         const dx = x - k.x;
@@ -187,6 +199,35 @@ export class AsteroidField {
       if (ok) return new Vector3(x, cfg.yLevel, z);
     }
     return null;
+  }
+
+  /**
+   * Pick one spawn circle (weighted by area so density is even across circles
+   * of different sizes), then a uniform random point inside it — the sqrt keeps
+   * points from clumping at the center. Three seeded draws (region, angle,
+   * radius); only ever reached when `regions` is non-empty, so the full-arena
+   * default's draw sequence is untouched.
+   */
+  private sampleRegion(
+    regions: ReadonlyArray<{ x: number; z: number; radius: number }>,
+  ): { x: number; z: number } {
+    let region = regions[0];
+    let totalArea = 0;
+    for (const r of regions) totalArea += r.radius * r.radius;
+    let pick = simRandom() * totalArea;
+    for (const r of regions) {
+      pick -= r.radius * r.radius;
+      if (pick <= 0) {
+        region = r;
+        break;
+      }
+    }
+    const angle = simRandom() * Math.PI * 2;
+    const dist = region.radius * Math.sqrt(simRandom());
+    return {
+      x: region.x + Math.cos(angle) * dist,
+      z: region.z + Math.sin(angle) * dist,
+    };
   }
 
   /** A value in [min, max] with a random sign — for symmetric chunk spin. */
