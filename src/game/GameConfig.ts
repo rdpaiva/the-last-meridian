@@ -502,6 +502,31 @@ export const GameConfig = {
    */
   hazards: [] as ReadonlyArray<HazardSpec>,
 
+  /**
+   * Derelict-wreck VIEW config (slice 5b). The wreck GLBs — battle-damaged,
+   * burned-out versions of the carriers — keyed by `source` faction. A hulk's
+   * HulkView loads `model.file[source]` under its spinning root; a null entry
+   * (or a missing/failed file) keeps the procedural dark-block placeholder.
+   * Orientation/scale follow the same convention as `mothership.model` (the
+   * wrecks come from the same Blender pipeline) — tune in the Inspector (the
+   * `hulk_*_root` node) if a re-export lands differently. Meshes whose name
+   * contains an `emberTag` get added to the GlowLayer so the glowing
+   * breaches/embers bloom; everything else renders unlit-dead.
+   */
+  hulk: {
+    model: {
+      file: {
+        humans: "aegis_wreck.glb",
+        machines: "choirship_wreck.glb",
+      } as Record<Faction, string | null>,
+      rotX: 0,
+      rotY: Math.PI,
+      rotZ: 0,
+      scale: 10.6,
+    },
+    emberTags: ["ember", "breach", "glow", "fire", "molten", "core"] as string[],
+  },
+
   arena: {
     /**
      * The arena is UNBOUNDED — ships are no longer position-clamped (the AI

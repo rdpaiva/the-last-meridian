@@ -1,45 +1,58 @@
 import type { Scene } from "@babylonjs/core/scene";
+import type { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
+import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
+import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 // Registers MeshBuilder.CreateBox (boxes are opt-in to tree-shaking).
 import "@babylonjs/core/Meshes/Builders/boxBuilder";
+import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
+// Registers the .glb/.gltf loader used by applyModel() (same as MothershipView).
+import "@babylonjs/loaders/glTF";
 
 import { GameConfig } from "../GameConfig";
 import type { Hulk } from "../sim/Hulk";
 
 /**
- * Hulk VIEW — the depiction of a derelict wreck (sim half: `Hulk`). Slice 5a
- * keeps this minimal: a DARK, dead block per hull rectangle, parented to a root
- * that carries the wreck's position + scale and is SPUN each frame to match the
- * sim's slow drift-rotation (`update`). It reads as a husk precisely because it
- * does NOT glow — no emissive, never added to the GlowLayer.
+ * Hulk VIEW — the depiction of a derelict wreck (sim half: `Hulk`). A dark,
+ * dead block per hull rectangle is built immediately as the placeholder /
+ * fallback; `applyModel()` then swaps in the actual battle-damaged carrier GLB
+ * (the burned-out Aegis / Choirship) under the SAME root, so the model inherits
+ * the wreck's position, scale, and slow drift-rotation (`update`) for free.
  *
- * Slice 5b swaps these blocks for the actual carrier wreck GLB (the burned-out
- * Aegis / Choirship renders) loaded under this same spinning root, so the GLB
- * inherits the rotation for free.
+ * It reads as a husk because it carries no running lights / engine glow — only
+ * meshes tagged as embers/breaches (GameConfig.hulk.emberTags) are added to the
+ * GlowLayer so the glowing damage blooms; the rest is just lit hull.
  *
- * The blocks are built from the UNSCALED source-carrier hull rectangles under a
- * root scaled by the hulk's `scale`, so they line up with the sim's collision
- * circles (which were derived from the same rects × the same scale).
+ * The blocks/GLB are built from the UNSCALED source-carrier footprint under a
+ * root scaled by the hulk's `scale`, matching the sim's collision circles
+ * (derived from the same rects × the same scale).
  */
 export class HulkView {
   readonly root: TransformNode;
 
-  constructor(scene: Scene, sim: Hulk) {
+  private readonly scene: Scene;
+  private readonly glowLayer: GlowLayer;
+  private readonly source: Hulk["source"];
+  /** Placeholder block meshes, disposed once a GLB takes over. */
+  private placeholderMeshes: AbstractMesh[] = [];
+
+  constructor(scene: Scene, glowLayer: GlowLayer, sim: Hulk) {
+    this.scene = scene;
+    this.glowLayer = glowLayer;
+    this.source = sim.source;
+
     this.root = new TransformNode(`hulk_${sim.source}_root`, scene);
     this.root.position.copyFrom(sim.center);
     this.root.rotation.y = sim.rotationY;
     this.root.scaling.setAll(sim.scale);
 
     const mat = new StandardMaterial(`hulk_${sim.source}_dead_mat`, scene);
-    // Cold, dark, matte metal — burned-out and lifeless. No emissive, so it
-    // stays dim against the glowing live ships (5b's GLB adds the ember look).
     mat.diffuseColor = new Color3(0.12, 0.12, 0.14);
     mat.specularColor = new Color3(0.02, 0.02, 0.03);
 
-    // One block per hull rectangle, in carrier-LOCAL space under the root.
     const height = 18;
     const rects = GameConfig.mothership.hullRects[sim.source];
     for (let i = 0; i < rects.length; i++) {
@@ -53,6 +66,70 @@ export class HulkView {
       box.parent = this.root;
       box.material = mat;
       box.isPickable = false;
+    }
+    this.placeholderMeshes = this.root.getChildMeshes(true);
+  }
+
+  /**
+   * Swap the placeholder blocks for the battle-damaged carrier GLB named by
+   * `filename` (under public/models/), parked under a correction node that
+   * applies GameConfig.hulk.model orientation/scale. The model keeps its own
+   * (burned-out) materials — only ember/breach meshes are bloomed. Returns
+   * false and KEEPS the placeholder if `filename` is null/empty or the load
+   * fails. Always resolves; never rejects. Call once, after construction.
+   */
+  async applyModel(filename: string | null): Promise<boolean> {
+    const cfg = GameConfig.hulk.model;
+    if (!filename) return false;
+    try {
+      // NOTE: trailing slash on rootUrl is required for SceneLoader.
+      const result = await SceneLoader.ImportMeshAsync(
+        "",
+        `${import.meta.env.BASE_URL}models/`,
+        filename,
+        this.scene,
+      );
+
+      // Park the glTF "__root__" (RHS→LHS handling) under our correction node.
+      const modelRoot = new TransformNode(`hulk_model_${this.source}`, this.scene);
+      const gltfRoot = result.transformNodes.find((n) => n.name === "__root__");
+      if (gltfRoot) {
+        gltfRoot.parent = modelRoot;
+      } else {
+        for (const m of result.meshes) {
+          if (m.parent === null) m.parent = modelRoot;
+        }
+      }
+      modelRoot.rotation.set(cfg.rotX, cfg.rotY, cfg.rotZ);
+      modelRoot.scaling.setAll(cfg.scale);
+      modelRoot.parent = this.root;
+
+      this.registerEmberGlow(result.meshes);
+
+      // The placeholder blocks are redundant now — dispose them. The GLB is a
+      // sibling under `root`, so it (and the spin) stay.
+      for (const m of this.placeholderMeshes) m.dispose(false, true);
+      this.placeholderMeshes = [];
+      return true;
+    } catch (err) {
+      console.warn(
+        `[HulkView] Failed to load /models/${filename} — keeping the ` +
+          `procedural wreck placeholder.`,
+        err,
+      );
+      return false;
+    }
+  }
+
+  /** Bloom only the glowing-damage meshes (ember breaches), so the wreck reads
+   *  as a dead hull with hot fractures rather than a lit ship. */
+  private registerEmberGlow(meshes: AbstractMesh[]): void {
+    const tags = GameConfig.hulk.emberTags;
+    for (const m of meshes) {
+      const nm = m.name.toLowerCase();
+      if (tags.some((t) => nm.includes(t))) {
+        this.glowLayer.addIncludedOnlyMesh(m as Mesh);
+      }
     }
   }
 

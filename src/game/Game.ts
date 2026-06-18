@@ -399,7 +399,7 @@ export class Game {
       if (hazard.kind === "hulk") {
         const hulk = new Hulk(hazard);
         this.hulks.push(hulk);
-        this.hulkViews.push(new HulkView(this.scene, hulk));
+        this.hulkViews.push(new HulkView(this.scene, this.glowLayer, hulk));
       }
     }
 
@@ -838,6 +838,15 @@ export class Game {
         const file = GameConfig.mothership.model.file[f];
         return file ? this.mothershipViews[f].applyModel(file) : Promise.resolve(false);
       }),
+    );
+
+    // Swap each wreck's placeholder blocks for its battle-damaged GLB (per
+    // source faction). Falls back to the procedural placeholder if the file is
+    // missing/fails. Not gated on launches — wrecks don't launch.
+    await Promise.all(
+      this.hulks.map((hulk, i) =>
+        this.hulkViews[i].applyModel(GameConfig.hulk.model.file[hulk.source]),
+      ),
     );
 
     // Both fleets launch from their carriers (the player runs the full

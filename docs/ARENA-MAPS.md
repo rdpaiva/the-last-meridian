@@ -300,10 +300,14 @@ read. The integration points already exist:
      (`view/HulkView.ts`); "The Wreck" preset places a dead Novari Choirship
      mid-arena. Mirrored in the headless harness (inert under stock = baseline
      byte-identical, verified).
-   - **5b — destroyed mesh (TODO).** Swap the placeholder blocks for the actual
-     wreck GLBs (burned-out Aegis / Choirship — battle-damaged plating, ember
-     emissive breaches) loaded under the same spinning root, unlit/no-glow;
-     keep the sim circle footprint. Per-source GLB filenames in config.
+   - **5b — destroyed mesh (DONE, pipeline).** `HulkView.applyModel` loads the
+     battle-damaged carrier GLB (per `source` faction, from `GameConfig.hulk.model`)
+     under the spinning root, keeping the burned-out materials and bloom-ing only
+     ember/breach meshes (name-tagged via `GameConfig.hulk.emberTags`); falls back
+     to the placeholder blocks if the file is missing/fails. Game awaits it in
+     `start()` alongside the carrier swaps. Drop `aegis_wreck.glb` (humans) /
+     `choirship_wreck.glb` (machines) in `public/models/`; tune orientation/scale
+     in `GameConfig.hulk.model` if a re-export lands differently.
    - **Later kinds:** damage field, minefield. The map system needs no reshaping.
 
 Slices 1–4 are the map system proper. Slice 5 is *content* that rides the frame.
