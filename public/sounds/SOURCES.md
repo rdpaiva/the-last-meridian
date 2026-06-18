@@ -15,6 +15,7 @@ If you replace any of these files, keep this document in sync.
 | `explosion.mp3`    | https://freesound.org/people/OwlStorm/sounds/404755/                   | OwlStorm     | CC0     | 1.46s retro arcade explosion           |
 | `engine_hum.mp3`   | https://freesound.org/people/cabled_mess/sounds/338368/                | cabled_mess  | CC0     | 1.9s seamless looping spaceship drone  |
 | `missile_warning.mp3` | — (project asset)                                                   | project owner | project asset | 0.2s RWR warning blip for the incoming-missile warning; provided as WAV, converted to MP3 (44.1 kHz mono) |
+| `jump-drive-novari.mp3` | — (derived from `jump-drive.mp3`)                                 | project owner | inherits source | Machines/Novari jump-drive timbre. Derived from `jump-drive.mp3` via ffmpeg: `rubberband=pitch=0.72,vibrato=f=2.2:d=0.8` (pitch down ~5½ semitones + slow heavy "seasick" wobble) |
 
 Downloaded `-hq.mp3` previews from freesound's CDN (`cdn.freesound.org/previews/...`).
 These are smaller than the original WAVs but plenty of quality for game SFX.

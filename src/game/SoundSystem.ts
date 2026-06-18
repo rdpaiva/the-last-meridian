@@ -4,6 +4,7 @@ import type { Scene } from "@babylonjs/core/scene";
 import type { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { FireSoundKey } from "./types";
 import type { Ship } from "./sim/Ship";
+import type { Faction } from "./Faction";
 import { GameConfig } from "./GameConfig";
 
 // Side-effect imports.
@@ -142,13 +143,18 @@ export class SoundSystem {
   // playback per spool, faded (not cut) on a cancel. Distinct from the RWR
   // whine other ships hear when they DETECT a spool (that's MissileWarning's
   // idiom, wired in the detection slice). See docs/JUMP-DRIVE-AND-RESUPPLY.md.
-  private readonly jumpDrive: Sound;
+  //
+  // Keyed by FACTION: each side has its own drive timbre (humans = the clean
+  // FTL crack; machines/Novari Ascendancy = a pitched-down, wobbling variant —
+  // jump-drive-novari.mp3). startJumpDrive picks off the spooling ship.faction.
+  private readonly jumpDrive: Record<Faction, Sound>;
   private readonly jumpDriveVolume = 0.5;
   // OTHER ships' drives, heard spatially — you hear an enemy's drive winding up
   // (and the trigger hit when it goes), attenuating with distance. Same own/
   // spatial split as the fire sounds; this is the "a runner is charging"
-  // telegraph (docs/JUMP-DRIVE-AND-RESUPPLY.md), NOT the missile RWR.
-  private readonly jumpDriveSpatial: PooledSound;
+  // telegraph (docs/JUMP-DRIVE-AND-RESUPPLY.md), NOT the missile RWR. Also
+  // per-faction so a Novari runner sounds like a Novari runner from afar.
+  private readonly jumpDriveSpatial: Record<Faction, PooledSound>;
   /**
    * The jump-drive clip currently playing for each spooling ship, so it can be
    * cut if the spool ends WITHOUT firing — a pilot cancel, or the ship being
@@ -273,24 +279,40 @@ export class SoundSystem {
       },
     );
 
-    this.jumpDrive = new Sound(
-      "sfx_jump_drive",
-      `${baseUrl}/jump-drive.mp3`,
-      scene,
-      null,
-      {
+    // Per-faction jump-drive clips: humans get the clean FTL crack, machines
+    // (Novari Ascendancy) get the pitched-down, wobbling variant.
+    const jumpDriveUrls: Record<Faction, string> = {
+      humans: `${baseUrl}/jump-drive.mp3`,
+      machines: `${baseUrl}/jump-drive-novari.mp3`,
+    };
+    this.jumpDrive = {
+      humans: new Sound("sfx_jump_drive_humans", jumpDriveUrls.humans, scene, null, {
         volume: this.jumpDriveVolume,
         loop: false,
         autoplay: false,
-      },
-    );
-    this.jumpDriveSpatial = new PooledSound(
-      "sfx_jump_drive_spatial",
-      `${baseUrl}/jump-drive.mp3`,
-      scene,
-      3,
-      { volume: 0.5, spatial: true },
-    );
+      }),
+      machines: new Sound("sfx_jump_drive_machines", jumpDriveUrls.machines, scene, null, {
+        volume: this.jumpDriveVolume,
+        loop: false,
+        autoplay: false,
+      }),
+    };
+    this.jumpDriveSpatial = {
+      humans: new PooledSound(
+        "sfx_jump_drive_spatial_humans",
+        jumpDriveUrls.humans,
+        scene,
+        3,
+        { volume: 0.5, spatial: true },
+      ),
+      machines: new PooledSound(
+        "sfx_jump_drive_spatial_machines",
+        jumpDriveUrls.machines,
+        scene,
+        3,
+        { volume: 0.5, spatial: true },
+      ),
+    };
   }
 
   /**
@@ -439,17 +461,15 @@ export class SoundSystem {
   startJumpDrive(ship: Ship, spatialPos: Vector3 | null): void {
     let sound: Sound | null = null;
     if (spatialPos === null) {
-      if (
-        AbstractEngine.audioEngine?.unlocked !== false &&
-        this.jumpDrive.isReady()
-      ) {
-        this.jumpDrive.stop();
-        this.jumpDrive.setVolume(this.jumpDriveVolume);
-        this.jumpDrive.play();
-        sound = this.jumpDrive;
+      const own = this.jumpDrive[ship.faction];
+      if (AbstractEngine.audioEngine?.unlocked !== false && own.isReady()) {
+        own.stop();
+        own.setVolume(this.jumpDriveVolume);
+        own.play();
+        sound = own;
       }
     } else {
-      sound = this.jumpDriveSpatial.playAt(spatialPos);
+      sound = this.jumpDriveSpatial[ship.faction].playAt(spatialPos);
     }
     if (sound) this.activeJumpDrives.set(ship, sound);
   }
