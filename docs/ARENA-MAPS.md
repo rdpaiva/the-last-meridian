@@ -352,3 +352,55 @@ Slices 1–4 are the map system proper. Slice 5 is *content* that rides the fram
   it share a single "resolve loadout + map + apply" helper used by all three
   launch paths (quick-play, picker, restart)? A shared helper is cleaner —
   factor it when slice 2 lands.
+
+---
+
+## Session handoff — wreck GLB assets (next session, 2026-06-18)
+
+**Status:** all of slice 5 *code* is COMPLETE and committed on
+`feat/phase0-smoke-harness` (NOT yet merged to `main`): hulk sim + slow
+rotation + rotation-invariant circle collision (5a), and the
+`HulkView.applyModel` GLB pipeline (5b). What's missing is the two wreck GLB
+**files** — until they exist, `HulkView` shows the grey dark-block placeholder
+(shrunk to read sensibly; The Wreck hulk `scale` is `0.5`).
+
+**The plan (decided with the user):** build the wreck GLBs from the
+**destroyed top-down texture renders**, NOT modeled geometry (Claude can't turn
+a 2D image into 3D). Each wreck uses **TWO textures — a top face and a bottom
+("…-underneath") face** — so the slab reads correctly as it rotates. The user
+will paste the texture files into `art/textures/` themselves (do NOT copy them
+in from chat/cache — see the asset-ownership note below).
+
+**Assets (in/coming to `art/textures/`):**
+- `aegis-destroyed-underneath.jpeg` — human (Aegis/Bastion) BOTTOM face *(present)*.
+- + a human TOP, a Novari (Choirship "Silent Choir") TOP, and a Novari BOTTOM —
+  the user will add these.
+- Carrier sources for the skin pipeline: `art/bastion_carrier.blend`,
+  `art/choirship.blend`; precedent intact skins `art/textures/bastion_skin.png`,
+  `choirship_skin.png` (planar-projected — same technique to reuse). Blender
+  MCP tools are available; the `.blend`s are in `art/`.
+
+**Build steps next session:**
+1. In Blender, make a wreck mesh textured with the top face up and the bottom
+   ("underneath") face down (a double-sided slab, or the carrier geometry
+   re-skinned), so a rotating wreck looks right from both sides.
+2. Export → `public/models/choirship_wreck.glb` and `aegis_wreck.glb` (the
+   names `GameConfig.hulk.model.file` already expects).
+3. Load The Wreck in-game; tune `GameConfig.hulk.model` `rotY`/`scale` if the
+   import lands rotated/sized wrong (defaults `rotY: π`, `scale: 10.6` from the
+   carrier pipeline).
+4. **Rotation axis check:** the hulk currently spins on **yaw (Y)**, which on a
+   top-down camera never reveals the bottom face — so confirm whether the wreck
+   should *tumble* (pitch/roll) to show top↔bottom, and if so add that to
+   `Hulk.update`/`HulkView`. The top+bottom textures only pay off if the bottom
+   becomes visible.
+
+**Notes / caveats:**
+- Sim collision is a circle cluster from the carrier footprint × the hulk
+  `scale` (rotation-invariant) — independent of the mesh, so it's already
+  correct regardless of the GLB.
+- A skin on intact geometry won't have the shattered *silhouette* edges from
+  the renders (damage is painted on a whole hull); fine from top-down.
+- Ember bloom (`GameConfig.hulk.emberTags`) only applies if embers are separate
+  named emissive meshes; a baked-into-texture glow shows as plain emissive.
+- The human wreck unlocks a second wreck-map variant (`source: "humans"`) for free.
