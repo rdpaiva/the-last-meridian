@@ -147,10 +147,10 @@ export const MAPS: Record<ConcreteMapId, MapConfig> = {
       { xFrac: -0.42, zFrac: 0.28, radius: 55 },
       { xFrac: 0.42, zFrac: -0.28, radius: 55 },
     ],
-    // One large derelict (a dead human Bastion) dead-center, keel along the
-    // attack axis (rotationY 0 = exact axis-aligned cover) — a wall both fleets
-    // must flank around. scale > 1 gives it presence as the map's landmark.
-    hazards: [{ kind: "hulk", source: "humans", x: 0, z: 0, rotationY: 0, scale: 1.1 }],
+    // One large derelict (the dead Novari Choirship "Silent Choir") adrift
+    // dead-center — a slowly-spinning circular hazard both fleets flank around.
+    // scale > 1 gives it presence as the map's landmark.
+    hazards: [{ kind: "hulk", source: "machines", x: 0, z: 0, rotationY: 0, scale: 1.1 }],
   },
 };
 

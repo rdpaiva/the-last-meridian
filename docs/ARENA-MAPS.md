@@ -286,18 +286,24 @@ read. The integration points already exist:
 4. **Polish.** Card art/thumbnails, loading-flavor blurb, "Random" feel tuning.
 5. **Hazards.** Net-new placed entities riding the frame. Done in sub-slices:
    - **5a — derelict hulk (DONE).** `HulkHazard` in `GameConfig`; `sim/Hulk.ts`
-     (indestructible: `isAlive` always true, `takeDamage` no-op) reuses the
-     carrier hull footprint, so its sections are `MothershipSection`s wired as
-     *neutral* targets of BOTH factions' weapons (LOS cover, no damage/score)
-     and its circles into AI avoidance; ships keep-out via the shared
-     `bumpShipOutOfSection`. `MothershipSection.owner` widened to a structural
-     `SectionOwner` so a hulk can own sections. View = a dark dead-block per
-     section (`view/HulkView.ts`); "The Wreck" preset places one mid-arena.
-     Mirrored in the headless harness (inert under stock = baseline unchanged).
+     is indestructible (`takeDamage` no-op) and SLOWLY ROTATES (`rotationRate`),
+     so its collision is a ROTATION-INVARIANT circle cluster (not rectangles —
+     those would desync from the spinning mesh; circles also match the
+     debris-spray look). The cluster is derived from the source carrier's hull
+     footprint, then `update(dt)` advances `rotationY` and re-places the circles
+     each sim step. Those circle objects feed three consumers at once: the
+     combined `weaponObstacles` list (LOS cover — bolts die against them, no
+     damage), the keep-out bump (`resolveHulkCollisions`, circular + damage-free),
+     and AI avoidance. Game now reads a Game-owned `weaponObstacles` (rocks +
+     wreck circles, rebuilt each step) instead of `asteroids.obstacles` directly.
+     View = a dark dead-block per hull rect under a spinning root
+     (`view/HulkView.ts`); "The Wreck" preset places a dead Novari Choirship
+     mid-arena. Mirrored in the headless harness (inert under stock = baseline
+     byte-identical, verified).
    - **5b — destroyed mesh (TODO).** Swap the placeholder blocks for the actual
-     carrier GLB rendered with a burned-out "destroyed" material (exposed
-     pipes/wires, ember emissive hotspots), mirroring `MothershipView.applyModel`
-     but unlit/no-glow; keep the sim footprint.
+     wreck GLBs (burned-out Aegis / Choirship — battle-damaged plating, ember
+     emissive breaches) loaded under the same spinning root, unlit/no-glow;
+     keep the sim circle footprint. Per-source GLB filenames in config.
    - **Later kinds:** damage field, minefield. The map system needs no reshaping.
 
 Slices 1–4 are the map system proper. Slice 5 is *content* that rides the frame.

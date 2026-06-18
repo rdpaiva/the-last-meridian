@@ -225,9 +225,10 @@ export type ShipTypeId = keyof typeof shipTypes;
  *
  * `hulk` — a derelict capital-ship wreck: indestructible static cover that
  * blocks weapons line-of-sight and keeps ships out, reusing a carrier's hull
- * footprint (`source` = which carrier's hullRects + mesh). `rotationY` defaults
- * to 0; values other than 0/π make the hull footprint an axis-aligned bounding
- * approximation (slightly generous cover). `scale` (default 1) sizes it.
+ * footprint (`source` = which carrier's hullRects + mesh). Collision is a
+ * rotation-invariant circle cluster, so the wreck can slowly drift-rotate
+ * (`rotationRate`, rad/sec; `rotationY` = start facing) without the cover
+ * desyncing from the mesh. `scale` (default 1) sizes it.
  */
 export interface HulkHazard {
   kind: "hulk";
@@ -235,6 +236,8 @@ export interface HulkHazard {
   x: number;
   z: number;
   rotationY?: number;
+  /** Slow drift-spin, radians/sec (default 0.03 ≈ 1.7°/s). 0 = static. */
+  rotationRate?: number;
   scale?: number;
 }
 export type HazardSpec = HulkHazard;

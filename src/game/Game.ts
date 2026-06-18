@@ -123,11 +123,19 @@ export class Game {
   private readonly input: InputManager;
   private readonly arena: Arena;
   private readonly asteroids: AsteroidField;
-  /** Placed derelict wrecks (map hazards) — indestructible cover. Empty unless
-   *  the active map configures hazards. Their hull sections wire into both
-   *  factions' weapons (cover) + the keep-out bump; their circles into AI avoidance. */
+  /** Placed derelict wrecks (map hazards) — indestructible, slowly-rotating
+   *  cover. Empty unless the active map configures hazards. Their circles wire
+   *  into the weapon-obstacle list (LOS cover), the keep-out bump, and AI
+   *  avoidance; update() spins them each sim step. */
   private readonly hulks: Hulk[] = [];
   private readonly hulkViews: HulkView[] = [];
+  /**
+   * Combined weapon line-of-sight cover: the asteroid field's live rocks plus
+   * every hulk's cover circles. Rebuilt in place each sim step (the weapon
+   * systems hold it BY REFERENCE). Without hulks it's a per-frame copy of the
+   * rocks — same contents/order, so the headless baseline is unaffected.
+   */
+  private readonly weaponObstacles: DamageTarget[] = [];
   private readonly explosions: ExplosionSystem;
   private readonly jumpFlashes: JumpFlashSystem;
   private readonly jumpRipple: JumpRipple;
@@ -408,14 +416,14 @@ export class Game {
     const humansMissiles = new MissileSystem({
       minDamage: GameConfig.missile.minDamage,
       maxDamage: GameConfig.missile.maxDamage,
-      obstacles: this.asteroids.obstacles,
+      obstacles: this.weaponObstacles,
       onHit: (pos, struck, shooter) =>
         this.events.emit("missileHit", { position: pos, struck, shooter }),
     });
     const machinesMissiles = new MissileSystem({
       minDamage: GameConfig.missile.minDamage,
       maxDamage: GameConfig.missile.maxDamage,
-      obstacles: this.asteroids.obstacles,
+      obstacles: this.weaponObstacles,
       onHit: (pos, struck, shooter) =>
         this.events.emit("missileHit", { position: pos, struck, shooter }),
     });
@@ -451,7 +459,7 @@ export class Game {
       damage: GameConfig.combat.laserDamage,
       onHit: (target, shooter) =>
         this.events.emit("laserHit", { target, shooter }),
-      obstacles: this.asteroids.obstacles,
+      obstacles: this.weaponObstacles,
       interceptables: machinesMissiles.interceptables,
       onIntercept: (pos) =>
         this.events.emit("missileIntercepted", { position: pos }),
@@ -460,7 +468,7 @@ export class Game {
       damage: GameConfig.combat.laserDamage,
       onHit: (target, shooter) =>
         this.events.emit("laserHit", { target, shooter }),
-      obstacles: this.asteroids.obstacles,
+      obstacles: this.weaponObstacles,
       interceptables: humansMissiles.interceptables,
       onIntercept: (pos) =>
         this.events.emit("missileIntercepted", { position: pos }),
@@ -816,19 +824,9 @@ export class Game {
         this.factionMissiles[opposing(f)].addTarget(section);
       }
     }
-    // Wrecks are NEUTRAL cover: their hull sections are targets of BOTH
-    // factions' weapons, so anyone's fire dies against the hull (LOS blocking).
-    // takeDamage is a no-op (indestructible), and onLaserHit/onMissileHit treat
-    // a MothershipSection hit as a light spark with no score, so a hulk hit just
-    // reads as a spark off the wreck.
-    for (const hulk of this.hulks) {
-      for (const section of hulk.hullSections) {
-        this.factionLasers.humans.addTarget(section);
-        this.factionLasers.machines.addTarget(section);
-        this.factionMissiles.humans.addTarget(section);
-        this.factionMissiles.machines.addTarget(section);
-      }
-    }
+    // (Wrecks block fire as NEUTRAL cover via the shared weaponObstacles list —
+    // see refreshWeaponObstacles — not as weapon TARGETS, since they're
+    // indestructible and their circular footprint rotates with the wreck.)
 
     // Upgrade both carriers from the procedural box build to their faction's
     // Blender GLB — Bastion Carrier for the humans, Choirship for the Novari
@@ -1264,10 +1262,26 @@ export class Game {
         this.aiObstacles.push(circle);
       }
     }
-    // Wrecks steer pilots the same way carriers do (their circles are static,
-    // but the list is rebuilt each frame alongside the asteroids that aren't).
+    // Wrecks steer pilots the same way carriers do. Their cover circles double
+    // as the steering circles (same objects), and they move as the wreck spins,
+    // so the list is rebuilt each frame to pick up the current positions.
     for (const hulk of this.hulks) {
-      for (const circle of hulk.avoidanceCircles) this.aiObstacles.push(circle);
+      for (const circle of hulk.circles) this.aiObstacles.push(circle);
+    }
+  }
+
+  /**
+   * Rebuild the combined weapon line-of-sight cover in place: the asteroid
+   * field's live rocks plus every wreck's (rotated) cover circles. The weapon
+   * systems hold this array BY REFERENCE. Pushing the rocks in their existing
+   * order means that without wrecks this is contents-identical to the old
+   * `asteroids.obstacles` reference, so the headless baseline is unchanged.
+   */
+  private refreshWeaponObstacles(): void {
+    this.weaponObstacles.length = 0;
+    for (const rock of this.asteroids.obstacles) this.weaponObstacles.push(rock);
+    for (const hulk of this.hulks) {
+      for (const circle of hulk.circles) this.weaponObstacles.push(circle);
     }
   }
 
@@ -1285,15 +1299,44 @@ export class Game {
       const ship = c.ship;
       if (!ship.isAlive) continue;
       if (c.launch && !c.launch.isComplete) continue;
-      // Solid hull boxes: both carriers, plus any wreck (same keep-out — a
-      // hulk is just as solid as a carrier, it's only not an objective).
       for (const f of ["humans", "machines"] as Faction[]) {
         for (const s of this.motherships[f].hullSections) {
           this.bumpShipOutOfSection(ship, s);
         }
       }
+    }
+  }
+
+  /**
+   * Keep ships out of every wreck: bump a ship overlapping any hulk cover
+   * circle out to the circle's surface and cancel the inward velocity — like
+   * the carrier keep-out, but circular (so it stays valid as the wreck spins)
+   * and damage-free (brushing a derelict shouldn't shred a fighter). Ships
+   * mid-launch are exempt, same as the carrier/asteroid passes.
+   */
+  private resolveHulkCollisions(): void {
+    for (const c of this.combatants) {
+      const ship = c.ship;
+      if (!ship.isAlive) continue;
+      if (c.launch && !c.launch.isComplete) continue;
       for (const hulk of this.hulks) {
-        for (const s of hulk.hullSections) this.bumpShipOutOfSection(ship, s);
+        for (const circle of hulk.circles) {
+          const r = ship.hitRadius + circle.radius;
+          const dx = ship.position.x - circle.position.x;
+          const dz = ship.position.z - circle.position.z;
+          const distSq = dx * dx + dz * dz;
+          if (distSq >= r * r || distSq === 0) continue;
+          const dist = Math.sqrt(distSq);
+          const nx = dx / dist;
+          const nz = dz / dist;
+          ship.position.x = circle.position.x + nx * r;
+          ship.position.z = circle.position.z + nz * r;
+          const vn = ship.velocity.x * nx + ship.velocity.z * nz;
+          if (vn < 0) {
+            ship.velocity.x -= vn * nx;
+            ship.velocity.z -= vn * nz;
+          }
+        }
       }
     }
   }
@@ -1428,6 +1471,13 @@ export class Game {
     // gameplay sim freezes on the end screen.
     if (this.state === "victory" || this.state === "defeat") return;
 
+    // Drift-spin every wreck, then rebuild the combined weapon-cover list (the
+    // asteroid field's live rocks + the wrecks' freshly-rotated cover circles)
+    // the weapon systems read this step. Runs every active step so the list is
+    // populated with rocks even when there are no wrecks.
+    for (const hulk of this.hulks) hulk.update(deltaSeconds);
+    this.refreshWeaponObstacles();
+
     // Enemy fleet doctrine: re-task the dynamic pool (throttled internally).
     this.fleetCommander?.update(nowMs);
 
@@ -1557,6 +1607,8 @@ export class Game {
     this.resolveAsteroidCollisions(nowMs);
     // The carriers are solid: bump out anyone overlapping a hull section.
     this.resolveMothershipCollisions();
+    // Wrecks are solid too (circular keep-out, no damage).
+    this.resolveHulkCollisions();
 
     // Death FX + respawn, per combatant.
     for (const c of this.combatants) {
@@ -1602,6 +1654,12 @@ export class Game {
     // BEFORE the camera/FX below so anything parented to a ship root sees
     // this frame's transform.
     for (const c of this.combatants) c.view.update(c.ship);
+    // Spin each wreck's mesh to match its (sim-owned) rotation. Reads rotationY
+    // every frame so the drift-spin is smooth even though it only advances in
+    // advanceSim (frozen during hitstop / after the match, like the rest).
+    for (let i = 0; i < this.hulks.length; i++) {
+      this.hulkViews[i].update(this.hulks[i].rotationY);
+    }
     this.factionLaserViews.humans.update();
     this.factionLaserViews.machines.update();
     this.factionMissileViews.humans.update();

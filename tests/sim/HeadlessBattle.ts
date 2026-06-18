@@ -75,6 +75,7 @@ import { MissileSystem } from "../../src/game/sim/MissileSystem";
 import { AsteroidField } from "../../src/game/AsteroidField";
 import { Hulk } from "../../src/game/sim/Hulk";
 import { MothershipSection } from "../../src/game/sim/MothershipSection";
+import type { DamageTarget } from "../../src/game/types";
 import { LaunchSequence } from "../../src/game/LaunchSequence";
 import { seedSimRng } from "../../src/game/sim/SimRng";
 import { computeConcealmentZones } from "../../src/game/sim/CombatNebulaZones";
@@ -147,6 +148,9 @@ export class HeadlessBattle {
   /** Placed wrecks (map hazards) — empty unless the run's config has hazards
    *  (stock does not, so this stays empty and the baseline is unaffected). */
   private readonly hulks: Hulk[] = [];
+  /** Combined weapon cover (rocks + wreck circles), rebuilt each step — mirrors
+   *  Game.weaponObstacles. Without hulks it's a per-step copy of the rocks. */
+  private readonly weaponObstacles: DamageTarget[] = [];
   private readonly factionLasers: Record<Faction, LaserSystem>;
   private readonly factionMissiles: Record<Faction, MissileSystem>;
   private readonly sensors: SensorSystem;
@@ -233,23 +237,23 @@ export class HeadlessBattle {
     const humansMissiles = new MissileSystem({
       minDamage: GameConfig.missile.minDamage,
       maxDamage: GameConfig.missile.maxDamage,
-      obstacles: this.asteroids.obstacles,
+      obstacles: this.weaponObstacles,
     });
     const machinesMissiles = new MissileSystem({
       minDamage: GameConfig.missile.minDamage,
       maxDamage: GameConfig.missile.maxDamage,
-      obstacles: this.asteroids.obstacles,
+      obstacles: this.weaponObstacles,
     });
     this.factionMissiles = { humans: humansMissiles, machines: machinesMissiles };
     this.factionLasers = {
       humans: new LaserSystem({
         damage: GameConfig.combat.laserDamage,
-        obstacles: this.asteroids.obstacles,
+        obstacles: this.weaponObstacles,
         interceptables: machinesMissiles.interceptables,
       }),
       machines: new LaserSystem({
         damage: GameConfig.combat.laserDamage,
-        obstacles: this.asteroids.obstacles,
+        obstacles: this.weaponObstacles,
         interceptables: humansMissiles.interceptables,
       }),
     };
@@ -371,15 +375,8 @@ export class HeadlessBattle {
         this.factionMissiles[opposing(f)].addTarget(section);
       }
     }
-    // Wrecks are neutral cover — sections target BOTH factions' weapons.
-    for (const hulk of this.hulks) {
-      for (const section of hulk.hullSections) {
-        this.factionLasers.humans.addTarget(section);
-        this.factionLasers.machines.addTarget(section);
-        this.factionMissiles.humans.addTarget(section);
-        this.factionMissiles.machines.addTarget(section);
-      }
-    }
+    // (Wrecks block fire as NEUTRAL cover via the weaponObstacles list, not as
+    // targets — mirrors Game; see refreshWeaponObstacles.)
 
     // --- Both fleets stage in the bays and launch (Game.assignInitialLaunches)
     // No applyModel(): the procedural carriers' config launch bays are used.
@@ -427,6 +424,11 @@ export class HeadlessBattle {
     this.sensors.update(nowMs, this.shipsByFaction);
 
     if (!this.ended) {
+      // Drift-spin wrecks, then rebuild the combined weapon cover (rocks +
+      // wreck circles) — mirrors Game.advanceSim. Inert under stock config.
+      for (const hulk of this.hulks) hulk.update(dtSeconds);
+      this.refreshWeaponObstacles();
+
       this.fleetCommander.update(nowMs);
 
       for (const c of this.combatants) {
@@ -514,6 +516,7 @@ export class HeadlessBattle {
 
       this.resolveAsteroidCollisions(nowMs);
       this.resolveMothershipCollisions();
+      this.resolveHulkCollisions();
 
       // Death bookkeeping + respawns (explosion FX is view-side; the FLAG is
       // sim state Game maintains, so maintain it identically).
@@ -568,7 +571,16 @@ export class HeadlessBattle {
       }
     }
     for (const hulk of this.hulks) {
-      for (const circle of hulk.avoidanceCircles) this.aiObstacles.push(circle);
+      for (const circle of hulk.circles) this.aiObstacles.push(circle);
+    }
+  }
+
+  /** Game.refreshWeaponObstacles — rocks + wreck cover circles, in place. */
+  private refreshWeaponObstacles(): void {
+    this.weaponObstacles.length = 0;
+    for (const rock of this.asteroids.obstacles) this.weaponObstacles.push(rock);
+    for (const hulk of this.hulks) {
+      for (const circle of hulk.circles) this.weaponObstacles.push(circle);
     }
   }
 
@@ -622,8 +634,33 @@ export class HeadlessBattle {
           this.bumpShipOutOfSection(ship, s);
         }
       }
+    }
+  }
+
+  /** Game.resolveHulkCollisions — circular keep-out, damage-free. */
+  private resolveHulkCollisions(): void {
+    for (const c of this.combatants) {
+      const ship = c.ship;
+      if (!ship.isAlive) continue;
+      if (c.launch && !c.launch.isComplete) continue;
       for (const hulk of this.hulks) {
-        for (const s of hulk.hullSections) this.bumpShipOutOfSection(ship, s);
+        for (const circle of hulk.circles) {
+          const r = ship.hitRadius + circle.radius;
+          const dx = ship.position.x - circle.position.x;
+          const dz = ship.position.z - circle.position.z;
+          const distSq = dx * dx + dz * dz;
+          if (distSq >= r * r || distSq === 0) continue;
+          const dist = Math.sqrt(distSq);
+          const nx = dx / dist;
+          const nz = dz / dist;
+          ship.position.x = circle.position.x + nx * r;
+          ship.position.z = circle.position.z + nz * r;
+          const vn = ship.velocity.x * nx + ship.velocity.z * nz;
+          if (vn < 0) {
+            ship.velocity.x -= vn * nx;
+            ship.velocity.z -= vn * nz;
+          }
+        }
       }
     }
   }
