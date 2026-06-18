@@ -4,6 +4,14 @@ on:
   push:
     branches: [main]
 
+# Serialize deploys: GitHub Pages refuses a new deployment while another is
+# in progress (two pushes close together raced and the second errored). This
+# queues runs instead — cancel-in-progress: false lets the in-flight publish
+# finish before the next starts, so no run fails on the concurrency conflict.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
