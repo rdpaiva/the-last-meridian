@@ -13,7 +13,7 @@ import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
 import "@babylonjs/loaders/glTF";
 
 import { GameConfig } from "../GameConfig";
-import type { Hulk } from "../sim/Hulk";
+import { hulkColliderBoxes, type Hulk } from "../sim/Hulk";
 
 /**
  * Hulk VIEW — the depiction of a derelict wreck (sim half: `Hulk`). A dark,
@@ -38,6 +38,8 @@ export class HulkView {
   private readonly source: Hulk["source"];
   /** Placeholder block meshes, disposed once a GLB takes over. */
   private placeholderMeshes: AbstractMesh[] = [];
+  /** Debug collider wireframes (built lazily on first enable). */
+  private debugMeshes: AbstractMesh[] = [];
 
   constructor(scene: Scene, glowLayer: GlowLayer, sim: Hulk) {
     this.scene = scene;
@@ -48,6 +50,8 @@ export class HulkView {
     this.root.position.copyFrom(sim.center);
     this.root.rotation.y = sim.rotationY;
     this.root.scaling.setAll(sim.scale);
+
+    if (GameConfig.hulk.debugColliders) this.setDebugColliders(true);
 
     const mat = new StandardMaterial(`hulk_${sim.source}_dead_mat`, scene);
     // Mid-grey matte metal so the placeholder reads as a SOLID hull, not a void
@@ -138,9 +142,44 @@ export class HulkView {
     }
   }
 
-  /** Match the mesh to the wreck's current (sim-owned) drift rotation. */
-  update(rotationY: number): void {
+  /** Match the mesh to the wreck's current (sim-owned) drift rotation: yaw, plus
+   *  optional pitch (beam-axis somersault) and roll (keel-axis barrel roll) —
+   *  all view-only (see Hulk). */
+  update(rotationY: number, rotationX = 0, rotationZ = 0): void {
     this.root.rotation.y = rotationY;
+    this.root.rotation.x = rotationX;
+    this.root.rotation.z = rotationZ;
+  }
+
+  /**
+   * Toggle bright-green wireframe boxes over the collision sections (built lazily
+   * on first enable). They're children of `root` with UNSCALED hullRect/
+   * hullHalfHeight dims — `root` applies the wreck's scale AND its yaw/pitch/roll,
+   * so the wireframes match `sim/HulkSection` exactly and roll with the hull.
+   */
+  setDebugColliders(on: boolean): void {
+    if (on && this.debugMeshes.length === 0) {
+      const mat = new StandardMaterial(`hulk_${this.source}_collider_mat`, this.scene);
+      mat.emissiveColor = new Color3(0.1, 1, 0.2);
+      mat.disableLighting = true;
+      mat.wireframe = true;
+      // Same UNSCALED boxes the sim collides with (root applies the wreck scale).
+      const boxes = hulkColliderBoxes(this.source);
+      for (let i = 0; i < boxes.length; i++) {
+        const b = boxes[i];
+        const box = MeshBuilder.CreateBox(
+          `hulk_${this.source}_collider${i}`,
+          { width: b.hx * 2, height: b.hy * 2, depth: b.hz * 2 },
+          this.scene,
+        );
+        box.position.set(b.cx, b.cy, b.cz);
+        box.parent = this.root;
+        box.material = mat;
+        box.isPickable = false;
+        this.debugMeshes.push(box);
+      }
+    }
+    for (const m of this.debugMeshes) m.setEnabled(on);
   }
 
   /** Tear down the scene nodes (match end). */

@@ -286,20 +286,56 @@ read. The integration points already exist:
 4. **Polish.** Card art/thumbnails, loading-flavor blurb, "Random" feel tuning.
 5. **Hazards.** Net-new placed entities riding the frame. Done in sub-slices:
    - **5a — derelict hulk (DONE).** `HulkHazard` in `GameConfig`; `sim/Hulk.ts`
-     is indestructible (`takeDamage` no-op) and SLOWLY ROTATES (`rotationRate`),
-     so its collision is a ROTATION-INVARIANT circle cluster (not rectangles —
-     those would desync from the spinning mesh; circles also match the
-     debris-spray look). The cluster is derived from the source carrier's hull
-     footprint, then `update(dt)` advances `rotationY` and re-places the circles
-     each sim step. Those circle objects feed three consumers at once: the
-     combined `weaponObstacles` list (LOS cover — bolts die against them, no
-     damage), the keep-out bump (`resolveHulkCollisions`, circular + damage-free),
-     and AI avoidance. Game now reads a Game-owned `weaponObstacles` (rocks +
-     wreck circles, rebuilt each step) instead of `asteroids.obstacles` directly.
-     View = a dark dead-block per hull rect under a spinning root
-     (`view/HulkView.ts`); "The Wreck" preset places a dead Novari Choirship
-     mid-arena. Mirrored in the headless harness (inert under stock = baseline
-     byte-identical, verified).
+     is indestructible (`takeDamage` no-op) and slowly rotates on all three axes
+     (`rotationRate` yaw / `pitchRate` / `rollRate`). Collision is a stack of
+     ORIENTED HULL BOXES (`sim/HulkSection.ts`). They come from
+     `GameConfig.hulk.colliders` (per faction) — a list of off-centre OBBs
+     `{cx,cy,cz,hx,hy,hz}` BAKED FROM THE WRECK MESH PARTS by
+     `scripts/measure-hulk-colliders.mjs` (k-means clusters the parts into
+     lateral lanes → one tight box per prong/sponson + the spine, so a CONCAVE
+     hull like the Aegis trident is captured, not a solid rectangle spanning the
+     gap). An empty list falls back to one box per `mothership.hullRects` rect
+     (centred/full-beam — looser but always present). `hulkColliderBoxes(source)`
+     is the shared source of truth for the sim and the debug overlay. Each tick `recompute` rebuilds the world basis
+     (ex/ey/ez from yaw·pitch·roll, matching HulkView's mesh root) and refreshes
+     the boxes, so the collider tracks the full orientation; because play is on
+     the y=0 plane, each box's `surfaceRadiusToward` THINS as the hull rolls
+     edge-on (the sideways ray exits the thin vertical face — `hulk.hullHalfHeight`
+     sets that thickness), matching the visible silhouette. The sections feed
+     three consumers: the combined `weaponObstacles` list (LOS cover via the
+     existing `surfaceRadiusToward` obstacle path — no weapon-system changes),
+     the oriented keep-out bump (`resolveHulkCollisions`, damage-free), and AI
+     avoidance (coarse bounding circle per box). View = the wreck GLB under a
+     yaw/pitch/roll root (`view/HulkView.ts`). Mirrored in the headless harness
+     (inert under stock = baseline byte-identical, verified).
+   - **5b — destroyed mesh (DONE — GLBs built 2026-06-18).** The two wreck GLBs
+     ship in `public/models/` (`aegis_wreck.glb` ~0.35 MB / `choirship_wreck.glb`
+     ~0.26 MB). They REUSE THE CARRIER GEOMETRY (not a flat card — a flat card
+     read as a 2-D decal on the ~38°-tilted camera, with no depth). Built by
+     `scripts/build_wreck.py` following the deck-skin recipe (docs/RECIPES.md →
+     "Apply a top-down deck skin to a carrier", scripts/skin_carrier.py): swap the
+     carrier's skin image → the `*-destroyed-top.jpeg` render, reproject the skin
+     UVs to its ship-rect (which matches the intact livery's framing to ~2 px), and
+     BURN the materials — darken the hull, kill EVERY emitter (run-lights, bay
+     glow, viewports, spine/cheek cells, engines) so it's a dead husk lit only by
+     the scene (a tiny 0.18 self-emission keeps it off pure black; the real
+     geometry's relief is what reads as 3-D). Re-run the script (it + the textures
+     are the source of truth; no wreck `.blend`) if the renders change — the
+     Bastion hull builds in the open `bastion_carrier.blend`, the Choirship is
+     appended from `art/choirship.blend` then removed. Same +Y-up export as the
+     carriers, so `GameConfig.hulk.model` rotY=π + scale 10.6 lands it on the
+     collision circles unchanged, and Babylon preserves the UV orientation (deck
+     text reads forward — do NOT pre-mirror). The `-underneath` renders ARE used:
+     `skin_carrier.skin_bottom_faces` projects them onto the belly (NO flip — they
+     are see-through belly diagrams framed bow-up like the deck, so belly maps the
+     same as top; an early flip_v put the nose at the tail) so the underside reads
+     when the wreck tumbles. Rotation: three view-only
+     spin axes on `HulkHazard` (all advance `Hulk.rotationX/Y/Z` — collision stays
+     the flat XZ footprint regardless): `rotationRate` = yaw (flat compass spin,
+     deck stays up), `pitchRate` = beam-axis somersault (nose dives), `rollRate` =
+     keel-axis BARREL ROLL (deck turns to belly, nose holds heading). The Wreck
+     preset lays it nose-SIDEWAYS (`rotationY: π/2`) to wall the corridor and uses
+     `rollRate` so it rolls top→belly while lying across the lane.
    - **5b — destroyed mesh (DONE, pipeline).** `HulkView.applyModel` loads the
      battle-damaged carrier GLB (per `source` faction, from `GameConfig.hulk.model`)
      under the spinning root, keeping the burned-out materials and bloom-ing only
@@ -355,52 +391,45 @@ Slices 1–4 are the map system proper. Slice 5 is *content* that rides the fram
 
 ---
 
-## Session handoff — wreck GLB assets (next session, 2026-06-18)
+## Session handoff — hulk collider refinement (next session, 2026-06-18)
 
-**Status:** all of slice 5 *code* is COMPLETE and committed on
-`feat/phase0-smoke-harness` (NOT yet merged to `main`): hulk sim + slow
-rotation + rotation-invariant circle collision (5a), and the
-`HulkView.applyModel` GLB pipeline (5b). What's missing is the two wreck GLB
-**files** — until they exist, `HulkView` shows the grey dark-block placeholder
-(shrunk to read sensibly; The Wreck hulk `scale` is `0.5`).
+**Status:** slice 5 is functionally COMPLETE on `feat/phase0-smoke-harness`
+(NOT yet merged to `main`). Done this session: both wreck GLBs (carrier geometry
+reskinned with the destroyed renders, deck + belly), the yaw/pitch/**roll** spin
+(The Wreck rolls top→belly while lying nose-sideways across the lane), and the
+collider rework — circles → **oriented hull boxes** (`sim/HulkSection.ts`) that
+track the full rotation, thin as the hull rolls edge-on, and are baked from the
+mesh into `GameConfig.hulk.colliders`. A green debug overlay exists
+(`window.__showHulkColliders(true)`). Typecheck + the Phase 0 smoke test are
+green; stock has no hulks so the baseline stays byte-identical.
 
-**The plan (decided with the user):** build the wreck GLBs from the
-**destroyed top-down texture renders**, NOT modeled geometry (Claude can't turn
-a 2D image into 3D). Each wreck uses **TWO textures — a top face and a bottom
-("…-underneath") face** — so the slab reads correctly as it rotates. The user
-will paste the texture files into `art/textures/` themselves (do NOT copy them
-in from chat/cache — see the asset-ownership note below).
+**What's left = COLLIDER FIT TUNING (the only open item).** The auto-baked fit
+is a coarse 3-lane split (two prongs/sponsons + spine); it still has some dead
+space and over-covers the trident channels. Refine the boxes per faction.
 
-**Assets (in/coming to `art/textures/`):**
-- `aegis-destroyed-underneath.jpeg` — human (Aegis/Bastion) BOTTOM face *(present)*.
-- + a human TOP, a Novari (Choirship "Silent Choir") TOP, and a Novari BOTTOM —
-  the user will add these.
-- Carrier sources for the skin pipeline: `art/bastion_carrier.blend`,
-  `art/choirship.blend`; precedent intact skins `art/textures/bastion_skin.png`,
-  `choirship_skin.png` (planar-projected — same technique to reuse). Blender
-  MCP tools are available; the `.blend`s are in `art/`.
+**Two authoring routes (both emit `GameConfig.hulk.colliders[faction]`):**
+1. **Auto from mesh** — `node scripts/measure-hulk-colliders.mjs`. Bump `LANES`
+   (top of file) for more/tighter boxes; paste the printed arrays.
+2. **Visual in Blender** — `scripts/hulk_colliders.py` (run via MCP/console with
+   the CARRIER `.blend` open — bow-+Y frame, NOT a re-imported GLB):
+   `hc.spawn(hc.HUMANS)` seeds the current boxes as green wireframes over the
+   hull → grab/scale them (KEEP AXIS-ALIGNED) → `hc.read()` prints the snippet.
+   NOTE the open carrier may carry the burned wreck materials from the GLB build
+   — reload the clean `.blend` first, then spawn; never save over it.
 
-**Build steps next session:**
-1. In Blender, make a wreck mesh textured with the top face up and the bottom
-   ("underneath") face down (a double-sided slab, or the carrier geometry
-   re-skinned), so a rotating wreck looks right from both sides.
-2. Export → `public/models/choirship_wreck.glb` and `aegis_wreck.glb` (the
-   names `GameConfig.hulk.model.file` already expects).
-3. Load The Wreck in-game; tune `GameConfig.hulk.model` `rotY`/`scale` if the
-   import lands rotated/sized wrong (defaults `rotY: π`, `scale: 10.6` from the
-   carrier pipeline).
-4. **Rotation axis check:** the hulk currently spins on **yaw (Y)**, which on a
-   top-down camera never reveals the bottom face — so confirm whether the wreck
-   should *tumble* (pitch/roll) to show top↔bottom, and if so add that to
-   `Hulk.update`/`HulkView`. The top+bottom textures only pay off if the bottom
-   becomes visible.
+**Verify** each pass in-game with `window.__showHulkColliders(true)` (or
+`GameConfig.hulk.debugColliders`). The wireframes share `hulkColliderBoxes()`
+with the sim, so what you see is exactly what collides.
 
-**Notes / caveats:**
-- Sim collision is a circle cluster from the carrier footprint × the hulk
-  `scale` (rotation-invariant) — independent of the mesh, so it's already
-  correct regardless of the GLB.
-- A skin on intact geometry won't have the shattered *silhouette* edges from
-  the renders (damage is painted on a whole hull); fine from top-down.
-- Ember bloom (`GameConfig.hulk.emberTags`) only applies if embers are separate
-  named emissive meshes; a baked-into-texture glow shows as plain emissive.
-- The human wreck unlocks a second wreck-map variant (`source: "humans"`) for free.
+**Frames / knobs:**
+- Collider OBBs are in the carrier-world (`hullRects`) frame; runtime applies the
+  hulk's own `scale`. Blender↔game = ×10.6 with gameZ=BlenderY (keel), gameY=
+  BlenderZ (up), gameX=BlenderX (beam) — handled by both scripts.
+- `HulkSection` boxes are AXIS-ALIGNED to the hull (no per-box yaw yet). If a
+  future hull needs angled boxes (swept wings), add a local-yaw field to
+  HulkSection + the bake.
+- `GameConfig.hulk.hullHalfHeight` only feeds the hullRects FALLBACK now; the
+  fitted lists carry their own per-box `hy`.
+- The roll spin is `Maps.theWreck` `rollRate` (+ `rotationY: π/2` sideways).
+
+**When the fit is good:** merge `feat/phase0-smoke-harness` → `main`.

@@ -571,16 +571,16 @@ export class HeadlessBattle {
       }
     }
     for (const hulk of this.hulks) {
-      for (const circle of hulk.circles) this.aiObstacles.push(circle);
+      for (const section of hulk.sections) this.aiObstacles.push(section);
     }
   }
 
-  /** Game.refreshWeaponObstacles — rocks + wreck cover circles, in place. */
+  /** Game.refreshWeaponObstacles — rocks + wreck hull sections, in place. */
   private refreshWeaponObstacles(): void {
     this.weaponObstacles.length = 0;
     for (const rock of this.asteroids.obstacles) this.weaponObstacles.push(rock);
     for (const hulk of this.hulks) {
-      for (const circle of hulk.circles) this.weaponObstacles.push(circle);
+      for (const section of hulk.sections) this.weaponObstacles.push(section);
     }
   }
 
@@ -637,24 +637,26 @@ export class HeadlessBattle {
     }
   }
 
-  /** Game.resolveHulkCollisions — circular keep-out, damage-free. */
+  /** Game.resolveHulkCollisions — oriented hull-box keep-out, damage-free. */
   private resolveHulkCollisions(): void {
     for (const c of this.combatants) {
       const ship = c.ship;
       if (!ship.isAlive) continue;
       if (c.launch && !c.launch.isComplete) continue;
       for (const hulk of this.hulks) {
-        for (const circle of hulk.circles) {
-          const r = ship.hitRadius + circle.radius;
-          const dx = ship.position.x - circle.position.x;
-          const dz = ship.position.z - circle.position.z;
+        for (const section of hulk.sections) {
+          const dx = ship.position.x - section.position.x;
+          const dz = ship.position.z - section.position.z;
           const distSq = dx * dx + dz * dz;
-          if (distSq >= r * r || distSq === 0) continue;
+          const bound = ship.hitRadius + section.hitRadius;
+          if (distSq >= bound * bound || distSq === 0) continue;
           const dist = Math.sqrt(distSq);
           const nx = dx / dist;
           const nz = dz / dist;
-          ship.position.x = circle.position.x + nx * r;
-          ship.position.z = circle.position.z + nz * r;
+          const r = ship.hitRadius + section.surfaceRadiusToward(dx, dz);
+          if (dist >= r) continue;
+          ship.position.x = section.position.x + nx * r;
+          ship.position.z = section.position.z + nz * r;
           const vn = ship.velocity.x * nx + ship.velocity.z * nz;
           if (vn < 0) {
             ship.velocity.x -= vn * nx;

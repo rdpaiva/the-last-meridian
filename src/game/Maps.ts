@@ -151,7 +151,13 @@ export const MAPS: Record<ConcreteMapId, MapConfig> = {
     // both fleets flank around. scale 0.5 = ~half a carrier: a substantial
     // landmark that's still navigable within the combat zoom (tune to taste;
     // 1.0 = full carrier size).
-    hazards: [{ kind: "hulk", source: "machines", x: 0, z: 0, rotationY: 0, scale: 0.5 }],
+    // rotationY = π/2 lays the hull SIDEWAYS (nose along X), so it walls off the
+    // corridor across the carriers' Z axis instead of pointing down it.
+    // rollRate barrel-rolls it about the keel (rad/sec) so the deck turns to the
+    // belly while the nose holds sideways — the "show top then belly" spin.
+    // (rotationRate = flat yaw, pitchRate = nose-over somersault; both 0 here.)
+    hazards: [{ kind: "hulk", source: "humans", x: 0, z: 0, rotationY: Math.PI / 2,
+                rotationRate: 0.0, pitchRate: 0.0, rollRate: 0.06, scale: 0.5 }],
   },
 };
 

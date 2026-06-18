@@ -144,6 +144,49 @@ def skin_top_faces(prefix, skin_mat, fp, rect, exclude=DEFAULT_EXCLUDE, z_thresh
     return n
 
 
+def skin_bottom_faces(prefix, skin_mat, fp, rect, exclude=(), z_thresh=0.5,
+                      flip_u=False, flip_v=False):
+    """Like skin_top_faces but for the BELLY: assign `skin_mat` to the DOWN faces
+    (world-normal.z < -z_thresh) and planar-project their UVs. Used to put an
+    "…-underneath" render on a wreck so its belly reads when it tumbles (pitch).
+
+    Defaults to NO flips — the underneath renders are "see-through" belly diagrams
+    framed bow-up just like the top render, so the belly maps exactly like the
+    deck (world X,Y → U,V), keeping bow↔stern and port↔stbd aligned with the hull.
+    (An earlier flip_v=True reversed it: the belly's nose landed at the tail. If a
+    future render is shot from a true below-camera it'll be mirrored — flip then,
+    and verify IN-GAME, since the wreck's full transform stack, not a lone pitch,
+    decides it.) `exclude` defaults to () — skin the whole belly, dead emitters
+    included."""
+    n = 0
+    for o in bpy.data.objects:
+        if o.type != "MESH" or not o.name.startswith(prefix):
+            continue
+        if any(k in o.name.lower() for k in exclude):
+            continue
+        me = o.data
+        # Reuse an existing slot if this material is already on the mesh, so
+        # re-running the wreck build doesn't pile up duplicate slots.
+        si = next((i for i, m in enumerate(me.materials) if m == skin_mat), None)
+        if si is None:
+            si = len(me.materials)
+            me.materials.append(skin_mat)
+        if not me.uv_layers:
+            me.uv_layers.new(name="UVMap")
+        uvl = me.uv_layers.active.data
+        n3 = o.matrix_world.to_3x3()
+        for poly in me.polygons:
+            if (n3 @ poly.normal).normalized().z >= -z_thresh:
+                continue
+            poly.material_index = si
+            for li in poly.loop_indices:
+                wp = o.matrix_world @ me.vertices[me.loops[li].vertex_index].co
+                u, v = _uv(wp, fp, rect)
+                uvl[li].uv = (1.0 - u if flip_u else u, 1.0 - v if flip_v else v)
+        n += 1
+    return n
+
+
 def reproject(obj, skin_mat, fp, rect):
     """Re-planar-project the skin UVs of one object from its CURRENT world XY.
     Call after moving/extending geometry (move_world / extend_face) so the

@@ -285,6 +285,12 @@ export class Game {
     // Exposed for the Babylon Inspector recipe in CLAUDE.md and ad-hoc debugging.
     (window as unknown as { __BABYLON_SCENE__: Scene }).__BABYLON_SCENE__ =
       this.scene;
+    // Live debug toggle for the wreck collider wireframes (see GameConfig.hulk
+    // .debugColliders): `window.__showHulkColliders(true)` from the console.
+    (window as unknown as { __showHulkColliders: (on: boolean) => void })
+      .__showHulkColliders = (on: boolean) => {
+      for (const v of this.hulkViews) v.setDebugColliders(on);
+    };
     this.scene.skipPointerMovePicking = true;
     const c = GameConfig.scene.clearColor;
     this.scene.clearColor = new Color4(c.r, c.g, c.b, 1);
@@ -1275,7 +1281,7 @@ export class Game {
     // as the steering circles (same objects), and they move as the wreck spins,
     // so the list is rebuilt each frame to pick up the current positions.
     for (const hulk of this.hulks) {
-      for (const circle of hulk.circles) this.aiObstacles.push(circle);
+      for (const section of hulk.sections) this.aiObstacles.push(section);
     }
   }
 
@@ -1290,7 +1296,7 @@ export class Game {
     this.weaponObstacles.length = 0;
     for (const rock of this.asteroids.obstacles) this.weaponObstacles.push(rock);
     for (const hulk of this.hulks) {
-      for (const circle of hulk.circles) this.weaponObstacles.push(circle);
+      for (const section of hulk.sections) this.weaponObstacles.push(section);
     }
   }
 
@@ -1329,17 +1335,22 @@ export class Game {
       if (!ship.isAlive) continue;
       if (c.launch && !c.launch.isComplete) continue;
       for (const hulk of this.hulks) {
-        for (const circle of hulk.circles) {
-          const r = ship.hitRadius + circle.radius;
-          const dx = ship.position.x - circle.position.x;
-          const dz = ship.position.z - circle.position.z;
+        for (const section of hulk.sections) {
+          const dx = ship.position.x - section.position.x;
+          const dz = ship.position.z - section.position.z;
           const distSq = dx * dx + dz * dz;
-          if (distSq >= r * r || distSq === 0) continue;
+          // Broad phase against the box's bounding circle, then push out to the
+          // ORIENTED hull surface along the contact direction — so the keep-out
+          // hugs the rectangle and thins as the wreck rolls (surfaceRadiusToward).
+          const bound = ship.hitRadius + section.hitRadius;
+          if (distSq >= bound * bound || distSq === 0) continue;
           const dist = Math.sqrt(distSq);
           const nx = dx / dist;
           const nz = dz / dist;
-          ship.position.x = circle.position.x + nx * r;
-          ship.position.z = circle.position.z + nz * r;
+          const r = ship.hitRadius + section.surfaceRadiusToward(dx, dz);
+          if (dist >= r) continue;
+          ship.position.x = section.position.x + nx * r;
+          ship.position.z = section.position.z + nz * r;
           const vn = ship.velocity.x * nx + ship.velocity.z * nz;
           if (vn < 0) {
             ship.velocity.x -= vn * nx;
@@ -1667,7 +1678,11 @@ export class Game {
     // every frame so the drift-spin is smooth even though it only advances in
     // advanceSim (frozen during hitstop / after the match, like the rest).
     for (let i = 0; i < this.hulks.length; i++) {
-      this.hulkViews[i].update(this.hulks[i].rotationY);
+      this.hulkViews[i].update(
+        this.hulks[i].rotationY,
+        this.hulks[i].rotationX,
+        this.hulks[i].rotationZ,
+      );
     }
     this.factionLaserViews.humans.update();
     this.factionLaserViews.machines.update();

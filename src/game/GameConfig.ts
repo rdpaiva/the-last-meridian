@@ -236,8 +236,25 @@ export interface HulkHazard {
   x: number;
   z: number;
   rotationY?: number;
-  /** Slow drift-spin, radians/sec (default 0.03 ≈ 1.7°/s). 0 = static. */
+  /** Slow yaw drift-spin, radians/sec (default 0.03 ≈ 1.7°/s). 0 = static. */
   rotationRate?: number;
+  /** Start pitch (radians, about the keel-cross axis). Default 0. */
+  rotationX?: number;
+  /**
+   * Slow PITCH tumble, radians/sec — somersaults the wreck about its BEAM axis
+   * (nose dives/rises). Default 0. VIEW-ONLY (see rollRate).
+   */
+  pitchRate?: number;
+  /** Start roll (radians, about the keel / long axis). Default 0. */
+  rotationZ?: number;
+  /**
+   * Slow ROLL, radians/sec — BARREL-ROLLS the wreck about its long (keel) axis
+   * so the deck rotates round to the belly while the nose keeps its heading
+   * (default 0). This is the "show top then belly while lying sideways" spin.
+   * VIEW-ONLY: like yaw/pitch it never touches the collision footprint (the flat
+   * XZ circle cluster), so cover/keep-out never desync as the mesh rolls.
+   */
+  rollRate?: number;
   scale?: number;
 }
 export type HazardSpec = HulkHazard;
@@ -525,6 +542,57 @@ export const GameConfig = {
       scale: 10.6,
     },
     emberTags: ["ember", "breach", "glow", "fire", "molten", "core"] as string[],
+    /**
+     * Hull vertical HALF-height, in the same (carrier-world) units as
+     * `mothership.hullRects` (scaled by the hulk's own `scale`). The wreck's
+     * collision boxes (sim/HulkSection) use it as their Y half-extent, so a
+     * wreck rolling edge-on thins its cover/keep-out to a ~`hullHalfHeight`-wide
+     * slab instead of staying a full-beam wall. ≈ the carriers' modelled height
+     * (Bastion ~6.5 Blender units × the 10.6 model scale ≈ 69 → half ≈ 35).
+     */
+    hullHalfHeight: 35,
+    /**
+     * PER-FACTION oriented collision boxes (sim/HulkSection), in the same
+     * carrier-world frame as `mothership.hullRects` (scaled by the hulk's own
+     * `scale` at runtime). Each box is `{ cx, cy, cz, hx, hy, hz }` — centre +
+     * half-extents in hull-local X (beam) / Y (up) / Z (keel). Off-centre boxes
+     * (cx≠0) hug a CONCAVE hull that a single symmetric hullRect can't — e.g. one
+     * box per Aegis prong instead of a rectangle spanning the empty middle.
+     *
+     * These are BAKED FROM THE CARRIER MESH PARTS (scripts/measure-hulk-colliders
+     * — one tight box per major structure), the collider analogue of how
+     * hullRects are measured. An EMPTY list falls back to the hullRects-derived
+     * boxes (so an unfitted faction still collides). Visualize/tune with the
+     * green debug overlay (`debugColliders` / `window.__showHulkColliders`).
+     */
+    colliders: {
+      // Baked by scripts/measure-hulk-colliders.mjs (3 lateral lanes: the two
+      // prongs/sponsons + the spine). Re-run after re-exporting a wreck GLB.
+      humans: [
+        { cx: -31.3, cy: 0, cz: 15.9, hx: 19.6, hy: 12.2, hz: 110.2 },
+        { cx: 0, cy: 17.8, cz: 3.2, hx: 17, hy: 34.7, hz: 136.7 },
+        { cx: 31.3, cy: 0, cz: 15.9, hx: 19.6, hy: 12.2, hz: 110.2 },
+      ] as ReadonlyArray<{
+        cx: number; cy: number; cz: number; hx: number; hy: number; hz: number;
+      }>,
+      machines: [
+        { cx: -33.4, cy: 2.9, cz: -35.8, hx: 19.6, hy: 11.4, hz: 106.8 },
+        { cx: 0, cy: 3.3, cz: -0.7, hx: 40.3, hy: 20.3, hz: 146.9 },
+        { cx: 33.4, cy: 2.9, cz: -35.8, hx: 19.6, hy: 11.4, hz: 106.8 },
+      ] as ReadonlyArray<{
+        cx: number; cy: number; cz: number; hx: number; hy: number; hz: number;
+      }>,
+    } as Record<
+      Faction,
+      ReadonlyArray<{ cx: number; cy: number; cz: number; hx: number; hy: number; hz: number }>
+    >,
+    /**
+     * DEBUG: draw the wreck's collision boxes (sim/HulkSection) as bright-green
+     * wireframes so you can see the colliders and how they roll with the hull.
+     * Off for normal play. Toggle live in the console with
+     * `window.__showHulkColliders(true|false)` (set up in Game).
+     */
+    debugColliders: false,
   },
 
   arena: {
