@@ -1,6 +1,13 @@
 import { GameConfig, type ShipTypeId } from "./GameConfig";
 import { FACTION_THEME, opposing, type Faction } from "./Faction";
 import { loadSavedLoadout, saveLoadout, type PlayerLoadout } from "./Loadout";
+import {
+  MAPS,
+  loadSavedMapSelection,
+  saveMapSelection,
+  type ConcreteMapId,
+  type MapId,
+} from "./Maps";
 import type { ShipPreview } from "./ShipPreview";
 
 /**
@@ -88,6 +95,22 @@ export const SHIP_INFO: Record<
   },
 };
 
+/** The arena-picker options: the concrete maps (catalog order) then Random. */
+const MAP_OPTIONS: MapId[] = [
+  ...(Object.keys(MAPS) as ConcreteMapId[]),
+  "random",
+];
+
+/** Card title + blurb for a map option (Random is synthetic; the rest read
+ *  straight from the catalog so there's no duplicated copy to drift). */
+function mapCardInfo(id: MapId): { name: string; blurb: string } {
+  if (id === "random") {
+    return { name: "Random", blurb: "A different arena every match." };
+  }
+  const m = MAPS[id];
+  return { name: m.name, blurb: m.blurb };
+}
+
 /** Sustained gun output (damage/sec) — what the GUNS bar shows. */
 function gunsDps(id: ShipTypeId): number {
   const t = GameConfig.shipTypes[id];
@@ -104,11 +127,17 @@ const MAX_STAT = {
   missiles: Math.max(...ALL_IDS.map((id) => GameConfig.shipTypes[id].missileAmmo)),
 };
 
+/** Top-to-bottom order of the keyboard-walkable rows (↑/↓ move between them). */
+const ROWS = ["faction", "ship", "map"] as const;
+type Row = (typeof ROWS)[number];
+
 export class LoadoutMenu {
   private faction: Faction;
   private shipType: ShipTypeId;
-  /** Which row ←/→ act on; ↑/↓ toggle it. */
-  private activeRow: "faction" | "ship" = "faction";
+  /** The arena selection — a concrete map (pinned) or "random" (re-rolls). */
+  private mapSelection: MapId;
+  /** Which row ←/→ act on; ↑/↓ move between them. */
+  private activeRow: Row = "faction";
   private detached = false;
 
   constructor(
@@ -119,6 +148,7 @@ export class LoadoutMenu {
     const saved = loadSavedLoadout();
     this.faction = saved.faction;
     this.shipType = saved.shipType;
+    this.mapSelection = loadSavedMapSelection();
     this.render();
     window.addEventListener("keydown", this.onKeyDown);
   }
@@ -136,6 +166,7 @@ export class LoadoutMenu {
       this.detached = true;
       window.removeEventListener("keydown", this.onKeyDown);
       saveLoadout(this.loadout);
+      saveMapSelection(this.mapSelection);
     }
     return this.loadout;
   }
@@ -148,21 +179,29 @@ export class LoadoutMenu {
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
     switch (e.code) {
       case "ArrowUp":
-      case "ArrowDown":
-        this.activeRow = this.activeRow === "faction" ? "ship" : "faction";
+      case "ArrowDown": {
+        const dir = e.code === "ArrowDown" ? 1 : -1;
+        const i = ROWS.indexOf(this.activeRow);
+        this.activeRow = ROWS[(i + dir + ROWS.length) % ROWS.length];
         e.preventDefault();
         this.render();
         break;
+      }
       case "ArrowLeft":
       case "ArrowRight": {
+        const dir = e.code === "ArrowRight" ? 1 : -1;
         if (this.activeRow === "faction") {
           // Only two sides — either arrow toggles.
           this.setFaction(opposing(this.faction));
-        } else {
+        } else if (this.activeRow === "ship") {
           const ships = GameConfig.factionShips[this.faction];
-          const dir = e.code === "ArrowRight" ? 1 : -1;
           const idx = (ships.indexOf(this.shipType) + dir + ships.length) % ships.length;
           this.shipType = ships[idx];
+        } else {
+          const idx =
+            (MAP_OPTIONS.indexOf(this.mapSelection) + dir + MAP_OPTIONS.length) %
+            MAP_OPTIONS.length;
+          this.mapSelection = MAP_OPTIONS[idx];
         }
         e.preventDefault();
         this.saveAndRender();
@@ -187,6 +226,7 @@ export class LoadoutMenu {
    *  reads the same keys next session). Row toggles use plain render(). */
   private saveAndRender(): void {
     saveLoadout(this.loadout);
+    saveMapSelection(this.mapSelection);
     this.render();
   }
 
@@ -219,12 +259,16 @@ export class LoadoutMenu {
       .map((id) => this.shipCard(id))
       .join("");
 
+    const mapCards = MAP_OPTIONS.map((id) => this.mapCard(id)).join("");
+
     this.root.innerHTML = `
       <div class="loadout-heading">Choose your side</div>
       <div class="loadout-row${this.activeRow === "faction" ? " active" : ""}" id="loadout-factions">${factionCards}</div>
       <div class="faction-desc">${FACTION_DESC[this.faction]}</div>
       <div class="loadout-row${this.activeRow === "ship" ? " active" : ""}" id="loadout-ships">${shipCards}</div>
       ${this.previewPanel()}
+      <div class="loadout-subheading">Arena</div>
+      <div class="loadout-row${this.activeRow === "map" ? " active" : ""}" id="loadout-maps">${mapCards}</div>
       <button id="loadout-play" class="${this.faction}">PLAY</button>
       <div class="loadout-hint">←/→ SELECT · ↑/↓ ROW · ENTER TO LAUNCH</div>`;
 
@@ -239,6 +283,13 @@ export class LoadoutMenu {
       el.addEventListener("click", () => {
         this.activeRow = "ship";
         this.shipType = el.dataset.ship as ShipTypeId;
+        this.saveAndRender();
+      });
+    }
+    for (const el of this.root.querySelectorAll<HTMLElement>(".map-card")) {
+      el.addEventListener("click", () => {
+        this.activeRow = "map";
+        this.mapSelection = el.dataset.map as MapId;
         this.saveAndRender();
       });
     }
@@ -282,6 +333,18 @@ export class LoadoutMenu {
           <div class="card-blurb">${info.summary}</div>
           ${miniBars}
         </div>
+      </div>`;
+  }
+
+  /** Compact arena card: name + one-line blurb. No 3D preview in v1 (maps
+   *  don't get a turntable — the picker is just the selection). */
+  private mapCard(id: MapId): string {
+    const info = mapCardInfo(id);
+    const sel = id === this.mapSelection ? " selected" : "";
+    return `
+      <div class="loadout-card map-card${sel}" data-map="${id}">
+        <div class="card-title">${info.name.toUpperCase()}</div>
+        <div class="card-blurb">${info.blurb}</div>
       </div>`;
   }
 

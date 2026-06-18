@@ -65,15 +65,6 @@ if (!settingsRoot) throw new Error("#settings not found in DOM");
 // so this one early call is the whole "apply" step.)
 applyStoredOverrides();
 
-// Arena map (docs/ARENA-MAPS.md). The persisted selection drives it: a pinned
-// concrete map, or "random" (the default) which re-rolls a preset each page
-// load — i.e. each match, since the end-of-match restart reloads. The picker
-// UI that lets the player change this is slice 3; until then the selection
-// comes from storage (default "random"). applyMap runs AFTER
-// applyStoredOverrides so a player's match-settings override of a shared knob
-// (asteroid count, fleet composition) beats the map baseline.
-applyMap(resolveMapId(loadSavedMapSelection()));
-
 // Set src via JS so BASE_URL is resolved correctly for GitHub Pages.
 splashPoster.src = `${import.meta.env.BASE_URL}images/The-Last-Meridian-Poster.jpg`;
 
@@ -138,11 +129,25 @@ let game: Game | null = null;
 let menu: LoadoutMenu | null = null;
 let preview: ShipPreview | null = null;
 
+/**
+ * Arena map (docs/ARENA-MAPS.md). Applied at LAUNCH, not page load: the picker
+ * persists the player's selection (LoadoutMenu) and quick play / restart read
+ * it from storage, so resolving here means the latest choice always takes — and
+ * "random" (the default) re-rolls a preset each match. Runs AFTER
+ * applyStoredOverrides (module-init) so a player's match-settings override of a
+ * shared knob (asteroid count, fleet composition) beats the map baseline.
+ * Applied exactly once per page load, on the one launch path that runs.
+ */
+function applyActiveMap(): void {
+  applyMap(resolveMapId(loadSavedMapSelection()));
+}
+
 function startGame(): void {
   if (game) return;
   // commit() persists the choice and releases the menu's arrow keys back to
   // the ship; quick play (no menu constructed) launches the saved loadout.
   const loadout = menu ? menu.commit() : loadSavedLoadout();
+  applyActiveMap();
   stopSplashMusic();
   preview?.dispose();
   preview = null;
@@ -242,6 +247,7 @@ if (sessionStorage.getItem(RESTART_FLAG)) {
   // saved loadout directly. Audio resumes on their first keypress (a
   // reloaded page has no user gesture yet, so it can't resume here).
   sessionStorage.removeItem(RESTART_FLAG);
+  applyActiveMap();
   splash.classList.add("hidden");
   game = new Game(canvas, hudRoot, loadSavedLoadout());
   void game.start();

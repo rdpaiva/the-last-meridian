@@ -491,8 +491,35 @@
 }
 
 /* The row the arrow keys act on gets slightly brighter card borders. */
-.loadout-row.active .ship-card:not(.selected) {
+.loadout-row.active .ship-card:not(.selected),
+.loadout-row.active .map-card:not(.selected) {
   border-color: rgba(120, 140, 200, 0.45);
+}
+
+/* ── Arena picker: a compact name + blurb card row (no 3D preview) ── */
+
+.loadout-subheading {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #9aa6c8;
+}
+
+.map-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 220px;
+  padding: 8px 12px;
+}
+
+/* Maps aren't faction-colored — a neutral lavender glow marks the pick. */
+.map-card.selected {
+  border-color: #b4befe;
+  box-shadow: 0 0 14px rgba(180, 190, 254, 0.3);
+  background: rgba(180, 190, 254, 0.08);
 }
 
 /* When the faction row is the active one, frame the unselected side too. */
