@@ -3,7 +3,9 @@
 > **Status:** Phase 1 **IMPLEMENTED** (2026-06-18) on `feat/phase0-smoke-harness`
 > — all six slices landed; typecheck + headless smoke green. See *Implementation
 > notes & deviations* below for where the build differs from this spec.
-> **Phase 1 only** — deployable jump gates (Phase 2) are still a later phase.
+> **Phase 1 only** — deployable jump gates (Phase 2) are **designed but not built**.
+> See the *Phase 2 — deployable jump gates* section below for the converged design
+> and sliced build order.
 
 ---
 
@@ -271,9 +273,11 @@ here so the doc matches the code:
 - **Phase 1 (this design):** finite cannon ammo · carrier repair/rearm · recall-jump
   to own carrier · spool detection signature · AI retreat + "finish the runner"
   behavior.
-- **Phase 2 (deferred):** **deployable jump gates** — a heavy ship deploys a forward
-  jump node (a new mid-match entity system; the biggest novelty/risk). Framing it as
-  diegetic "fielded technology" fits the realism lean better than a personal teleport.
+- **Phase 2 (designed 2026-06-18, not built):** **deployable jump gates** — a heavy
+  (gunship) deploys a forward jump node (a new mid-match entity system; the biggest
+  novelty/risk). Framing it as diegetic "fielded technology" fits the realism lean better
+  than a personal teleport. Full design + sliced build order in *Phase 2 — deployable
+  jump gates* above.
 
 ## Implementation / build order
 
@@ -348,6 +352,176 @@ one-shot the whole feature. Build on `feat/phase0-smoke-harness`; respect the
   `[human]` eyeball — enemies bug out to resupply, some flee, some go down swinging.
 - Starter: HP ~35% (spread ~20–45%), ammo ~10% *(owner tunes)*.
 
+## Phase 2 — deployable jump gates
+
+> **Status:** designed (2026-06-18), not built. Build on the same sim/view discipline
+> as Phase 1 (see *Build on Phase 0*). This is the biggest novelty in the feature: the
+> **first placed, persistent, mid-match entity** in the game — everything else is a
+> ship, a bolt, or scenery.
+
+### The core idea (why)
+
+- Phase 1 gives you *one* destination (home). Phase 2 lets a heavy ship **field a forward
+  jump node** anywhere it chooses, so the jump becomes a **destination chooser** (deployed
+  gates **or** the mothership), not just a recall. This is map control: you decide where
+  "home-ish" is.
+- Framed diegetically as **fielded technology** (a deployed beacon you anchor in space),
+  which fits the realism lean better than a personal teleport.
+- It **reuses three existing patterns** and adds exactly one new concept (a persistent
+  placed entity): the per-ship ammo field (`missileAmmo`/`cannonAmmo`), `DamageTarget`
+  collision, and `SimEventBus` FX. The only genuinely net-new design work is the
+  **destination-selection control**.
+
+### Decisions locked
+
+- **Gate-laying is a gunship capability, not a new ship class.** No new hull/GLB/story-bible
+  name/thumbnail/AI-doctrine pipeline. (Revisit a dedicated *tender* class later only if the
+  support role proves it wants its own hull — see *Considered but not adopted*.)
+- **The gate is destructible and faction-locked:** it has an HP pool (`DamageTarget`), only
+  the owning faction can **jump to** it, and the enemy can **destroy** it. That killability
+  is the counterplay that keeps it from being oppressive.
+- **Transit-only — no service bubble.** A gate moves you; it does **not** repair or rearm.
+  The carrier stays the **sole** service hub. A forward gate buys *position*, not a free
+  top-off. Hold this line firmly — it's what protects the Phase 1 resupply loop.
+- **State-driven enemy visibility** (the twist): a **cold/unused** gate is **invisible to the
+  enemy's long-range radar**; **using** it (a ship jumps in/out) **lights it up**; close
+  **visual range** still spots it. See *Detection / visibility* below.
+
+### Gunship capability + the gate economy
+
+- New per-ship-type field in `shipTypes`, mirroring the ammo pattern: **`gateAmmo`** (start
+  `1`, maybe `2`) on the heavies (**Breaker / Reaver**). Fighters get `0` — they can't carry
+  a gate.
+- **Consumed on deploy; refilled at the carrier service bubble**, exactly like cannon/missile
+  ammo. To lay another forward gate you must **go home first** — this ties gate-laying into
+  the *existing* resupply loop instead of inventing a second economy. Nice tension: every gate
+  you field is a trip home you've spent.
+- **Deploy is its own edge-event intent** (`deployGatePressed` on `InputState`), separate from
+  the jump toggle. `AIController` emits the same intent for symmetry.
+- **Anchoring time:** deploying isn't instant — the gunship must **loiter a beat** (speed-gated,
+  reuse the service-bubble loiter idiom) while it "anchors the node." That deploy window is a
+  deliberate **vulnerability cost**, consistent with the feature's time-as-cost theme.
+- **Faction cap on simultaneous gates** (start `1`, maybe `2`). A hard cap keeps the map readable
+  and the radar uncluttered. Gates persist until **destroyed** or **match end**.
+
+### The gate as a battlefield entity
+
+- New sim entity **`JumpGate`** + manager **`JumpGateSystem`**, structured parallel to
+  `Missile` / `MissileSystem` (spawn / track / dispose; feeds the radar and the jump
+  destination list).
+- **It's a `DamageTarget`.** Add each gate to the **opposing** faction's `LaserSystem` /
+  `MissileSystem` target lists — enemies then shoot it down with **zero new collision code**,
+  exactly like a ship or mothership. On death: `gateDestroyed` event → explosion FX, radar blip
+  clears, it drops out of the owner's destination list.
+- **Keep-out / no service:** it does **not** carry a service bubble and does **not** heal/rearm.
+  Arrival at a gate is **into open space at zero velocity** (respawn-style snap; reuse the trail
+  reset / interpolation hard-snap rules from Phase 1), *not* into a safe bubble — you arrive
+  forward and exposed.
+
+### Destination selection (the one net-new control)
+
+The jump is now a chooser, and this is the single place the feature brushes the CLAUDE.md
+"no complex menu system" guardrail. **Chosen approach: cycle-during-spool.**
+
+- `J` **arms** a jump to the **nearest friendly node** (gate or carrier) as the default — so the
+  one-tap gesture still does the sensible thing with no extra input.
+- A **second key** (e.g. `K`, placed away from the movement/fire cluster) **cycles the destination**
+  among friendly nodes *while the 6s spool runs*. The radar **highlights the armed target**.
+- The spool window is otherwise dead time — filling it with a target decision is free UX budget.
+- **Fallbacks if cycle feels heavy in playtest:** (a) pure **auto-nearest** (no choice — simplest,
+  but wastes the tactic), or (b) radar-pick before arming (richest, closest to a "menu" — avoid
+  unless cycle fails). Prototype cycle first.
+
+### Detection / visibility (the twist, via `SensorSystem`)
+
+Visibility is **not binary** — the gate is faction-locked, so **you always see your own gate**
+(you placed it). The only variable is what the **enemy's** sensor picture shows, and that rides
+the existing `SensorSystem` gradient (range, eyeball `visualRange`, nebula, ghost decay):
+
+- **Cold / unused → invisible to enemy long-range radar.** A gate you drop deep and don't touch
+  stays secret — they can't fly over and farm it because they don't know it's there.
+- **Using it lights it up.** A jump **in or out** throws a **signature spike** at the gate's
+  location — the **same idiom** as Phase 1's "spooling overrides nebula stealth." Now the enemy
+  gets pings there and converges → the gate becomes a **defensible strongpoint** you must garrison.
+  Routing your fleet through a gate is the live tradeoff: *useful = exposed.*
+- **Close visual range still spots it.** An enemy within eyeball range stumbles onto it. So a gate
+  can be **found** — by being used or by someone flying up on it — but **never sniped from across
+  the map.**
+- This activates the "kill the enemy's forward gate" objective layer **only once the gate reveals
+  itself**, which feels earned rather than free.
+- **Watch item (playtest dial):** a purely cold gate the enemy never finds is un-counterable until
+  used. Probably fine (counterplay = make them use it, then punish the traffic). If it feels too
+  safe, the dial is a faint **passive** signature — detectable only at medium-close range, decaying
+  like a ghost — so a patrol can *sweep* for gates without a free long-range ping.
+
+### Sim / view split (must stay compliant)
+
+- **Sim (server-authoritative, deterministic, no scene imports):** the `JumpGate` entity + HP, the
+  deploy/anchor state machine, `gateAmmo` decrement/refill, the **faction cap**, the destination
+  resolution (nearest + cycle target), and the **signature-spike** that overrides stealth. AI
+  deploy/defend judgment uses the **harness's seeded RNG**, never `Math.random()`.
+- **View (client-only, via `SimEventBus`):** deploy flash / anchoring FX, the gate's idle hum,
+  destruction explosion, radar blip, and the destination-highlight UI — all off events
+  (`gateDeployed` / `gateDestroyed`, reuse `jumpFired` for the arrival crack), **never inline.**
+  These become Phase 2-networking FX messages.
+- **Protocol:** adding the gate entity + `gateAmmo` to the schema is a both-sides deploy — bump
+  `protocolVersion`. Gate arrival is a **position discontinuity** — same interpolation hard-snap
+  rule as a respawn/jump.
+
+### AI doctrine (additions)
+
+- **Deploy judgment:** a gunship with `gateAmmo > 0` deploys a forward gate when the fleet's
+  fighting **far from home** and it can find a **defensible-ish spot** (not under immediate fire) —
+  rolled against its per-ship caution trait so the fleet doesn't all deploy in unison.
+- **Defend judgment:** when an *owned* gate reveals (gets used / spotted) and an enemy presses it,
+  the `FleetCommander` can re-task escorts to **garrison** it — reuses the existing `defend` order
+  seam pointed at the gate instead of the carrier.
+- **Exploit judgment:** when an *enemy* gate is detected, the "finish the runner" / strike doctrine
+  extends to **"kill the exposed gate"** as a high-value target.
+
+### New files (anticipated)
+
+```
+src/game/
+  JumpGate.ts          single deployed node: position, HP (DamageTarget), owner faction,
+                       deploy/anchor state, signature state (cold/revealed)
+  JumpGateSystem.ts    per-faction gate pool: deploy + cap + track + dispose; feeds radar
+                       + the jump destination list; emits gateDeployed/gateDestroyed
+```
+(Plus a small view FX file if the deploy/anchor crack wants its own, mirroring
+`JumpFlash`/`JumpFlashSystem`.)
+
+### Build order (slices — each independently shippable)
+
+Same cross-cutting rules as Phase 1: `npm run typecheck` + the headless smoke harness after each
+slice; sim changes that shift the baseline get **recaptured and sanity-checked**, not blessed;
+all tunables in `GameConfig`; starter numbers are **owner-tuned later.**
+
+- **Slice 1 — `gateAmmo` + deploy mechanic (sim + HUD).** Add `gateAmmo` to `shipTypes`
+  (gunships only), the `deployGatePressed` edge intent, the loiter-gated anchor window, decrement
+  on deploy, refill at the carrier. HUD shows gate ammo. *Gate does nothing yet — just consumes.*
+- **Slice 2 — `JumpGate` entity + `JumpGateSystem` (sim).** Spawn a persistent placed node on
+  deploy; faction cap; it's a `DamageTarget` added to the opposing weapon systems; `gateDestroyed`
+  on death. Radar shows **your own** gates only.
+- **Slice 3 — gate as jump destination + selection control.** Extend the jump state machine to
+  resolve a destination; arm-to-nearest; the `K` cycle-during-spool with radar highlight; teleport
+  to the chosen gate at zero velocity (hard-snap).
+- **Slice 4 — state-driven enemy visibility (`SensorSystem`).** Cold = hidden from enemy radar;
+  use/proximity reveal via signature spike (overrides nebula); the optional faint passive dial.
+- **Slice 5 — deploy/destruction FX (via `SimEventBus`).** Deploy flash + anchor cue, idle hum,
+  destruction explosion, radar reveal blip — all off events.
+- **Slice 6 — AI doctrine.** Deploy / garrison-defend / kill-enemy-gate judgment, seeded RNG;
+  recapture baseline (fleets now field and contest gates — verify fights still resolve).
+
+### Open questions (Phase 2)
+
+- **Gate count / cap** — start at 1 per faction; does 2 stay readable?
+- **Cycle key** — `K`? Confirm it's clear of the movement/fire cluster on the chosen layout.
+- **Cold-gate safety** — ship without the passive signature and add it only if playtest shows a
+  cold gate is too un-counterable.
+- **Dedicated tender class** — still deferred; promote from gunship-capability only if the support
+  role earns its own hull.
+
 ## Considered but not adopted (or deferred)
 
 - **Passive ammo regen** — rejected (rewards spam).
@@ -385,5 +559,7 @@ one-shot the whole feature. Build on `feat/phase0-smoke-harness`; respect the
 
 ## Open questions
 
-- **None — design converged.** All Phase 1 decisions are settled; next step is
-  implementation (and, later, Phase 2 jump gates).
+- **None — design converged.** All Phase 1 decisions are settled and **built**; Phase 2
+  (deployable jump gates) is now **designed** with a sliced build order (see *Phase 2 —
+  deployable jump gates*). Remaining Phase 2 unknowns are tuning/playtest dials, tracked
+  in that section's *Open questions (Phase 2)*.
