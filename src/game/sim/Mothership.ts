@@ -2,6 +2,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 
 import { GameConfig } from "../GameConfig";
 import { MothershipSection } from "./MothershipSection";
+import { hullColliderBoxes } from "./Hulk";
 import type { DamageTarget } from "../types";
 import type { Faction } from "../Faction";
 import type { AvoidObstacle } from "../ShipController";
@@ -81,25 +82,33 @@ export class Mothership implements DamageTarget {
     this.position = new Vector3(worldPosition.x, worldPosition.y, worldPosition.z);
     this.rotationY = rotationY;
 
-    // Hull footprint rectangles (per-faction — the two carriers are different
-    // shapes), rotated into world space once: the carrier is static, so the
-    // sections are too. Rects are carrier-local (keel along z, bow = +z,
-    // symmetric in x); rotating the two opposite corners and taking min/max
-    // gives the world box — exact for the 0/π facings the carriers use.
+    // Hull footprint boxes (per-faction — the two carriers are different shapes;
+    // the shared OBB fit, or the hullRects fallback), rotated into world space
+    // once: the carrier is static, so the sections are too. The boxes are the
+    // SAME geometry the wreck collides with (hullColliderBoxes). The carrier
+    // lives on the flat plane, so only each box's X/Z FOOTPRINT matters here
+    // (cy/hy are the wreck's roll concern) — its four planar corners are rotated
+    // and min/maxed into a world AABB (exact for the 0/π facings carriers use).
     const sin = Math.sin(rotationY);
     const cos = Math.cos(rotationY);
-    this.hullSections = GameConfig.mothership.hullRects[faction].map((rect) => {
-      const ax = worldPosition.x + cos * -rect.halfWidth + sin * rect.z0;
-      const az = worldPosition.z - sin * -rect.halfWidth + cos * rect.z0;
-      const bx = worldPosition.x + cos * rect.halfWidth + sin * rect.z1;
-      const bz = worldPosition.z - sin * rect.halfWidth + cos * rect.z1;
-      return new MothershipSection(
-        this,
-        Math.min(ax, bx),
-        Math.max(ax, bx),
-        Math.min(az, bz),
-        Math.max(az, bz),
-      );
+    this.hullSections = hullColliderBoxes(faction).map((b) => {
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minZ = Infinity;
+      let maxZ = -Infinity;
+      for (const sx of [-1, 1] as const) {
+        for (const sz of [-1, 1] as const) {
+          const lx = b.cx + sx * b.hx;
+          const lz = b.cz + sz * b.hz;
+          const wx = worldPosition.x + cos * lx + sin * lz;
+          const wz = worldPosition.z - sin * lx + cos * lz;
+          if (wx < minX) minX = wx;
+          if (wx > maxX) maxX = wx;
+          if (wz < minZ) minZ = wz;
+          if (wz > maxZ) maxZ = wz;
+        }
+      }
+      return new MothershipSection(this, minX, maxX, minZ, maxZ);
     });
     this.avoidanceCircles = this.buildAvoidanceCircles();
   }

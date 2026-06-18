@@ -552,41 +552,6 @@ export const GameConfig = {
      */
     hullHalfHeight: 35,
     /**
-     * PER-FACTION oriented collision boxes (sim/HulkSection), in the same
-     * carrier-world frame as `mothership.hullRects` (scaled by the hulk's own
-     * `scale` at runtime). Each box is `{ cx, cy, cz, hx, hy, hz }` — centre +
-     * half-extents in hull-local X (beam) / Y (up) / Z (keel). Off-centre boxes
-     * (cx≠0) hug a CONCAVE hull that a single symmetric hullRect can't — e.g. one
-     * box per Aegis prong instead of a rectangle spanning the empty middle.
-     *
-     * These are BAKED FROM THE CARRIER MESH PARTS (scripts/measure-hulk-colliders
-     * — one tight box per major structure), the collider analogue of how
-     * hullRects are measured. An EMPTY list falls back to the hullRects-derived
-     * boxes (so an unfitted faction still collides). Visualize/tune with the
-     * green debug overlay (`debugColliders` / `window.__showHulkColliders`).
-     */
-    colliders: {
-      // Baked by scripts/measure-hulk-colliders.mjs (3 lateral lanes: the two
-      // prongs/sponsons + the spine). Re-run after re-exporting a wreck GLB.
-      humans: [
-        { cx: -31.3, cy: 0, cz: 15.9, hx: 19.6, hy: 12.2, hz: 110.2 },
-        { cx: 0, cy: 17.8, cz: 3.2, hx: 17, hy: 34.7, hz: 136.7 },
-        { cx: 31.3, cy: 0, cz: 15.9, hx: 19.6, hy: 12.2, hz: 110.2 },
-      ] as ReadonlyArray<{
-        cx: number; cy: number; cz: number; hx: number; hy: number; hz: number;
-      }>,
-      machines: [
-        { cx: -33.4, cy: 2.9, cz: -35.8, hx: 19.6, hy: 11.4, hz: 106.8 },
-        { cx: 0, cy: 3.3, cz: -0.7, hx: 40.3, hy: 20.3, hz: 146.9 },
-        { cx: 33.4, cy: 2.9, cz: -35.8, hx: 19.6, hy: 11.4, hz: 106.8 },
-      ] as ReadonlyArray<{
-        cx: number; cy: number; cz: number; hx: number; hy: number; hz: number;
-      }>,
-    } as Record<
-      Faction,
-      ReadonlyArray<{ cx: number; cy: number; cz: number; hx: number; hy: number; hz: number }>
-    >,
-    /**
      * DEBUG: draw the wreck's collision boxes (sim/HulkSection) as bright-green
      * wireframes so you can see the colliders and how they roll with the hull.
      * Off for normal play. Toggle live in the console with
@@ -852,6 +817,93 @@ export const GameConfig = {
     } as Record<
       import("./Faction").Faction,
       ReadonlyArray<{ z0: number; z1: number; halfWidth: number }>
+    >,
+
+    /**
+     * PER-FACTION oriented hull collision boxes — the carrier-world OBB fit that
+     * SUPERSEDES the centred `hullRects` rectangles above (kept as the fallback).
+     * Each box is `{ cx, cy, cz, hx, hy, hz }` (centre + half-extents in hull-
+     * local X beam / Y up / Z keel). Off-centre boxes (cx≠0) hug a hull the
+     * symmetric rects can't — e.g. one box per pod / neck / deck level instead
+     * of a single rectangle spanning the empty channels between them.
+     *
+     * SINGLE SOURCE OF TRUTH for BOTH the live carrier (MothershipSection, which
+     * uses each box's X/Z footprint — the carrier collides on the flat plane, so
+     * cy/hy are ignored there) AND its wreck (sim/HulkSection, the SAME geometry
+     * reskinned — it rolls, so it DOES use cy/hy to thin the cover edge-on). An
+     * EMPTY list falls back to the hullRects-derived boxes, so an unfitted
+     * faction still collides as before.
+     *
+     * AUTHORED VISUALLY from the carrier mesh parts (one box per structural
+     * element — hull, pods, necks, keel, decks, bridge, stern) via
+     * scripts/hulk_colliders.py in Blender; visualize/tune the wreck's copy with
+     * the green overlay (`hulk.debugColliders` / `window.__showHulkColliders`).
+     */
+    colliders: {
+      // Bastion: 18 structural boxes read from bastion_carrier.blend
+      // (hulk_colliders.py). Cosmetic detail (windows, lights, masts, turret
+      // barrels, engine disks) is intentionally excluded; launch bays are pod
+      // recesses already covered by the pod boxes.
+      humans: [
+        { cx: 0, cy: 0, cz: 12.7, hx: 17, hy: 11.7, hz: 127.2 },     // hull (central body)
+        { cx: 0, cy: -12.2, cz: 7.4, hx: 12.7, hy: 4.8, hz: 95.4 },  // keel
+        { cx: 0, cy: 13.2, cz: 2.1, hx: 5.3, hy: 2.6, hz: 106 },     // dorsal spine
+        { cx: 0, cy: 19.1, cz: 5.8, hx: 11.7, hy: 5.3, hz: 67.3 },   // deck (low)
+        { cx: 0, cy: 27, cz: 2.1, hx: 7.4, hy: 4.2, hz: 37.1 },      // deck (upper)
+        { cx: -38.2, cy: 0, cz: 12.7, hx: 12.7, hy: 7.4, hz: 106 },  // port pod
+        { cx: 38.2, cy: 0, cz: 12.7, hx: 12.7, hy: 7.4, hz: 106 },   // stbd pod
+        { cx: -38.2, cy: -9.5, cz: 7.4, hx: 8.5, hy: 2.6, hz: 74.2 },// port pod keel
+        { cx: 38.2, cy: -9.5, cz: 7.4, hx: 8.5, hy: 2.6, hz: 74.2 }, // stbd pod keel
+        { cx: -38.2, cy: 9.5, cz: -9.5, hx: 7.4, hy: 2.6, hz: 75.3 },// port pod ridge
+        { cx: 38.2, cy: 9.5, cz: -9.5, hx: 7.4, hy: 2.6, hz: 75.3 }, // stbd pod ridge
+        { cx: -22.3, cy: 0, cz: 12.7, hx: 10.6, hy: 3.7, hz: 80.6 }, // port neck (wing)
+        { cx: 22.3, cy: 0, cz: 12.7, hx: 10.6, hy: 3.7, hz: 80.6 },  // stbd neck (wing)
+        { cx: 0, cy: 0, cz: -118.7, hx: 15.9, hy: 13.8, hz: 13.8 },  // stern block
+        { cx: 0, cy: 0, cz: -124, hx: 14.8, hy: 11.7, hz: 6.9 },     // engine mount
+        { cx: 0, cy: 20.7, cz: 91.2, hx: 12.7, hy: 7.4, hz: 15.9 },  // bridge base
+        { cx: 0, cy: 30.2, cz: 93.3, hx: 9, hy: 5.8, hz: 11.7 },     // bridge mid
+        { cx: 0, cy: 37.6, cz: 91.2, hx: 5.3, hy: 2.1, hz: 7.9 },    // bridge cap
+      ],
+      // Choirship: 31 structural boxes read from choirship.blend (hulk_colliders
+      // .py). Cosmetic detail (spine/cheek cells, lamps, run lights, viewports,
+      // engine disks, thin trim) excluded; the side launch-bay housings are each
+      // merged from their floor/roof/walls/back into one solid box.
+      machines: [
+        { cx: 0, cy: 0, cz: -5.3, hx: 25.4, hy: 11.1, hz: 68.9 },      // hull (central body)
+        { cx: 0, cy: -12.7, cz: -10.6, hx: 14.8, hy: 4.2, hz: 58.3 },  // keel
+        { cx: 0, cy: 11.1, cz: -10.6, hx: 10.6, hy: 1.9, hz: 55.6 },   // dorsal spine frame
+        { cx: 0, cy: 0, cz: -90.1, hx: 40.3, hy: 10.1, hz: 31.8 },     // stern main block
+        { cx: 0, cy: 10.6, cz: -95.4, hx: 23.3, hy: 2.4, hz: 26.5 },   // stern deck
+        { cx: 0, cy: 0, cz: -129.3, hx: 40.3, hy: 9, hz: 9.5 },        // stern cap
+        { cx: -32.3, cy: 0, cz: -128.3, hx: 15.4, hy: 7.9, hz: 14.3 }, // stern corner port
+        { cx: 32.3, cy: 0, cz: -128.3, hx: 15.4, hy: 7.9, hz: 14.3 },  // stern corner stbd
+        { cx: 0, cy: 0, cz: -139.9, hx: 24.4, hy: 6.9, hz: 4.8 },      // stern engine block
+        { cx: 0, cy: 15.4, cz: -98.6, hx: 10.6, hy: 3.7, hz: 13.8 },   // aft module base
+        { cx: 0, cy: 20.7, cz: -95.4, hx: 5.3, hy: 2.9, hz: 8.5 },     // aft module head
+        { cx: -41.3, cy: 0, cz: -37.1, hx: 11.7, hy: 7.9, hz: 37.1 },  // port sponson
+        { cx: 41.3, cy: 0, cz: -37.1, hx: 11.7, hy: 7.9, hz: 37.1 },   // stbd sponson
+        { cx: -42.4, cy: 9, cz: -47.7, hx: 9, hy: 2.4, hz: 17 },       // port sponson step
+        { cx: 42.4, cy: 9, cz: -47.7, hx: 9, hy: 2.4, hz: 17 },        // stbd sponson step
+        { cx: -43.4, cy: 9.5, cz: -19.1, hx: 7.9, hy: 2.1, hz: 10.6 }, // port sponson step2
+        { cx: 43.4, cy: 9.5, cz: -19.1, hx: 7.9, hy: 2.1, hz: 10.6 },  // stbd sponson step2
+        { cx: -24.9, cy: 6.4, cz: -26.5, hx: 6.9, hy: 6.9, hz: 39.8 }, // port nacelle
+        { cx: 24.9, cy: 6.4, cz: -26.5, hx: 6.9, hy: 6.9, hz: 39.8 },  // stbd nacelle
+        { cx: -24.9, cy: 6.4, cz: 20.7, hx: 6.9, hy: 6.9, hz: 7.4 },   // port nacelle nose
+        { cx: 24.9, cy: 6.4, cz: 20.7, hx: 6.9, hy: 6.9, hz: 7.4 },    // stbd nacelle nose
+        { cx: 0, cy: 0, cz: 59.4, hx: 24.4, hy: 11.7, hz: 17 },        // bridge base
+        { cx: -20.7, cy: 9.5, cz: 57.2, hx: 6.9, hy: 4.8, hz: 13.8 },  // port cheek
+        { cx: 20.7, cy: 9.5, cz: 57.2, hx: 6.9, hy: 4.8, hz: 13.8 },   // stbd cheek
+        { cx: 0, cy: 14.3, cz: 60.4, hx: 8.5, hy: 4.2, hz: 11.7 },     // head base
+        { cx: 0, cy: 20.7, cz: 63.6, hx: 5.8, hy: 2.9, hz: 7.4 },      // head cap
+        { cx: 0, cy: 0, cz: 94.3, hx: 18, hy: 10.1, hz: 22.3 },        // prow body
+        { cx: 0, cy: 10.1, cz: 94.3, hx: 10.6, hy: 2.7, hz: 20.1 },    // prow plate
+        { cx: 0, cy: 0, cz: 129.8, hx: 11.7, hy: 7.9, hz: 16.4 },      // prow tip
+        { cx: -41.3, cy: 0, cz: 24.9, hx: 11.7, hy: 8.4, hz: 26 },     // port launch bay (housing)
+        { cx: 41.3, cy: 0, cz: 24.9, hx: 11.7, hy: 8.4, hz: 26 },      // stbd launch bay (housing)
+      ],
+    } as Record<
+      import("./Faction").Faction,
+      ReadonlyArray<{ cx: number; cy: number; cz: number; hx: number; hy: number; hz: number }>
     >,
 
     // --- Death spectacle (played once when a mothership is destroyed). ---

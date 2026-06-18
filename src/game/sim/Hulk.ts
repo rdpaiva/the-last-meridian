@@ -23,14 +23,16 @@ export interface HulkBox {
 }
 
 /**
- * The wreck's UNSCALED collision boxes for a faction — single source of truth
- * for BOTH the sim (Hulk builds HulkSections) and the debug overlay (HulkView
- * draws matching wireframes). Prefers the mesh-fitted `GameConfig.hulk.colliders`
- * list; falls back to one box per `mothership.hullRects` rectangle (centred,
- * full-beam — looser, but every faction still collides without an explicit fit).
+ * A faction's UNSCALED hull collision boxes — the SHARED source of truth for the
+ * live carrier (Mothership builds MothershipSections), its wreck (Hulk builds
+ * HulkSections), and the debug overlay (HulkView draws matching wireframes). The
+ * carrier and its wreck are the same geometry, so they collide off one fit.
+ * Prefers the authored `GameConfig.mothership.colliders` OBB list; falls back to
+ * one box per `mothership.hullRects` rectangle (centred, full-beam — looser, but
+ * every faction still collides without an explicit fit).
  */
-export function hulkColliderBoxes(source: HulkHazard["source"]): HulkBox[] {
-  const fitted = GameConfig.hulk.colliders[source];
+export function hullColliderBoxes(source: HulkHazard["source"]): HulkBox[] {
+  const fitted = GameConfig.mothership.colliders[source];
   if (fitted && fitted.length > 0) return fitted.map((b) => ({ ...b }));
   const hy = GameConfig.hulk.hullHalfHeight;
   return GameConfig.mothership.hullRects[source].map((r) => ({
@@ -50,8 +52,8 @@ export function hulkColliderBoxes(source: HulkHazard["source"]): HulkBox[] {
  * line-of-sight and keeps ships out.
  *
  * Collision is a stack of ORIENTED HULL BOXES (HulkSection) built from the
- * source carrier's `GameConfig.mothership.hullRects` — the same rectangles that
- * fit the live carriers far better than circles. Unlike the static carrier
+ * source carrier's `GameConfig.mothership.colliders` — the SAME boxes the live
+ * carrier collides with (shared geometry). Unlike the static carrier
  * sections, a wreck rotates on all three axes (yaw + pitch + roll), so each tick
  * `recompute` rebuilds the world basis (ex/ey/ez = the world directions of the
  * hull-local X/Y/Z axes) and the sections read it to track the full orientation.
@@ -100,7 +102,7 @@ export class Hulk {
     // hulk's own scale. hy makes the box thin to a slab when rolled edge-on
     // rather than staying a full-width wall.
     const s = this.scale;
-    this.sections = hulkColliderBoxes(this.source).map(
+    this.sections = hullColliderBoxes(this.source).map(
       (b) =>
         new HulkSection(this, b.hx * s, b.hy * s, b.hz * s, b.cx * s, b.cy * s, b.cz * s),
     );

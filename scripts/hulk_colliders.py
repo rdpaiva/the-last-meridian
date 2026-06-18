@@ -10,7 +10,7 @@ Workflow:
     import sys; sys.path.append("/abs/.../space-duel/scripts")
     import importlib, hulk_colliders as hc; importlib.reload(hc)
 
-    # 1. seed editable boxes from the current GameConfig.hulk.colliders fit:
+    # 1. seed editable boxes from the current GameConfig.mothership.colliders fit:
     hc.spawn(hc.HUMANS)          # (or hc.MACHINES; or your own [{cx,cy,cz,hx,hy,hz},...])
     # 2. in the viewport: grab (G) / scale (S) the `collider.*` boxes to hug the
     #    hull. KEEP THEM AXIS-ALIGNED (don't rotate — sections are axis-aligned
@@ -32,17 +32,62 @@ import mathutils
 SCALE = 10.6
 PREFIX = "collider."
 
-# The current baked fit (keep in sync with GameConfig.hulk.colliders) so `spawn`
-# starts you from it instead of a blank hull.
+# The current fit (keep in sync with GameConfig.mothership.colliders) so `spawn`
+# starts you from it instead of a blank hull. HUMANS = the 18 per-part Bastion
+# boxes; MACHINES = the 31 per-part Choirship boxes (side launch-bay housings
+# merged into one box per side). Each is one box per structural element.
 HUMANS = [
-    {"cx": -31.3, "cy": 0, "cz": 15.9, "hx": 19.6, "hy": 12.2, "hz": 110.2},
-    {"cx": 0, "cy": 17.8, "cz": 3.2, "hx": 17, "hy": 34.7, "hz": 136.7},
-    {"cx": 31.3, "cy": 0, "cz": 15.9, "hx": 19.6, "hy": 12.2, "hz": 110.2},
+    {"cx": 0, "cy": 0, "cz": 12.7, "hx": 17, "hy": 11.7, "hz": 127.2},      # hull
+    {"cx": 0, "cy": -12.2, "cz": 7.4, "hx": 12.7, "hy": 4.8, "hz": 95.4},   # keel
+    {"cx": 0, "cy": 13.2, "cz": 2.1, "hx": 5.3, "hy": 2.6, "hz": 106},      # spine
+    {"cx": 0, "cy": 19.1, "cz": 5.8, "hx": 11.7, "hy": 5.3, "hz": 67.3},    # deck low
+    {"cx": 0, "cy": 27, "cz": 2.1, "hx": 7.4, "hy": 4.2, "hz": 37.1},       # deck up
+    {"cx": -38.2, "cy": 0, "cz": 12.7, "hx": 12.7, "hy": 7.4, "hz": 106},   # port pod
+    {"cx": 38.2, "cy": 0, "cz": 12.7, "hx": 12.7, "hy": 7.4, "hz": 106},    # stbd pod
+    {"cx": -38.2, "cy": -9.5, "cz": 7.4, "hx": 8.5, "hy": 2.6, "hz": 74.2}, # port pod keel
+    {"cx": 38.2, "cy": -9.5, "cz": 7.4, "hx": 8.5, "hy": 2.6, "hz": 74.2},  # stbd pod keel
+    {"cx": -38.2, "cy": 9.5, "cz": -9.5, "hx": 7.4, "hy": 2.6, "hz": 75.3}, # port pod ridge
+    {"cx": 38.2, "cy": 9.5, "cz": -9.5, "hx": 7.4, "hy": 2.6, "hz": 75.3},  # stbd pod ridge
+    {"cx": -22.3, "cy": 0, "cz": 12.7, "hx": 10.6, "hy": 3.7, "hz": 80.6},  # port neck
+    {"cx": 22.3, "cy": 0, "cz": 12.7, "hx": 10.6, "hy": 3.7, "hz": 80.6},   # stbd neck
+    {"cx": 0, "cy": 0, "cz": -118.7, "hx": 15.9, "hy": 13.8, "hz": 13.8},   # stern
+    {"cx": 0, "cy": 0, "cz": -124, "hx": 14.8, "hy": 11.7, "hz": 6.9},      # engine mount
+    {"cx": 0, "cy": 20.7, "cz": 91.2, "hx": 12.7, "hy": 7.4, "hz": 15.9},   # bridge base
+    {"cx": 0, "cy": 30.2, "cz": 93.3, "hx": 9, "hy": 5.8, "hz": 11.7},      # bridge mid
+    {"cx": 0, "cy": 37.6, "cz": 91.2, "hx": 5.3, "hy": 2.1, "hz": 7.9},     # bridge cap
 ]
 MACHINES = [
-    {"cx": -33.4, "cy": 2.9, "cz": -35.8, "hx": 19.6, "hy": 11.4, "hz": 106.8},
-    {"cx": 0, "cy": 3.3, "cz": -0.7, "hx": 40.3, "hy": 20.3, "hz": 146.9},
-    {"cx": 33.4, "cy": 2.9, "cz": -35.8, "hx": 19.6, "hy": 11.4, "hz": 106.8},
+    {"cx": 0, "cy": 0, "cz": -5.3, "hx": 25.4, "hy": 11.1, "hz": 68.9},      # hull
+    {"cx": 0, "cy": -12.7, "cz": -10.6, "hx": 14.8, "hy": 4.2, "hz": 58.3},  # keel
+    {"cx": 0, "cy": 11.1, "cz": -10.6, "hx": 10.6, "hy": 1.9, "hz": 55.6},   # spine frame
+    {"cx": 0, "cy": 0, "cz": -90.1, "hx": 40.3, "hy": 10.1, "hz": 31.8},     # stern main
+    {"cx": 0, "cy": 10.6, "cz": -95.4, "hx": 23.3, "hy": 2.4, "hz": 26.5},   # stern deck
+    {"cx": 0, "cy": 0, "cz": -129.3, "hx": 40.3, "hy": 9, "hz": 9.5},        # stern cap
+    {"cx": -32.3, "cy": 0, "cz": -128.3, "hx": 15.4, "hy": 7.9, "hz": 14.3}, # stern corner port
+    {"cx": 32.3, "cy": 0, "cz": -128.3, "hx": 15.4, "hy": 7.9, "hz": 14.3},  # stern corner stbd
+    {"cx": 0, "cy": 0, "cz": -139.9, "hx": 24.4, "hy": 6.9, "hz": 4.8},      # stern engine block
+    {"cx": 0, "cy": 15.4, "cz": -98.6, "hx": 10.6, "hy": 3.7, "hz": 13.8},   # aft module base
+    {"cx": 0, "cy": 20.7, "cz": -95.4, "hx": 5.3, "hy": 2.9, "hz": 8.5},     # aft module head
+    {"cx": -41.3, "cy": 0, "cz": -37.1, "hx": 11.7, "hy": 7.9, "hz": 37.1},  # port sponson
+    {"cx": 41.3, "cy": 0, "cz": -37.1, "hx": 11.7, "hy": 7.9, "hz": 37.1},   # stbd sponson
+    {"cx": -42.4, "cy": 9, "cz": -47.7, "hx": 9, "hy": 2.4, "hz": 17},       # port sponson step
+    {"cx": 42.4, "cy": 9, "cz": -47.7, "hx": 9, "hy": 2.4, "hz": 17},        # stbd sponson step
+    {"cx": -43.4, "cy": 9.5, "cz": -19.1, "hx": 7.9, "hy": 2.1, "hz": 10.6}, # port sponson step2
+    {"cx": 43.4, "cy": 9.5, "cz": -19.1, "hx": 7.9, "hy": 2.1, "hz": 10.6},  # stbd sponson step2
+    {"cx": -24.9, "cy": 6.4, "cz": -26.5, "hx": 6.9, "hy": 6.9, "hz": 39.8}, # port nacelle
+    {"cx": 24.9, "cy": 6.4, "cz": -26.5, "hx": 6.9, "hy": 6.9, "hz": 39.8},  # stbd nacelle
+    {"cx": -24.9, "cy": 6.4, "cz": 20.7, "hx": 6.9, "hy": 6.9, "hz": 7.4},   # port nacelle nose
+    {"cx": 24.9, "cy": 6.4, "cz": 20.7, "hx": 6.9, "hy": 6.9, "hz": 7.4},    # stbd nacelle nose
+    {"cx": 0, "cy": 0, "cz": 59.4, "hx": 24.4, "hy": 11.7, "hz": 17},        # bridge base
+    {"cx": -20.7, "cy": 9.5, "cz": 57.2, "hx": 6.9, "hy": 4.8, "hz": 13.8},  # port cheek
+    {"cx": 20.7, "cy": 9.5, "cz": 57.2, "hx": 6.9, "hy": 4.8, "hz": 13.8},   # stbd cheek
+    {"cx": 0, "cy": 14.3, "cz": 60.4, "hx": 8.5, "hy": 4.2, "hz": 11.7},     # head base
+    {"cx": 0, "cy": 20.7, "cz": 63.6, "hx": 5.8, "hy": 2.9, "hz": 7.4},      # head cap
+    {"cx": 0, "cy": 0, "cz": 94.3, "hx": 18, "hy": 10.1, "hz": 22.3},        # prow body
+    {"cx": 0, "cy": 10.1, "cz": 94.3, "hx": 10.6, "hy": 2.7, "hz": 20.1},    # prow plate
+    {"cx": 0, "cy": 0, "cz": 129.8, "hx": 11.7, "hy": 7.9, "hz": 16.4},      # prow tip
+    {"cx": -41.3, "cy": 0, "cz": 24.9, "hx": 11.7, "hy": 8.4, "hz": 26},     # port launch bay
+    {"cx": 41.3, "cy": 0, "cz": 24.9, "hx": 11.7, "hy": 8.4, "hz": 26},      # stbd launch bay
 ]
 
 
@@ -123,5 +168,5 @@ def read():
         f"hx: {b['hx']}, hy: {b['hy']}, hz: {b['hz']} }},"
         for b in out
     )
-    print(f"\n--- paste into GameConfig.hulk.colliders[faction] ---\n{lines}\n")
+    print(f"\n--- paste into GameConfig.mothership.colliders[faction] ---\n{lines}\n")
     return out

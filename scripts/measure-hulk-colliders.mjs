@@ -1,13 +1,18 @@
-// Bakes the wreck colliders for GameConfig.hulk.colliders from the wreck GLBs —
-// the collider analogue of measure-carrier-footprint.mjs. A single symmetric
-// hullRect can't capture a concave hull (the Aegis trident's prongs have a big
-// empty gap between them), so we cluster the model's PARTS into lateral lanes
-// (k-means on each part's X centre — finds the two prongs/sponsons vs. the
-// spine) and emit one tight oriented box per lane.
+// DEPRECATED (2026-06-18). Superseded by the per-part VISUAL fit authored with
+// scripts/hulk_colliders.py in Blender, which now writes the unified
+// GameConfig.mothership.colliders (shared by the live carrier AND its wreck).
+// This headless k-means baker only ever produced a coarse 3-lane split; kept as
+// a from-GLB starting point if Blender is unavailable. Paste its output into
+// GameConfig.mothership.colliders (NOT the removed hulk.colliders) if you use it.
+//
+// Bakes wreck colliders from the wreck GLBs — the collider analogue of
+// measure-carrier-footprint.mjs. A single symmetric hullRect can't capture a
+// concave hull (the Aegis trident's prongs have a big empty gap between them),
+// so we cluster the model's PARTS into lateral lanes (k-means on each part's X
+// centre — finds the two prongs/sponsons vs. the spine) and emit one box per lane.
 //
 // Run from the repo root:  node scripts/measure-hulk-colliders.mjs
-// Then paste the printed arrays into GameConfig.hulk.colliders. Visualize/tune
-// with the green debug overlay (window.__showHulkColliders(true)).
+// Visualize/tune with the green debug overlay (window.__showHulkColliders(true)).
 //
 // Output frame matches hullRects: the GLB is parked with the model correction
 // (rotY=π, scale 10.6), so world coords are the game's collision frame; the
@@ -109,7 +114,7 @@ const fmt = (boxes) =>
   boxes
     .map((b) => `        { cx: ${b.cx}, cy: ${b.cy}, cz: ${b.cz}, hx: ${b.hx}, hy: ${b.hy}, hz: ${b.hz} },`)
     .join("\n");
-console.log("\n--- paste into GameConfig.hulk.colliders ---\n");
+console.log("\n--- paste into GameConfig.mothership.colliders ---\n");
 console.log(`      humans: [\n${fmt(out.humans)}\n      ],`);
 console.log(`      machines: [\n${fmt(out.machines)}\n      ],`);
 

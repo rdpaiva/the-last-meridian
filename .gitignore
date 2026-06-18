@@ -18,3 +18,6 @@ npm-debug.log*
 
 # Blender auto-backups (the .blend sources in art/ ARE tracked)
 *.blend1
+
+# Python bytecode cache (from scripts/ helpers run via Blender MCP)
+__pycache__/

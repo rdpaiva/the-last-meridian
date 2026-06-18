@@ -13,7 +13,7 @@ import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
 import "@babylonjs/loaders/glTF";
 
 import { GameConfig } from "../GameConfig";
-import { hulkColliderBoxes, type Hulk } from "../sim/Hulk";
+import { hullColliderBoxes, type Hulk } from "../sim/Hulk";
 
 /**
  * Hulk VIEW — the depiction of a derelict wreck (sim half: `Hulk`). A dark,
@@ -164,7 +164,7 @@ export class HulkView {
       mat.disableLighting = true;
       mat.wireframe = true;
       // Same UNSCALED boxes the sim collides with (root applies the wreck scale).
-      const boxes = hulkColliderBoxes(this.source);
+      const boxes = hullColliderBoxes(this.source);
       for (let i = 0; i < boxes.length; i++) {
         const b = boxes[i];
         const box = MeshBuilder.CreateBox(

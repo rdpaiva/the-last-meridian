@@ -289,14 +289,15 @@ read. The integration points already exist:
      is indestructible (`takeDamage` no-op) and slowly rotates on all three axes
      (`rotationRate` yaw / `pitchRate` / `rollRate`). Collision is a stack of
      ORIENTED HULL BOXES (`sim/HulkSection.ts`). They come from
-     `GameConfig.hulk.colliders` (per faction) — a list of off-centre OBBs
-     `{cx,cy,cz,hx,hy,hz}` BAKED FROM THE WRECK MESH PARTS by
-     `scripts/measure-hulk-colliders.mjs` (k-means clusters the parts into
-     lateral lanes → one tight box per prong/sponson + the spine, so a CONCAVE
-     hull like the Aegis trident is captured, not a solid rectangle spanning the
-     gap). An empty list falls back to one box per `mothership.hullRects` rect
-     (centred/full-beam — looser but always present). `hulkColliderBoxes(source)`
-     is the shared source of truth for the sim and the debug overlay. Each tick `recompute` rebuilds the world basis
+     `GameConfig.mothership.colliders` (per faction) — a list of off-centre OBBs
+     `{cx,cy,cz,hx,hy,hz}`, the SAME boxes the LIVE carrier collides with (the
+     wreck is the carrier geometry reskinned, so one fit serves both). Authored
+     visually from the carrier mesh parts (one box per structural element — hull,
+     pods, necks, keel, decks, bridge, stern) via `scripts/hulk_colliders.py` in
+     Blender. An empty list falls back to one box per `mothership.hullRects` rect
+     (centred/full-beam — looser but always present). `hullColliderBoxes(source)`
+     is the shared source of truth for the live carrier (Mothership), the wreck
+     sim, and the debug overlay. Each tick `recompute` rebuilds the world basis
      (ex/ey/ez from yaw·pitch·roll, matching HulkView's mesh root) and refreshes
      the boxes, so the collider tracks the full orientation; because play is on
      the y=0 plane, each box's `surfaceRadiusToward` THINS as the hull rolls
@@ -391,45 +392,60 @@ Slices 1–4 are the map system proper. Slice 5 is *content* that rides the fram
 
 ---
 
-## Session handoff — hulk collider refinement (next session, 2026-06-18)
+## Session handoff — hull collider unification (updated 2026-06-18)
 
-**Status:** slice 5 is functionally COMPLETE on `feat/phase0-smoke-harness`
-(NOT yet merged to `main`). Done this session: both wreck GLBs (carrier geometry
-reskinned with the destroyed renders, deck + belly), the yaw/pitch/**roll** spin
-(The Wreck rolls top→belly while lying nose-sideways across the lane), and the
-collider rework — circles → **oriented hull boxes** (`sim/HulkSection.ts`) that
-track the full rotation, thin as the hull rolls edge-on, and are baked from the
-mesh into `GameConfig.hulk.colliders`. A green debug overlay exists
-(`window.__showHulkColliders(true)`). Typecheck + the Phase 0 smoke test are
-green; stock has no hulks so the baseline stays byte-identical.
+**Status:** slice 5 functionally COMPLETE on `feat/phase0-smoke-harness` (NOT yet
+merged to `main`). Done: both wreck GLBs, the yaw/pitch/**roll** spin, and the
+collider rework — circles → **oriented hull boxes** (`sim/HulkSection.ts`).
 
-**What's left = COLLIDER FIT TUNING (the only open item).** The auto-baked fit
-is a coarse 3-lane split (two prongs/sponsons + spine); it still has some dead
-space and over-covers the trident channels. Refine the boxes per faction.
+**UNIFIED on OBB boxes (this session).** The live carrier and its wreck now share
+ONE collider list, `GameConfig.mothership.colliders[faction]` (the wreck is the
+carrier geometry reskinned). `hullColliderBoxes(source)` is the single source of
+truth feeding the live carrier (`MothershipSection`, X/Z footprint only — flat
+plane), the wreck sim (`HulkSection`, full OBB — it rolls), and the green debug
+overlay (`window.__showHulkColliders(true)`). An empty list falls back to the
+`hullRects`-derived boxes. The old `hulk.colliders` field and the k-means
+auto-baker are RETIRED in favour of the per-part visual fit below.
 
-**Two authoring routes (both emit `GameConfig.hulk.colliders[faction]`):**
-1. **Auto from mesh** — `node scripts/measure-hulk-colliders.mjs`. Bump `LANES`
-   (top of file) for more/tighter boxes; paste the printed arrays.
-2. **Visual in Blender** — `scripts/hulk_colliders.py` (run via MCP/console with
-   the CARRIER `.blend` open — bow-+Y frame, NOT a re-imported GLB):
-   `hc.spawn(hc.HUMANS)` seeds the current boxes as green wireframes over the
-   hull → grab/scale them (KEEP AXIS-ALIGNED) → `hc.read()` prints the snippet.
-   NOTE the open carrier may carry the burned wreck materials from the GLB build
-   — reload the clean `.blend` first, then spawn; never save over it.
+**HUMANS (Bastion) — DONE.** 18 structural boxes (hull, both pods + pod
+keels/ridges, neck wings, keel, dorsal spine, low/upper decks, stern, engine
+mount, bridge base/mid/cap) read directly from `bastion_carrier.blend` parts.
+Cosmetic detail (windows, lights, masts, turret barrels, engine disks) excluded;
+launch bays are pod recesses already covered by the pod boxes. The live humans
+carrier collision changed, so the smoke baseline was RE-CAPTURED (`npm run
+baseline`) — intended, not a regression. Typecheck + smoke green.
 
-**Verify** each pass in-game with `window.__showHulkColliders(true)` (or
-`GameConfig.hulk.debugColliders`). The wireframes share `hulkColliderBoxes()`
-with the sim, so what you see is exactly what collides.
+**MACHINES (Choirship) — DONE.** 31 structural boxes (hull, keel, dorsal spine,
+stern main/deck/cap + corners + engine block, aft module, both sponsons + steps,
+both nacelles + noses, bridge base + cheeks + head base/cap, prow body/plate/tip)
+read directly from `choirship.blend` parts. Cosmetic detail (spine/cheek cells,
+lamps, run lights, viewports, engine disks, thin trim) excluded; the side
+launch-bay housings are each merged from floor/roof/walls/back into one solid box.
+The live machines carrier collision changed, so the smoke baseline was RE-CAPTURED
+again — intended. Typecheck + smoke green.
+
+**Both factions now fitted → ready to merge `feat/phase0-smoke-harness` → `main`.**
+To RE-AUTHOR either later: open the carrier `.blend` (clean — bow +Y, NOT a
+re-imported GLB), I run `hc.spawn(hc.HUMANS|hc.MACHINES)` (or regenerate per-part
+from the mesh) → you grab (`G`)/scale (`S`) boxes to taste, KEEP AXIS-ALIGNED →
+`hc.read()` → paste into `mothership.colliders[faction]`. NEVER save the `.blend`;
+the colliders are throwaway viewport objects.
+
+**Visibility tip (Blender):** `WIRE`-display objects ignore the material colour —
+set Solid shading + `space.shading.wireframe_color_type='OBJECT'` and each box's
+`o.color` green, else the boxes draw dark and look "missing." (The in-band MCP
+screenshot tool errors on this box; render the VIEWPORT via
+`bpy.ops.render.opengl(write_still=True, view_context=True)` to a file and read
+that instead — a camera render won't show wireframes.)
 
 **Frames / knobs:**
 - Collider OBBs are in the carrier-world (`hullRects`) frame; runtime applies the
   hulk's own `scale`. Blender↔game = ×10.6 with gameZ=BlenderY (keel), gameY=
-  BlenderZ (up), gameX=BlenderX (beam) — handled by both scripts.
-- `HulkSection` boxes are AXIS-ALIGNED to the hull (no per-box yaw yet). If a
-  future hull needs angled boxes (swept wings), add a local-yaw field to
-  HulkSection + the bake.
-- `GameConfig.hulk.hullHalfHeight` only feeds the hullRects FALLBACK now; the
-  fitted lists carry their own per-box `hy`.
+  BlenderZ (up), gameX=BlenderX (beam) — handled by `hulk_colliders.py`.
+- `HulkSection` boxes are AXIS-ALIGNED to the hull (no per-box yaw yet). A swept
+  hull would need a local-yaw field on HulkSection + the authoring.
+- `GameConfig.hulk.hullHalfHeight` only feeds the hullRects FALLBACK now; fitted
+  lists carry their own per-box `hy`.
 - The roll spin is `Maps.theWreck` `rollRate` (+ `rotationY: π/2` sideways).
 
-**When the fit is good:** merge `feat/phase0-smoke-harness` → `main`.
+**When machines is fitted:** merge `feat/phase0-smoke-harness` → `main`.
