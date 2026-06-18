@@ -111,6 +111,71 @@ function mapCardInfo(id: MapId): { name: string; blurb: string } {
   return { name: m.name, blurb: m.blurb };
 }
 
+/** Half-extent (world units) the thumbnail maps onto its 100×100 viewBox —
+ *  big enough to frame the most-separated carriers (The Void's ±850). */
+const THUMB_WORLD_HALF = 900;
+
+/**
+ * A top-down tactical schematic of a map, drawn straight from its MapConfig:
+ * the two carriers, asteroid regions (or a scatter speckle for an unregioned
+ * field), and nebula blobs — all in their real relative positions, so the card
+ * actually previews the battlefield with no art assets. +Z (the machine
+ * carrier) is up, matching the in-game north-up radar. Random gets a "?".
+ */
+function mapThumbnailSvg(id: MapId): string {
+  const back = `<rect x="2" y="2" width="96" height="96" rx="4" fill="#0a0c15" stroke="rgba(120,140,200,0.3)" stroke-width="1"/>`;
+  const wrap = (inner: string): string =>
+    `<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">${back}${inner}</svg>`;
+
+  if (id === "random") {
+    return wrap(
+      `<text x="50" y="50" dy="0.35em" text-anchor="middle" font-size="46" font-weight="700" fill="rgba(180,190,254,0.85)" font-family="ui-sans-serif, system-ui, sans-serif">?</text>`,
+    );
+  }
+
+  const m = MAPS[id];
+  const ax = GameConfig.arena.halfWidth;
+  const az = GameConfig.arena.halfDepth;
+  const sx = (x: number): string => (50 + (x / THUMB_WORLD_HALF) * 48).toFixed(1);
+  const sy = (z: number): string => (50 - (z / THUMB_WORLD_HALF) * 48).toFixed(1);
+  const sr = (r: number): string => ((r / THUMB_WORLD_HALF) * 48).toFixed(1);
+
+  const parts: string[] = [];
+  // Nebula stealth blobs (drawn under the rocks).
+  for (const z of m.nebulaZones) {
+    parts.push(
+      `<circle cx="${sx(z.xFrac * ax)}" cy="${sy(z.zFrac * az)}" r="${sr(z.radius)}" fill="rgba(150,90,210,0.32)"/>`,
+    );
+  }
+  // Asteroids: real region circles, or a deterministic spiral speckle standing
+  // in for a full-arena scatter field (no regions but count > 0).
+  const regions = m.asteroids.regions;
+  if (regions && regions.length > 0) {
+    for (const rg of regions) {
+      parts.push(
+        `<circle cx="${sx(rg.x)}" cy="${sy(rg.z)}" r="${sr(rg.radius)}" fill="rgba(150,150,165,0.28)"/>`,
+      );
+    }
+  } else if (m.asteroids.count > 0) {
+    const n = Math.min(18, m.asteroids.count);
+    for (let i = 0; i < n; i++) {
+      const ang = i * 2.4; // golden-angle spiral → even fill
+      const rad = Math.sqrt((i + 0.5) / n) * 520;
+      parts.push(
+        `<circle cx="${sx(Math.cos(ang) * rad)}" cy="${sy(Math.sin(ang) * rad)}" r="1.6" fill="rgba(150,150,165,0.5)"/>`,
+      );
+    }
+  }
+  // Carriers — neutral steel bars (the schematic is faction-agnostic).
+  const cx = (parseFloat(sx(0)) - 8).toFixed(1);
+  for (const cz of [m.carrierZ.player, m.carrierZ.enemy]) {
+    parts.push(
+      `<rect x="${cx}" y="${(parseFloat(sy(cz)) - 2).toFixed(1)}" width="16" height="4" rx="1.5" fill="#9aa6c8"/>`,
+    );
+  }
+  return wrap(parts.join(""));
+}
+
 /** Sustained gun output (damage/sec) — what the GUNS bar shows. */
 function gunsDps(id: ShipTypeId): number {
   const t = GameConfig.shipTypes[id];
@@ -336,15 +401,18 @@ export class LoadoutMenu {
       </div>`;
   }
 
-  /** Compact arena card: name + one-line blurb. No 3D preview in v1 (maps
-   *  don't get a turntable — the picker is just the selection). */
+  /** Compact arena card: a top-down schematic thumbnail (drawn from the map's
+   *  config) + name + one-line blurb. No 3D turntable for maps in v1. */
   private mapCard(id: MapId): string {
     const info = mapCardInfo(id);
     const sel = id === this.mapSelection ? " selected" : "";
     return `
       <div class="loadout-card map-card${sel}" data-map="${id}">
-        <div class="card-title">${info.name.toUpperCase()}</div>
-        <div class="card-blurb">${info.blurb}</div>
+        <div class="map-thumb">${mapThumbnailSvg(id)}</div>
+        <div class="ship-card-info">
+          <div class="card-title">${info.name.toUpperCase()}</div>
+          <div class="card-blurb">${info.blurb}</div>
+        </div>
       </div>`;
   }
 
