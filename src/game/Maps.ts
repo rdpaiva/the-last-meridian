@@ -125,6 +125,12 @@ export const MAPS: Record<ConcreteMapId, MapConfig> = {
       { xFrac: 0.15, zFrac: -0.5, radius: 72 },
       { xFrac: -0.3, zFrac: -0.3, radius: 58 },
       { xFrac: 0.35, zFrac: -0.05, radius: 52 },
+      { xFrac: 0.0, zFrac: 0.55, radius: 66 },
+      { xFrac: -0.55, zFrac: -0.55, radius: 60 },
+      { xFrac: 0.6, zFrac: -0.4, radius: 56 },
+      { xFrac: -0.15, zFrac: 0.35, radius: 54 },
+      { xFrac: 0.28, zFrac: 0.12, radius: 48 },
+      { xFrac: -0.62, zFrac: 0.5, radius: 50 },
     ],
   },
 };
