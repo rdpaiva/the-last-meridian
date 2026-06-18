@@ -138,6 +138,48 @@ export function resolveMapId(id: MapId): ConcreteMapId {
   return ids[Math.floor(Math.random() * ids.length)];
 }
 
+// ─── Persistence ─────────────────────────────────────────────────────────────
+// The map SELECTION persists alongside the loadout (Loadout.ts owns faction/
+// ship; the map is a separate `lastMeridian_*` key, NOT a PlayerLoadout field,
+// since the map applies via GameConfig rather than being passed to `new Game`).
+//
+// What's stored is the selection, not the resolved map: a concrete id PINS that
+// map; "random" RE-ROLLS each launch (resolveMapId runs per page load, and the
+// end-of-match restart is a fresh reload, so a new map is picked every match).
+
+const MAP_KEY = "lastMeridian_map";
+
+/** Whether a stored value is a usable selection (a known map id or "random").
+ *  hasOwnProperty (not `in`) so prototype keys like "toString" can't sneak in. */
+function isValidSelection(v: unknown): v is MapId {
+  return (
+    v === "random" ||
+    (typeof v === "string" && Object.prototype.hasOwnProperty.call(MAPS, v))
+  );
+}
+
+/** The persisted map selection. Defaults to "random" so matches vary out of
+ *  the box; an unknown/corrupt/missing stored value falls back the same way.
+ *  (To pin a map for dev before the picker UI lands, run e.g.
+ *  `localStorage.setItem("lastMeridian_map", "openVoid")` in the console.) */
+export function loadSavedMapSelection(): MapId {
+  try {
+    const v = localStorage.getItem(MAP_KEY);
+    return isValidSelection(v) ? v : "random";
+  } catch {
+    return "random";
+  }
+}
+
+/** Persist the player's map selection (written by the picker UI in slice 3). */
+export function saveMapSelection(selection: MapId): void {
+  try {
+    localStorage.setItem(MAP_KEY, selection);
+  } catch {
+    // Storage unavailable (private mode etc.) — the selection just won't persist.
+  }
+}
+
 /** Apply a map's value for a schema-backed knob only if the player hasn't
  *  overridden it in match settings — their hand-tuning beats the map default. */
 function writeKnob(path: string, write: () => void): void {

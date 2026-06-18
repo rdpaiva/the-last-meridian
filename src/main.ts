@@ -4,7 +4,7 @@ import { ShipPreview } from "./game/ShipPreview";
 import { SettingsMenu } from "./game/SettingsMenu";
 import { FACTION_THEME } from "./game/Faction";
 import { applyStoredOverrides, overrideCount } from "./game/ConfigOverrides";
-import { applyMap, resolveMapId, type MapId } from "./game/Maps";
+import { applyMap, resolveMapId, loadSavedMapSelection } from "./game/Maps";
 import {
   hasSavedLoadout,
   hasSeenIntro,
@@ -65,13 +65,14 @@ if (!settingsRoot) throw new Error("#settings not found in DOM");
 // so this one early call is the whole "apply" step.)
 applyStoredOverrides();
 
-// Arena map (docs/ARENA-MAPS.md). Slice 1: the active map is hardcoded here
-// (no picker UI yet — that's slice 3). applyMap runs AFTER applyStoredOverrides
-// so a player's match-settings override of a shared knob (asteroid count,
-// fleet composition) beats the map baseline. Swap ACTIVE_MAP to compare maps;
-// "random" picks one of the presets per load.
-const ACTIVE_MAP: MapId = "asteroidBelt";
-applyMap(resolveMapId(ACTIVE_MAP));
+// Arena map (docs/ARENA-MAPS.md). The persisted selection drives it: a pinned
+// concrete map, or "random" (the default) which re-rolls a preset each page
+// load — i.e. each match, since the end-of-match restart reloads. The picker
+// UI that lets the player change this is slice 3; until then the selection
+// comes from storage (default "random"). applyMap runs AFTER
+// applyStoredOverrides so a player's match-settings override of a shared knob
+// (asteroid count, fleet composition) beats the map baseline.
+applyMap(resolveMapId(loadSavedMapSelection()));
 
 // Set src via JS so BASE_URL is resolved correctly for GitHub Pages.
 splashPoster.src = `${import.meta.env.BASE_URL}images/The-Last-Meridian-Poster.jpg`;
