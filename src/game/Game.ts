@@ -47,6 +47,8 @@ import { DamageFlash } from "./DamageFlash";
 import { Mothership } from "./sim/Mothership";
 import { MothershipSection } from "./sim/MothershipSection";
 import { MothershipView } from "./view/MothershipView";
+import { Hulk } from "./sim/Hulk";
+import { HulkView } from "./view/HulkView";
 import { LaunchSequence } from "./LaunchSequence";
 import { opposing, FACTION_THEME, type Faction } from "./Faction";
 import { LocalInputController } from "./LocalInputController";
@@ -121,6 +123,11 @@ export class Game {
   private readonly input: InputManager;
   private readonly arena: Arena;
   private readonly asteroids: AsteroidField;
+  /** Placed derelict wrecks (map hazards) — indestructible cover. Empty unless
+   *  the active map configures hazards. Their hull sections wire into both
+   *  factions' weapons (cover) + the keep-out bump; their circles into AI avoidance. */
+  private readonly hulks: Hulk[] = [];
+  private readonly hulkViews: HulkView[] = [];
   private readonly explosions: ExplosionSystem;
   private readonly jumpFlashes: JumpFlashSystem;
   private readonly jumpRipple: JumpRipple;
@@ -376,6 +383,17 @@ export class Game {
         { x: this.motherships.machines.position.x, z: this.motherships.machines.position.z, radius: GameConfig.asteroids.mothershipClearance },
       ],
     );
+
+    // Placed wrecks (map hazards). Sim entities built now (their sections wire
+    // into weapons + collision in start()); each gets a dead-block view. Empty
+    // unless the active map configured hazards, so stock runs build no hulks.
+    for (const hazard of GameConfig.hazards) {
+      if (hazard.kind === "hulk") {
+        const hulk = new Hulk(hazard);
+        this.hulks.push(hulk);
+        this.hulkViews.push(new HulkView(this.scene, hulk));
+      }
+    }
 
     this.sound = new SoundSystem(this.scene);
     this.music = new MusicSystem(this.scene);
@@ -796,6 +814,19 @@ export class Game {
       for (const section of this.motherships[f].hullSections) {
         this.factionLasers[opposing(f)].addTarget(section);
         this.factionMissiles[opposing(f)].addTarget(section);
+      }
+    }
+    // Wrecks are NEUTRAL cover: their hull sections are targets of BOTH
+    // factions' weapons, so anyone's fire dies against the hull (LOS blocking).
+    // takeDamage is a no-op (indestructible), and onLaserHit/onMissileHit treat
+    // a MothershipSection hit as a light spark with no score, so a hulk hit just
+    // reads as a spark off the wreck.
+    for (const hulk of this.hulks) {
+      for (const section of hulk.hullSections) {
+        this.factionLasers.humans.addTarget(section);
+        this.factionLasers.machines.addTarget(section);
+        this.factionMissiles.humans.addTarget(section);
+        this.factionMissiles.machines.addTarget(section);
       }
     }
 
@@ -1233,6 +1264,11 @@ export class Game {
         this.aiObstacles.push(circle);
       }
     }
+    // Wrecks steer pilots the same way carriers do (their circles are static,
+    // but the list is rebuilt each frame alongside the asteroids that aren't).
+    for (const hulk of this.hulks) {
+      for (const circle of hulk.avoidanceCircles) this.aiObstacles.push(circle);
+    }
   }
 
   /**
@@ -1249,56 +1285,67 @@ export class Game {
       const ship = c.ship;
       if (!ship.isAlive) continue;
       if (c.launch && !c.launch.isComplete) continue;
+      // Solid hull boxes: both carriers, plus any wreck (same keep-out — a
+      // hulk is just as solid as a carrier, it's only not an objective).
       for (const f of ["humans", "machines"] as Faction[]) {
         for (const s of this.motherships[f].hullSections) {
-          const r = ship.hitRadius;
-          // Closest point on the box to the ship center. No early-out after
-          // a bump: at a seam between two boxes the next iteration resolves
-          // any remaining penetration.
-          const px = Math.min(Math.max(ship.position.x, s.minX), s.maxX);
-          const pz = Math.min(Math.max(ship.position.z, s.minZ), s.maxZ);
-          const dx = ship.position.x - px;
-          const dz = ship.position.z - pz;
-          const distSq = dx * dx + dz * dz;
-          if (distSq > 0) {
-            // Center outside the box: overlapping iff closer than the ship's
-            // radius. Push out along the surface normal and kill the inward
-            // velocity component (vn < 0).
-            if (distSq >= r * r) continue;
-            const dist = Math.sqrt(distSq);
-            const nx = dx / dist;
-            const nz = dz / dist;
-            ship.position.x = px + nx * r;
-            ship.position.z = pz + nz * r;
-            const vn = ship.velocity.x * nx + ship.velocity.z * nz;
-            if (vn < 0) {
-              ship.velocity.x -= vn * nx;
-              ship.velocity.z -= vn * nz;
-            }
-          } else {
-            // Center INSIDE the box (deep overlap in one frame): exit through
-            // the nearest face and zero the velocity component driving in.
-            const left = ship.position.x - s.minX;
-            const right = s.maxX - ship.position.x;
-            const near = ship.position.z - s.minZ;
-            const far = s.maxZ - ship.position.z;
-            const min = Math.min(left, right, near, far);
-            if (min === left) {
-              ship.position.x = s.minX - r;
-              if (ship.velocity.x > 0) ship.velocity.x = 0;
-            } else if (min === right) {
-              ship.position.x = s.maxX + r;
-              if (ship.velocity.x < 0) ship.velocity.x = 0;
-            } else if (min === near) {
-              ship.position.z = s.minZ - r;
-              if (ship.velocity.z > 0) ship.velocity.z = 0;
-            } else {
-              ship.position.z = s.maxZ + r;
-              if (ship.velocity.z < 0) ship.velocity.z = 0;
-            }
-          }
-          // (The ship's view re-reads the corrected pose at end of frame.)
+          this.bumpShipOutOfSection(ship, s);
         }
+      }
+      for (const hulk of this.hulks) {
+        for (const s of hulk.hullSections) this.bumpShipOutOfSection(ship, s);
+      }
+    }
+  }
+
+  /**
+   * Push one ship out of one solid hull box and cancel the velocity component
+   * driving it in. No early-out across boxes: at a seam between two the next
+   * call resolves any remaining penetration. (The ship's view re-reads the
+   * corrected pose at end of frame.)
+   */
+  private bumpShipOutOfSection(ship: Ship, s: MothershipSection): void {
+    const r = ship.hitRadius;
+    // Closest point on the box to the ship center.
+    const px = Math.min(Math.max(ship.position.x, s.minX), s.maxX);
+    const pz = Math.min(Math.max(ship.position.z, s.minZ), s.maxZ);
+    const dx = ship.position.x - px;
+    const dz = ship.position.z - pz;
+    const distSq = dx * dx + dz * dz;
+    if (distSq > 0) {
+      // Center outside the box: overlapping iff closer than the ship's radius.
+      // Push out along the surface normal and kill the inward velocity (vn < 0).
+      if (distSq >= r * r) return;
+      const dist = Math.sqrt(distSq);
+      const nx = dx / dist;
+      const nz = dz / dist;
+      ship.position.x = px + nx * r;
+      ship.position.z = pz + nz * r;
+      const vn = ship.velocity.x * nx + ship.velocity.z * nz;
+      if (vn < 0) {
+        ship.velocity.x -= vn * nx;
+        ship.velocity.z -= vn * nz;
+      }
+    } else {
+      // Center INSIDE the box (deep overlap in one frame): exit through the
+      // nearest face and zero the velocity component driving in.
+      const left = ship.position.x - s.minX;
+      const right = s.maxX - ship.position.x;
+      const near = ship.position.z - s.minZ;
+      const far = s.maxZ - ship.position.z;
+      const min = Math.min(left, right, near, far);
+      if (min === left) {
+        ship.position.x = s.minX - r;
+        if (ship.velocity.x > 0) ship.velocity.x = 0;
+      } else if (min === right) {
+        ship.position.x = s.maxX + r;
+        if (ship.velocity.x < 0) ship.velocity.x = 0;
+      } else if (min === near) {
+        ship.position.z = s.minZ - r;
+        if (ship.velocity.z > 0) ship.velocity.z = 0;
+      } else {
+        ship.position.z = s.maxZ + r;
+        if (ship.velocity.z < 0) ship.velocity.z = 0;
       }
     }
   }

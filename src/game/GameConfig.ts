@@ -217,6 +217,28 @@ const shipTypes = {
 /** A key into the ship catalog: "spitfire" | "breaker" | "wraith". */
 export type ShipTypeId = keyof typeof shipTypes;
 
+/**
+ * A placed battlefield hazard (docs/ARENA-MAPS.md slice 5). The first net-new
+ * persistent mid-match entity beyond ships/bolts/scenery. Maps inject these via
+ * applyMap → `GameConfig.hazards`; stock config has none (so the headless
+ * baseline is unaffected). The union grows as more hazard kinds land.
+ *
+ * `hulk` — a derelict capital-ship wreck: indestructible static cover that
+ * blocks weapons line-of-sight and keeps ships out, reusing a carrier's hull
+ * footprint (`source` = which carrier's hullRects + mesh). `rotationY` defaults
+ * to 0; values other than 0/π make the hull footprint an axis-aligned bounding
+ * approximation (slightly generous cover). `scale` (default 1) sizes it.
+ */
+export interface HulkHazard {
+  kind: "hulk";
+  source: Faction;
+  x: number;
+  z: number;
+  rotationY?: number;
+  scale?: number;
+}
+export type HazardSpec = HulkHazard;
+
 export const GameConfig = {
   /** The ship catalog (see the `shipTypes` doc above). */
   shipTypes,
@@ -469,6 +491,13 @@ export const GameConfig = {
      */
     pulseDecayRate: 7,
   },
+
+  /**
+   * Placed battlefield hazards (docs/ARENA-MAPS.md slice 5). Empty by default
+   * — the headless smoke baseline runs hazard-free. Maps inject these at
+   * startup via applyMap. See HazardSpec above for the kinds.
+   */
+  hazards: [] as ReadonlyArray<HazardSpec>,
 
   arena: {
     /**

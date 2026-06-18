@@ -284,9 +284,21 @@ read. The integration points already exist:
 3. **Splash picker.** Add the MAP card row to the loadout flow; `commit()`
    returns the map; `startGame()` resolves `random` and calls `applyMap`.
 4. **Polish.** Card art/thumbnails, loading-flavor blurb, "Random" feel tuning.
-5. **(Phase 2) Hazards.** Land the first `HazardSpec` kind (derelict hulk is the
-   cleanest — it's a static obstacle reusing the asteroid cover seam), then the
-   damage field and minefield. The map system needs no reshaping for these.
+5. **Hazards.** Net-new placed entities riding the frame. Done in sub-slices:
+   - **5a — derelict hulk (DONE).** `HulkHazard` in `GameConfig`; `sim/Hulk.ts`
+     (indestructible: `isAlive` always true, `takeDamage` no-op) reuses the
+     carrier hull footprint, so its sections are `MothershipSection`s wired as
+     *neutral* targets of BOTH factions' weapons (LOS cover, no damage/score)
+     and its circles into AI avoidance; ships keep-out via the shared
+     `bumpShipOutOfSection`. `MothershipSection.owner` widened to a structural
+     `SectionOwner` so a hulk can own sections. View = a dark dead-block per
+     section (`view/HulkView.ts`); "The Wreck" preset places one mid-arena.
+     Mirrored in the headless harness (inert under stock = baseline unchanged).
+   - **5b — destroyed mesh (TODO).** Swap the placeholder blocks for the actual
+     carrier GLB rendered with a burned-out "destroyed" material (exposed
+     pipes/wires, ember emissive hotspots), mirroring `MothershipView.applyModel`
+     but unlit/no-glow; keep the sim footprint.
+   - **Later kinds:** damage field, minefield. The map system needs no reshaping.
 
 Slices 1–4 are the map system proper. Slice 5 is *content* that rides the frame.
 

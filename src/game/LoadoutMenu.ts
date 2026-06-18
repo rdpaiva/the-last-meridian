@@ -166,6 +166,26 @@ function mapThumbnailSvg(id: MapId): string {
       );
     }
   }
+  // Wrecks — a dark slab at the hulk's footprint (drawn under the carriers).
+  // Assumes the rotationY 0/π facings the presets use (axis-aligned footprint).
+  for (const h of m.hazards ?? []) {
+    if (h.kind !== "hulk") continue;
+    const rects = GameConfig.mothership.hullRects[h.source];
+    let hw = 0;
+    let z0 = Infinity;
+    let z1 = -Infinity;
+    for (const rc of rects) {
+      hw = Math.max(hw, rc.halfWidth);
+      z0 = Math.min(z0, rc.z0);
+      z1 = Math.max(z1, rc.z1);
+    }
+    const sc = h.scale ?? 1;
+    const wpx = (2 * hw * sc) / THUMB_WORLD_HALF * 48;
+    const dpx = ((z1 - z0) * sc) / THUMB_WORLD_HALF * 48;
+    parts.push(
+      `<rect x="${(parseFloat(sx(h.x)) - wpx / 2).toFixed(1)}" y="${(parseFloat(sy(h.z)) - dpx / 2).toFixed(1)}" width="${wpx.toFixed(1)}" height="${dpx.toFixed(1)}" rx="1" fill="rgba(70,72,82,0.9)"/>`,
+    );
+  }
   // Carriers — neutral steel bars (the schematic is faction-agnostic).
   const cx = (parseFloat(sx(0)) - 8).toFixed(1);
   for (const cz of [m.carrierZ.player, m.carrierZ.enemy]) {

@@ -73,6 +73,8 @@ import { Mothership } from "../../src/game/sim/Mothership";
 import { LaserSystem } from "../../src/game/sim/LaserSystem";
 import { MissileSystem } from "../../src/game/sim/MissileSystem";
 import { AsteroidField } from "../../src/game/AsteroidField";
+import { Hulk } from "../../src/game/sim/Hulk";
+import { MothershipSection } from "../../src/game/sim/MothershipSection";
 import { LaunchSequence } from "../../src/game/LaunchSequence";
 import { seedSimRng } from "../../src/game/sim/SimRng";
 import { computeConcealmentZones } from "../../src/game/sim/CombatNebulaZones";
@@ -142,6 +144,9 @@ export class HeadlessBattle {
 
   private readonly motherships: Record<Faction, Mothership>;
   private readonly asteroids: AsteroidField;
+  /** Placed wrecks (map hazards) — empty unless the run's config has hazards
+   *  (stock does not, so this stays empty and the baseline is unaffected). */
+  private readonly hulks: Hulk[] = [];
   private readonly factionLasers: Record<Faction, LaserSystem>;
   private readonly factionMissiles: Record<Faction, MissileSystem>;
   private readonly sensors: SensorSystem;
@@ -214,6 +219,12 @@ export class HeadlessBattle {
         },
       ],
     );
+
+    // Placed wrecks (Game's hulk construction, sim-only — no view headless).
+    // Empty under stock config, so this is inert for the baseline.
+    for (const hazard of GameConfig.hazards) {
+      if (hazard.kind === "hulk") this.hulks.push(new Hulk(hazard));
+    }
 
     // --- Weapon systems (no onHit/onIntercept: feedback/score is view-side) ---
     // Missiles are built BEFORE lasers so each laser system can hold the
@@ -358,6 +369,15 @@ export class HeadlessBattle {
       for (const section of this.motherships[f].hullSections) {
         this.factionLasers[opposing(f)].addTarget(section);
         this.factionMissiles[opposing(f)].addTarget(section);
+      }
+    }
+    // Wrecks are neutral cover — sections target BOTH factions' weapons.
+    for (const hulk of this.hulks) {
+      for (const section of hulk.hullSections) {
+        this.factionLasers.humans.addTarget(section);
+        this.factionLasers.machines.addTarget(section);
+        this.factionMissiles.humans.addTarget(section);
+        this.factionMissiles.machines.addTarget(section);
       }
     }
 
@@ -547,6 +567,9 @@ export class HeadlessBattle {
         this.aiObstacles.push(circle);
       }
     }
+    for (const hulk of this.hulks) {
+      for (const circle of hulk.avoidanceCircles) this.aiObstacles.push(circle);
+    }
   }
 
   /** Game.resolveAsteroidCollisions, verbatim minus player FX. */
@@ -588,7 +611,7 @@ export class HeadlessBattle {
     }
   }
 
-  /** Game.resolveMothershipCollisions, verbatim. */
+  /** Game.resolveMothershipCollisions, verbatim (carriers + wrecks). */
   private resolveMothershipCollisions(): void {
     for (const c of this.combatants) {
       const ship = c.ship;
@@ -596,45 +619,53 @@ export class HeadlessBattle {
       if (c.launch && !c.launch.isComplete) continue;
       for (const f of ["humans", "machines"] as Faction[]) {
         for (const s of this.motherships[f].hullSections) {
-          const r = ship.hitRadius;
-          const px = Math.min(Math.max(ship.position.x, s.minX), s.maxX);
-          const pz = Math.min(Math.max(ship.position.z, s.minZ), s.maxZ);
-          const dx = ship.position.x - px;
-          const dz = ship.position.z - pz;
-          const distSq = dx * dx + dz * dz;
-          if (distSq > 0) {
-            if (distSq >= r * r) continue;
-            const dist = Math.sqrt(distSq);
-            const nx = dx / dist;
-            const nz = dz / dist;
-            ship.position.x = px + nx * r;
-            ship.position.z = pz + nz * r;
-            const vn = ship.velocity.x * nx + ship.velocity.z * nz;
-            if (vn < 0) {
-              ship.velocity.x -= vn * nx;
-              ship.velocity.z -= vn * nz;
-            }
-          } else {
-            const left = ship.position.x - s.minX;
-            const right = s.maxX - ship.position.x;
-            const near = ship.position.z - s.minZ;
-            const far = s.maxZ - ship.position.z;
-            const min = Math.min(left, right, near, far);
-            if (min === left) {
-              ship.position.x = s.minX - r;
-              if (ship.velocity.x > 0) ship.velocity.x = 0;
-            } else if (min === right) {
-              ship.position.x = s.maxX + r;
-              if (ship.velocity.x < 0) ship.velocity.x = 0;
-            } else if (min === near) {
-              ship.position.z = s.minZ - r;
-              if (ship.velocity.z > 0) ship.velocity.z = 0;
-            } else {
-              ship.position.z = s.maxZ + r;
-              if (ship.velocity.z < 0) ship.velocity.z = 0;
-            }
-          }
+          this.bumpShipOutOfSection(ship, s);
         }
+      }
+      for (const hulk of this.hulks) {
+        for (const s of hulk.hullSections) this.bumpShipOutOfSection(ship, s);
+      }
+    }
+  }
+
+  /** Game.bumpShipOutOfSection, verbatim. */
+  private bumpShipOutOfSection(ship: Ship, s: MothershipSection): void {
+    const r = ship.hitRadius;
+    const px = Math.min(Math.max(ship.position.x, s.minX), s.maxX);
+    const pz = Math.min(Math.max(ship.position.z, s.minZ), s.maxZ);
+    const dx = ship.position.x - px;
+    const dz = ship.position.z - pz;
+    const distSq = dx * dx + dz * dz;
+    if (distSq > 0) {
+      if (distSq >= r * r) return;
+      const dist = Math.sqrt(distSq);
+      const nx = dx / dist;
+      const nz = dz / dist;
+      ship.position.x = px + nx * r;
+      ship.position.z = pz + nz * r;
+      const vn = ship.velocity.x * nx + ship.velocity.z * nz;
+      if (vn < 0) {
+        ship.velocity.x -= vn * nx;
+        ship.velocity.z -= vn * nz;
+      }
+    } else {
+      const left = ship.position.x - s.minX;
+      const right = s.maxX - ship.position.x;
+      const near = ship.position.z - s.minZ;
+      const far = s.maxZ - ship.position.z;
+      const min = Math.min(left, right, near, far);
+      if (min === left) {
+        ship.position.x = s.minX - r;
+        if (ship.velocity.x > 0) ship.velocity.x = 0;
+      } else if (min === right) {
+        ship.position.x = s.maxX + r;
+        if (ship.velocity.x < 0) ship.velocity.x = 0;
+      } else if (min === near) {
+        ship.position.z = s.minZ - r;
+        if (ship.velocity.z > 0) ship.velocity.z = 0;
+      } else {
+        ship.position.z = s.maxZ + r;
+        if (ship.velocity.z < 0) ship.velocity.z = 0;
       }
     }
   }

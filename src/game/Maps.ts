@@ -1,4 +1,4 @@
-import { GameConfig, type ShipTypeId } from "./GameConfig";
+import { GameConfig, type ShipTypeId, type HazardSpec } from "./GameConfig";
 import type { Faction } from "./Faction";
 import { isOverridden, hasOverrideUnder } from "./ConfigOverrides";
 
@@ -31,7 +31,7 @@ import { isOverridden, hasOverrideUnder } from "./ConfigOverrides";
 
 /** "random" is a meta-id resolved to one concrete map at launch. */
 export type MapId = ConcreteMapId | "random";
-export type ConcreteMapId = "openVoid" | "asteroidBelt" | "nebulaVeil";
+export type ConcreteMapId = "openVoid" | "asteroidBelt" | "nebulaVeil" | "theWreck";
 
 type NebulaZone = { xFrac: number; zFrac: number; radius: number };
 type FleetComposition = {
@@ -71,6 +71,10 @@ export interface MapConfig {
 
   /** Optional per-faction fleet composition override (else GameConfig.fleets). */
   fleets?: Partial<Record<Faction, FleetComposition>>;
+
+  /** Placed hazards — e.g. a derelict hulk (indestructible cover). Omitted =
+   *  none. See HazardSpec in GameConfig. */
+  hazards?: ReadonlyArray<HazardSpec>;
 }
 
 const FACTIONS: readonly Faction[] = ["humans", "machines"];
@@ -132,6 +136,21 @@ export const MAPS: Record<ConcreteMapId, MapConfig> = {
       { xFrac: 0.28, zFrac: 0.12, radius: 48 },
       { xFrac: -0.62, zFrac: 0.5, radius: 50 },
     ],
+  },
+  theWreck: {
+    id: "theWreck",
+    name: "The Wreck",
+    blurb: "A dead carrier adrift at the center. Fight through its shadow.",
+    carrierZ: { player: -700, enemy: 700 },
+    asteroids: { count: 35 },
+    nebulaZones: [
+      { xFrac: -0.42, zFrac: 0.28, radius: 55 },
+      { xFrac: 0.42, zFrac: -0.28, radius: 55 },
+    ],
+    // One large derelict (a dead human Bastion) dead-center, keel along the
+    // attack axis (rotationY 0 = exact axis-aligned cover) — a wall both fleets
+    // must flank around. scale > 1 gives it presence as the map's landmark.
+    hazards: [{ kind: "hulk", source: "humans", x: 0, z: 0, rotationY: 0, scale: 1.1 }],
   },
 };
 
@@ -228,6 +247,9 @@ export function applyMap(id: ConcreteMapId): void {
   // the textured CombatNebulas view and the sim-side computeConcealmentZones
   // read this, so they stay in lockstep automatically.
   GameConfig.scenery.combatNebulas.zones = map.nebulaZones;
+
+  // Placed hazards (wrecks). No schema knob; always set (empty = none).
+  GameConfig.hazards = map.hazards ?? [];
 
   // Fleet composition — every pick count + strikeCount IS a settings knob, so
   // only replace a faction's fleet when the player hasn't hand-tuned it.

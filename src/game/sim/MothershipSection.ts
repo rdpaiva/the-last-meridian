@@ -1,7 +1,18 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 
 import type { DamageTarget } from "../types";
-import type { Mothership } from "./Mothership";
+
+/**
+ * What a hull section forwards damage to and reads liveness from. Satisfied by
+ * a `Mothership` (the carrier objective — damage lands on its HP pool) and by a
+ * `Hulk` (an indestructible wreck — `takeDamage` is a no-op, always alive). So
+ * the same exact-silhouette section primitive backs both the carrier and a
+ * derelict, and Game's `instanceof MothershipSection` hit guard covers both.
+ */
+export interface SectionOwner {
+  readonly isAlive: boolean;
+  takeDamage(amount: number, nowMs: number): void;
+}
 
 /**
  * One rectangle of a mothership's solid hull footprint (built from
@@ -46,8 +57,9 @@ export class MothershipSection implements DamageTarget {
   readonly hitRadius: number;
 
   constructor(
-    /** The carrier this section belongs to — receives all forwarded damage. */
-    readonly owner: Mothership,
+    /** The structure this section belongs to — a carrier (damage lands on its
+     *  HP pool) or a hulk (no-op). Receives all forwarded damage. */
+    readonly owner: SectionOwner,
     minX: number,
     maxX: number,
     minZ: number,
