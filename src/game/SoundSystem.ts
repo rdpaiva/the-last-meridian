@@ -3,6 +3,7 @@ import { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine";
 import type { Scene } from "@babylonjs/core/scene";
 import type { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { FireSoundKey } from "./types";
+import type { Ship } from "./sim/Ship";
 import { GameConfig } from "./GameConfig";
 
 // Side-effect imports.
@@ -34,6 +35,9 @@ import "@babylonjs/core/Audio/audioSceneComponent";
 class PooledSound {
   private readonly sounds: Sound[] = [];
   private idx = 0;
+  /** Base volume, reset on every play so a slot faded out by a caller (e.g.
+   *  a jump cut short) isn't stuck silent when it's later round-robined. */
+  private readonly volume: number;
 
   constructor(
     name: string,
@@ -43,6 +47,7 @@ class PooledSound {
     options: { volume: number; spatial?: boolean },
   ) {
     const cfg = GameConfig.sound;
+    this.volume = options.volume;
     for (let i = 0; i < poolSize; i++) {
       this.sounds.push(
         new Sound(`${name}_${i}`, url, scene, null, {
@@ -71,18 +76,29 @@ class PooledSound {
     // Sound.play() is a no-op if the buffer isn't ready yet — quiet by
     // design, no errors. First few rapid-fire shots after page load may
     // be silent while files stream in.
-    if (s.isReady()) s.play();
+    if (s.isReady()) {
+      s.setVolume(this.volume);
+      s.play();
+    }
   }
 
-  /** Set the 3D position of the next slot and play it (spatial sounds only). */
-  playAt(position: Vector3): void {
-    if (AbstractEngine.audioEngine?.unlocked === false) return; // see play()
+  /**
+   * Set the 3D position of the next slot and play it (spatial sounds only).
+   * Returns the Sound instance that was triggered (or null if not played), so
+   * a caller can later stop THIS playback — e.g. cutting an enemy's jump-drive
+   * clip when the ship dies mid-spool.
+   */
+  playAt(position: Vector3): Sound | null {
+    if (AbstractEngine.audioEngine?.unlocked === false) return null; // see play()
     const s = this.sounds[this.idx];
     this.idx = (this.idx + 1) % this.sounds.length;
     if (s.isReady()) {
+      s.setVolume(this.volume);
       s.setPosition(position);
       s.play();
+      return s;
     }
+    return null;
   }
 }
 
@@ -120,6 +136,26 @@ export class SoundSystem {
   private readonly hit: PooledSound;
   private readonly explosion: PooledSound;
   private readonly engineHum: Sound;
+  // The PLAYER's own jump drive — a single sustained ~8s clip (6s build-up =
+  // the spool/audible countdown, trigger hit at 6s = the teleport, 2s tail =
+  // the departure whoosh through arrival). NOT pooled: it's one continuous
+  // playback per spool, faded (not cut) on a cancel. Distinct from the RWR
+  // whine other ships hear when they DETECT a spool (that's MissileWarning's
+  // idiom, wired in the detection slice). See docs/JUMP-DRIVE-AND-RESUPPLY.md.
+  private readonly jumpDrive: Sound;
+  private readonly jumpDriveVolume = 0.5;
+  // OTHER ships' drives, heard spatially — you hear an enemy's drive winding up
+  // (and the trigger hit when it goes), attenuating with distance. Same own/
+  // spatial split as the fire sounds; this is the "a runner is charging"
+  // telegraph (docs/JUMP-DRIVE-AND-RESUPPLY.md), NOT the missile RWR.
+  private readonly jumpDriveSpatial: PooledSound;
+  /**
+   * The jump-drive clip currently playing for each spooling ship, so it can be
+   * cut if the spool ends WITHOUT firing — a pilot cancel, or the ship being
+   * destroyed mid-spool (otherwise the 8s clip, trigger "boom" and all, plays
+   * out for a jump that never happened). Cleared on stop/release.
+   */
+  private readonly activeJumpDrives = new Map<Ship, Sound>();
 
   private engineCurrentIntensity = 0;
   private readonly engineMaxVolume = 0.45;
@@ -235,6 +271,25 @@ export class SoundSystem {
         loop: true,
         autoplay: false,
       },
+    );
+
+    this.jumpDrive = new Sound(
+      "sfx_jump_drive",
+      `${baseUrl}/jump-drive.mp3`,
+      scene,
+      null,
+      {
+        volume: this.jumpDriveVolume,
+        loop: false,
+        autoplay: false,
+      },
+    );
+    this.jumpDriveSpatial = new PooledSound(
+      "sfx_jump_drive_spatial",
+      `${baseUrl}/jump-drive.mp3`,
+      scene,
+      3,
+      { volume: 0.5, spatial: true },
     );
   }
 
@@ -370,5 +425,56 @@ export class SoundSystem {
   /** Play the explosion cue at a world position (attenuates with distance). */
   playExplosion(position: Vector3): void {
     this.explosion.playAt(position);
+  }
+
+  /**
+   * Begin a ship's jump-drive clip (arming a spool). `spatialPos` null = the
+   * PLAYER's own drive (full volume at the listener); a position = any other
+   * ship, heard spatially (attenuates with distance — the "runner charging"
+   * telegraph, distinct from the missile RWR). The build-up IS the audible
+   * countdown; left to ring through the trigger hit + 2s departure tail on a
+   * completed jump. The playback is tracked by `ship` so it can be cut if the
+   * spool ends without firing (stopJumpDrive).
+   */
+  startJumpDrive(ship: Ship, spatialPos: Vector3 | null): void {
+    let sound: Sound | null = null;
+    if (spatialPos === null) {
+      if (
+        AbstractEngine.audioEngine?.unlocked !== false &&
+        this.jumpDrive.isReady()
+      ) {
+        this.jumpDrive.stop();
+        this.jumpDrive.setVolume(this.jumpDriveVolume);
+        this.jumpDrive.play();
+        sound = this.jumpDrive;
+      }
+    } else {
+      sound = this.jumpDriveSpatial.playAt(spatialPos);
+    }
+    if (sound) this.activeJumpDrives.set(ship, sound);
+  }
+
+  /**
+   * Cut a ship's jump-drive clip when the spool ends WITHOUT firing — a pilot
+   * cancel or the ship destroyed mid-spool. A quick fade to silence (never a
+   * hard cut). No-op if this ship has no drive playing.
+   */
+  stopJumpDrive(ship: Ship, fadeSeconds = 0.35): void {
+    const sound = this.activeJumpDrives.get(ship);
+    if (!sound) return;
+    this.activeJumpDrives.delete(ship);
+    if (sound.isReady()) {
+      sound.setVolume(0, fadeSeconds);
+      sound.stop(fadeSeconds);
+    }
+  }
+
+  /**
+   * Stop TRACKING a ship's drive on a COMPLETED jump, but let the clip ring out
+   * (the trigger hit + departure tail are the point). Just drops the handle so
+   * a later stopJumpDrive(ship) — e.g. when it dies at home — won't cut a tail.
+   */
+  releaseJumpDrive(ship: Ship): void {
+    this.activeJumpDrives.delete(ship);
   }
 }

@@ -201,7 +201,10 @@ src/
     DamageFlash.ts         red emissive sphere pulses around player on damage
     Explosion.ts           short-lived explosion (flash sphere + N debris)
     ExplosionSystem.ts     spawns/updates/disposes explosions
-    SoundSystem.ts         5 CC0 SFX + engine hum loop + audio unlock
+    JumpFlash.ts           jump-drive "FTL crack" core: cool flash sphere that pops then collapses (view; one per jump END)
+    JumpFlashSystem.ts     spawns/updates/disposes jump flashes off the jumpFired SimEvent (departure + arrival)
+    JumpRipple.ts          jump shockwave: screen-space refraction post-process (expanding wavefront + pond ripples behind it); detaches when idle
+    SoundSystem.ts         CC0 SFX + engine hum loop + audio unlock; per-ship jump-drive lifecycle (start/stop/release, own vs spatial)
     Starfield.ts           camera-locked wrapping parallax field (thin-instanced; count independent of arena size)
     Nebulas.ts             alpha-blended cloud quads from PNG textures (count via GameConfig)
     Backdrop.ts            full-screen deep-space background Layer (2D blit)
@@ -241,6 +244,9 @@ The whole game's tuning lives in `src/game/GameConfig.ts`. Major sections:
 | `arena` | Half-width, half-depth |
 | `camera` | Offset, smoothing rate, velocity lead, zoom range/rate |
 | `combat` | Fallback hit radius / laser damage, respawn delays (ship HP lives in `shipTypes`) |
+| `jump` | Jump drive: `spoolMs` (matched to `jump-drive.mp3`), `cooldownMs`, `commitMs`, `arrivalTrauma`, + `doctrine` (AI jump-out: per-pilot HP/ammo thresholds, dock-vs-jump range split, flee/blaze caution, finish-the-runner range). Cannon magazines are per ship type (`shipTypes[*].cannonAmmo`) |
+| `service` | Carrier service bubble: `radius` (per launch-bay), `loiterMaxSpeed` gate, HP/cannon/missile refill rates |
+| `jumpFx` | Jump "FTL crack" (view): flash radius/scale/color + `ripple` (screen-space refraction — strength/width/frequency/trailLength/maxRadius/highlight/durationMs) |
 | `shake` | Trauma per impact type, decay rate, max offsets |
 | `hitstop` | Pause-frame durations per impact type, stack cap |
 | `damageFlash` | Duration, peak alpha, sphere diameter |

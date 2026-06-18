@@ -22,6 +22,14 @@ export type InputState = {
   strafeRight: boolean;
   fire: boolean;
   fireMissile: boolean;
+  /**
+   * EDGE intent (true for the single frame the jump key was JUST pressed, not
+   * a held bool like `thrust`/`fire`) — toggles the ship's jump state machine:
+   * arm a spool, or cancel one in progress (docs/JUMP-DRIVE-AND-RESUPPLY.md).
+   * LocalInputController edge-detects the `J` key; AIController emits it from
+   * its jump-out doctrine. Consumed once by Ship.onJumpIntent().
+   */
+  jumpPressed: boolean;
   zoomIn: boolean;
   zoomOut: boolean;
 };

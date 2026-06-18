@@ -151,6 +151,31 @@ export class Mothership implements DamageTarget {
     this.hp = Math.max(0, this.hp - amount);
   }
 
+  // ─── Service bubble ───────────────────────────────────────────────────────
+
+  /**
+   * True if world X/Z is inside this carrier's SERVICE bubble — a generous
+   * radius (GameConfig.service.radius) around any launch bay's staging point,
+   * i.e. the bow/bays on the contested front. A ship loitering here (the
+   * caller also gates on speed) repairs + rearms over time, and jump arrivals
+   * drop in here at zero velocity (docs/JUMP-DRIVE-AND-RESUPPLY.md). No
+   * allocation — inlines the bay→world rotation like getLaunchStartPosition.
+   */
+  serviceZoneContains(x: number, z: number): boolean {
+    const r = GameConfig.service.radius;
+    const r2 = r * r;
+    const sin = Math.sin(this.rotationY);
+    const cos = Math.cos(this.rotationY);
+    for (const bay of this.launchBays()) {
+      const bx = this.position.x + cos * bay.x + sin * bay.z;
+      const bz = this.position.z - sin * bay.x + cos * bay.z;
+      const dx = x - bx;
+      const dz = z - bz;
+      if (dx * dx + dz * dz <= r2) return true;
+    }
+    return false;
+  }
+
   // ─── Launch geometry ──────────────────────────────────────────────────────
 
   /**

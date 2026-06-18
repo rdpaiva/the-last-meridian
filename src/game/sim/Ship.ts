@@ -39,6 +39,12 @@ export interface ShipTypeConfig extends ShipMovementConfig {
   laserDamage: number;
   /** Heat-seeker rack size (0 = no missile capability). */
   missileAmmo: number;
+  /**
+   * Cannon magazine: total laser rounds (bolts) before the guns run dry. NO
+   * passive regen — empty = defenseless on cannons until refilled at the
+   * carrier (docs/JUMP-DRIVE-AND-RESUPPLY.md). Each bolt fired spends one.
+   */
+  cannonAmmo: number;
   /** X/Z collision radius for laser/missile/ram tests (world units). */
   hitRadius: number;
   /** Audio cue when this ship fires its primary guns. */
@@ -52,6 +58,8 @@ export interface ShipOptions {
   respawnDelayMs: number;
   /** Missiles to start/refill with (the ship type's rack — 0 = no rack). */
   startMissileAmmo: number;
+  /** Cannon rounds to start/refill with (the ship type's magazine). */
+  startCannonAmmo: number;
   /** Movement/weapon tuning (a GameConfig.shipTypes entry). */
   movement: ShipMovementConfig;
   /**
@@ -123,9 +131,29 @@ export class Ship implements DamageTarget, ShipPose {
   missileAmmo: number;
   private missileCooldownRemainingMs = 0;
 
+  /** Remaining cannon rounds. Refills to startCannonAmmo on respawn/service. */
+  cannonAmmo: number;
+  /** Cannon magazine capacity (for HUD fraction + service refill cap). */
+  readonly maxCannonAmmo: number;
+
+  /**
+   * Jump-drive recall state machine (docs/JUMP-DRIVE-AND-RESUPPLY.md):
+   *   idle      — drive ready (cooldown elapsed); a jump intent starts a spool.
+   *   spooling  — counting down jumpSpoolRemainingMs; fly/fight freely, enemy
+   *               fire can't interrupt. Completing teleports home; a pilot
+   *               cancel (outside the commit window) aborts it.
+   *   cooldown  — recharging after EITHER a completed jump OR a cancel; jump
+   *               intents are inert until jumpCooldownRemainingMs hits 0.
+   * All timers tick on dt (no wall clock), so the sim stays deterministic.
+   */
+  jumpState: "idle" | "spooling" | "cooldown" = "idle";
+  private jumpSpoolRemainingMs = 0;
+  private jumpCooldownRemainingMs = 0;
+
   private readonly cfg: ShipMovementConfig;
   private readonly respawnDelayMs: number;
   private readonly startMissileAmmo: number;
+  private readonly startCannonAmmo: number;
 
   /**
    * Sim-clock timestamp of death (the nowMs handed to takeDamage), or null
@@ -165,6 +193,9 @@ export class Ship implements DamageTarget, ShipPose {
     this.respawnDelayMs = opts.respawnDelayMs;
     this.startMissileAmmo = opts.startMissileAmmo;
     this.missileAmmo = opts.startMissileAmmo;
+    this.startCannonAmmo = opts.startCannonAmmo;
+    this.cannonAmmo = opts.startCannonAmmo;
+    this.maxCannonAmmo = opts.startCannonAmmo;
     this.cfg = opts.movement;
     this.muzzles = opts.muzzles ?? opts.movement.muzzles;
   }
@@ -186,6 +217,10 @@ export class Ship implements DamageTarget, ShipPose {
   private die(nowMs: number): void {
     this.deathTimeMs = nowMs;
     this.velocity.set(0, 0, 0);
+    // Dying mid-spool aborts the jump (so the sensor signature clears and the
+    // ship doesn't "arrive" dead). respawn() fully resets the drive.
+    this.jumpState = "idle";
+    this.jumpSpoolRemainingMs = 0;
   }
 
   shouldRespawn(nowMs: number): boolean {
@@ -205,8 +240,12 @@ export class Ship implements DamageTarget, ShipPose {
     this.fireCooldownRemainingMs = 0;
     this.missileCooldownRemainingMs = 0;
     this.missileAmmo = this.startMissileAmmo;
+    this.cannonAmmo = this.startCannonAmmo;
     this.nextMuzzleIdx = 0;
     this.bankAngle = 0;
+    this.jumpState = "idle";
+    this.jumpSpoolRemainingMs = 0;
+    this.jumpCooldownRemainingMs = 0;
   }
 
   /**
@@ -308,10 +347,16 @@ export class Ship implements DamageTarget, ShipPose {
    */
   tryFire(): Vector3[] {
     if (this.fireCooldownRemainingMs > 0) return [];
-    this.fireCooldownRemainingMs = this.cfg.fireCooldownMs;
+    // Out of cannon rounds = defenseless on the guns; the only recourse is to
+    // return to the carrier and rearm (docs/JUMP-DRIVE-AND-RESUPPLY.md). The
+    // `< 1` (vs `<= 0`) gate needs a WHOLE round in the drum — identical for
+    // the integer magazines, correct once service refills fractional rounds.
+    if (this.cannonAmmo < 1) return [];
 
     const muzzles = this.muzzles;
     if (muzzles.length === 0) return [];
+
+    this.fireCooldownRemainingMs = this.cfg.fireCooldownMs;
 
     const positions: Vector3[] = [];
     if (this.cfg.fireMode === "salvo") {
@@ -323,6 +368,8 @@ export class Ship implements DamageTarget, ShipPose {
       this.nextMuzzleIdx = (this.nextMuzzleIdx + 1) % muzzles.length;
       positions.push(this.worldFromLocal(m.x, m.y, m.z, new Vector3()));
     }
+    // Each bolt is a visible fraction of the drum — spend one round per bolt.
+    this.cannonAmmo = Math.max(0, this.cannonAmmo - positions.length);
     return positions;
   }
 
@@ -331,7 +378,7 @@ export class Ship implements DamageTarget, ShipPose {
    * position (along the nose), or null when on cooldown or out of ammo.
    */
   tryFireMissile(): Vector3 | null {
-    if (this.missileCooldownRemainingMs > 0 || this.missileAmmo <= 0) {
+    if (this.missileCooldownRemainingMs > 0 || this.missileAmmo < 1) {
       return null;
     }
     this.missileCooldownRemainingMs = GameConfig.missile.fireCooldownMs;
@@ -344,6 +391,136 @@ export class Ship implements DamageTarget, ShipPose {
       this.position.y,
       this.position.z + fwd.z * off,
     );
+  }
+
+  /**
+   * Replenish HP + cannon/missile ammo while DOCKED in a carrier service
+   * bubble. The caller gates on proximity + loiter speed (Mothership
+   * .serviceZoneContains + a speed check); this just applies the over-time
+   * refill, dt-scaled — never instant (the loiter window IS the cost). Values
+   * stay fractional between ticks; user-facing readouts round. Returns true if
+   * anything was actually topped off, so a view can show a "SERVICING" cue
+   * (false = in the zone but already full → "DOCKED").
+   * (docs/JUMP-DRIVE-AND-RESUPPLY.md — one service, repair + rearm.)
+   */
+  serviceTick(deltaSeconds: number): boolean {
+    if (!this.isAlive) return false;
+    const svc = GameConfig.service;
+    let serviced = false;
+    if (this.hp < this.maxHp) {
+      this.hp = Math.min(this.maxHp, this.hp + svc.healPerSec * deltaSeconds);
+      serviced = true;
+    }
+    if (this.cannonAmmo < this.maxCannonAmmo) {
+      this.cannonAmmo = Math.min(
+        this.maxCannonAmmo,
+        this.cannonAmmo + svc.cannonRefillPerSec * deltaSeconds,
+      );
+      serviced = true;
+    }
+    if (this.missileAmmo < this.startMissileAmmo) {
+      this.missileAmmo = Math.min(
+        this.startMissileAmmo,
+        this.missileAmmo + svc.missileRefillPerSec * deltaSeconds,
+      );
+      serviced = true;
+    }
+    return serviced;
+  }
+
+  // ─── Jump drive ───────────────────────────────────────────────────────────
+
+  /** True while the jump drive is spooling (lights up the sensor signature). */
+  get isSpoolingJump(): boolean {
+    return this.jumpState === "spooling";
+  }
+
+  /** True while the drive can't be re-armed (recharging after jump/cancel). */
+  get isJumpOnCooldown(): boolean {
+    return this.jumpCooldownRemainingMs > 0;
+  }
+
+  /**
+   * Spool charge fraction: 0 at arm → 1 at the moment of jump-fire. Drives the
+   * HUD countdown ring and the radar "how close is he to gone?" filling ring.
+   * 0 when not spooling.
+   */
+  get jumpSpoolProgress(): number {
+    if (this.jumpState !== "spooling") return 0;
+    const total = GameConfig.jump.spoolMs;
+    return total > 0 ? clamp(1 - this.jumpSpoolRemainingMs / total, 0, 1) : 0;
+  }
+
+  /**
+   * Process a jump-key edge press (InputState.jumpPressed). Toggle semantics:
+   *   idle + ready    → arm the drive, begin the spool ("spool-started").
+   *   spooling        → cancel (pays the cooldown) UNLESS inside the final
+   *                     commit window, where coordinates are locked ("spool-
+   *                     cancelled" / null).
+   *   cooldown / idle-but-cooling → inert (null).
+   * Returns the event the caller should announce on the SimEventBus, or null
+   * if the press did nothing.
+   */
+  onJumpIntent(): "spool-started" | "spool-cancelled" | null {
+    if (!this.isAlive) return null;
+    if (this.jumpState === "idle" && this.jumpCooldownRemainingMs <= 0) {
+      this.jumpState = "spooling";
+      this.jumpSpoolRemainingMs = GameConfig.jump.spoolMs;
+      return "spool-started";
+    }
+    if (this.jumpState === "spooling") {
+      // "Coordinates locked": no abort inside the final commit window.
+      if (this.jumpSpoolRemainingMs > GameConfig.jump.commitMs) {
+        this.jumpState = "cooldown";
+        this.jumpCooldownRemainingMs = GameConfig.jump.cooldownMs;
+        this.jumpSpoolRemainingMs = 0;
+        return "spool-cancelled";
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Advance the jump timers on dt. Returns true on the single frame the spool
+   * COMPLETES — the caller then teleports the ship into its carrier's service
+   * bubble (jumpTeleport) and announces `jumpFired`. Enemy fire never calls
+   * this off; only death (die) or a pilot cancel (onJumpIntent) stops a spool.
+   */
+  tickJump(deltaSeconds: number): boolean {
+    const dtMs = deltaSeconds * 1000;
+    if (this.jumpCooldownRemainingMs > 0) {
+      this.jumpCooldownRemainingMs = Math.max(0, this.jumpCooldownRemainingMs - dtMs);
+      // Drive recharged: return to idle so a fresh jump can be armed again.
+      // (Without this the ship is stuck in "cooldown" forever and can only
+      // ever jump once.)
+      if (this.jumpCooldownRemainingMs === 0 && this.jumpState === "cooldown") {
+        this.jumpState = "idle";
+      }
+    }
+    if (this.jumpState === "spooling") {
+      this.jumpSpoolRemainingMs -= dtMs;
+      if (this.jumpSpoolRemainingMs <= 0) {
+        this.jumpSpoolRemainingMs = 0;
+        this.jumpState = "cooldown";
+        this.jumpCooldownRemainingMs = GameConfig.jump.cooldownMs;
+        return true; // FIRED — caller teleports home this frame.
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Hard-snap into the carrier service bubble when the jump fires. TRANSIT
+   * ONLY — HP/ammo are deliberately PRESERVED (arrival services over time, no
+   * free top-off; a jumper and a ship that flew in end up identical). Zero
+   * velocity like a respawn; the view must treat this as a position
+   * discontinuity (snap trails, no interpolation — docs/JUMP-DRIVE-AND-RESUPPLY).
+   */
+  jumpTeleport(x: number, z: number, rotationY: number): void {
+    this.position.set(x, 0, z);
+    this.velocity.set(0, 0, 0);
+    this.rotationY = rotationY;
+    this.bankAngle = 0;
   }
 
   /**

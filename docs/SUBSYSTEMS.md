@@ -402,6 +402,33 @@ friendly-fire-free without per-bolt faction checks.
   the audio context's `state === "running"` (some browsers need
   `audioContext.resume()` after Babylon's `unlock()`).
 - Two `console.info` lines confirm unlock + engine-hum start in DevTools.
+- **Jump drive lifecycle** (`startJumpDrive`/`stopJumpDrive`/`releaseJumpDrive`):
+  the spool clip is tracked per `Ship` (own = non-spatial, others = spatial pool).
+  `stopJumpDrive` fades it on a cancel or a death mid-spool; `releaseJumpDrive`
+  drops the handle on a completed jump so the trigger + tail ring out. `PooledSound`
+  re-asserts its base volume on each play so a faded-then-reused slot isn't silent.
+
+## Jump drive, finite ammo & carrier service
+Full design + as-built notes: `docs/JUMP-DRIVE-AND-RESUPPLY.md`. Built sim/view-split:
+- **Sim (`Ship`):** `cannonAmmo`/`maxCannonAmmo` (mirrors `missileAmmo`; gates `tryFire`,
+  refills on respawn/service); a jump state machine (`idle→spooling→cooldown`) on `dt`
+  (`onJumpIntent` arms/cancels, `tickJump` returns true the frame the spool fires,
+  `jumpTeleport` snaps home preserving HP/ammo); `serviceTick` heals + rearms over time.
+  `Mothership.serviceZoneContains` is the speed-gated proximity test (per launch-bay).
+- **Input:** `InputState.jumpPressed` is an EDGE (not a held bool); `InputManager`
+  edge-detects `KeyJ` (auto-repeat-guarded), `AIController` emits it from doctrine.
+- **Sensors:** a spooling ship returns `true` from `SensorSystem.detect` unconditionally
+  — the signature spike overrides nebula concealment, in the sim so Phase 2 replicates it.
+- **AI doctrine (`AIController`):** `caution`/`hpJumpFrac`/`ammoJumpFrac` rolled ONCE per
+  pilot from the seeded sim RNG (constructor body — fixed draw order vs. the harness);
+  `retreating` latches on low HP **or** ammo; `retreatMovement` docks (close) or flees
+  (far, cautious) / blazes (hotshot); `nearestSpoolingOpponent` drives "finish the runner".
+- **View:** `Game.advanceSim`'s per-combatant loop runs jump + service for every ship and
+  emits `jumpSpoolStarted`/`jumpFired`(carries from/to)/`jumpCancelled` on the `SimEventBus`;
+  `Game.wireSimEventFeedback` turns those into audio, HUD ring (`Hud.setJumpSpool`), radar
+  filling-ring (`Radar.plotSpoolRing`, both your marker and hostiles), camera snap
+  (`CameraRig.snapTo`), trail flush, and the `JumpFlash`/`JumpRipple` FX. Headless never
+  subscribes — the smoke harness mirrors the sim half only.
 
 ## CameraRig
 - Top-down with `(offsetY, -offsetZ)` from player position.

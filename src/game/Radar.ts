@@ -145,6 +145,16 @@ export class Radar {
           1,
           false,
         );
+        // A detected hostile charging its jump drive gets a filling ring —
+        // "how close is he to gone?" — the "kill the runner" telegraph
+        // (docs/JUMP-DRIVE-AND-RESUPPLY.md → Detection).
+        if (contact.ship.isSpoolingJump) {
+          this.plotSpoolRing(
+            contact.position.x - player.position.x,
+            contact.position.z - player.position.z,
+            contact.ship.jumpSpoolProgress,
+          );
+        }
       } else {
         const ageFrac = Math.min(1, (nowMs - contact.lastSeenMs) / memoryMs);
         this.plotDot(
@@ -166,6 +176,17 @@ export class Radar {
       this.plotMissile(missile, player);
     }
 
+    // Your OWN jump spool gets the same filling ring around the center marker
+    // (the clock both sides can read — here it's yours).
+    if (player.isSpoolingJump) {
+      this.plotSpoolRing(
+        0,
+        0,
+        player.jumpSpoolProgress,
+        GameConfig.radar.playerMarker + 4,
+      );
+    }
+
     // Player heading triangle at center, pointing along rotationY.
     this.drawPlayer(player.rotationY, player.faction);
   }
@@ -184,6 +205,36 @@ export class Radar {
       offEdge = true;
     }
     return { x: this.center + px, y: this.center + py, offEdge };
+  }
+
+  /**
+   * Filling ring around a spooling hostile's blip: a dim full ring (the
+   * track) plus a bright alarm-colored arc sweeping clockwise from 12 o'clock
+   * as the drive charges (0 → full at jump-fire). Both sides can read the
+   * clock, so this is the shared "he's about to be gone" telegraph.
+   */
+  private plotSpoolRing(
+    dx: number,
+    dz: number,
+    progress: number,
+    radius = GameConfig.radar.fighterBlip + 4,
+  ): void {
+    const { x, y } = this.project(dx, dz);
+    const ctx = this.ctx;
+    const r = radius;
+    const frac = Math.max(0, Math.min(1, progress));
+    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(243, 139, 168, 0.35)";
+    ctx.stroke();
+    const start = -Math.PI / 2; // 12 o'clock
+    ctx.beginPath();
+    ctx.arc(x, y, r, start, start + Math.PI * 2 * frac);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#f38ba8";
+    ctx.stroke();
   }
 
   /**

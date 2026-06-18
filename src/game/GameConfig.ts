@@ -68,6 +68,12 @@ const shipTypes = {
     laserDamage: 20,
     /** Heat-seeker rack size. */
     missileAmmo: 10,
+    /**
+     * Cannon magazine (laser rounds). ~240 ≈ 30s of sustained fire at the
+     * 120ms cycle — a disciplined pilot rarely empties it; a trigger-holder
+     * runs dry partway through an engagement (the anti-spam lever).
+     */
+    cannonAmmo: 240,
     /** X/Z collision radius (world units). */
     hitRadius: 1.2,
     fireSound: "playerGuns",
@@ -113,6 +119,8 @@ const shipTypes = {
     laserDamage: 34,
     /** Double rack for the strike role. */
     missileAmmo: 20,
+    /** Big drum for the gunship's sustained-fire role (~63s at the 150ms cycle). */
+    cannonAmmo: 420,
     /** Physically bigger ship, bigger capture circle. */
     hitRadius: 1.7,
     fireSound: "breakerLaser",
@@ -148,6 +156,11 @@ const shipTypes = {
     laserDamage: 20,
     /** No rack — guns and agility are the whole kit. */
     missileAmmo: 0,
+    /**
+     * Smaller drum than the Spitfire — a pure knife-fighter rewards burst
+     * discipline (~18s at its hot 100ms cycle). No missiles to fall back on.
+     */
+    cannonAmmo: 180,
     /** Slim airframe, hardest target in the catalog to hit. */
     hitRadius: 1.0,
     fireSound: "laserGun",
@@ -193,6 +206,8 @@ const shipTypes = {
     laserDamage: 38,
     /** Biggest rack in the game (matters when the player flies one). */
     missileAmmo: 24,
+    /** Biggest drum to match the barge role (~96s at its slow 200ms cycle). */
+    cannonAmmo: 480,
     /** Big scythe-winged silhouette, big capture circle. */
     hitRadius: 1.9,
     fireSound: "breakerLaser",
@@ -1292,6 +1307,144 @@ export const GameConfig = {
     playerRespawnDelayMs: 1500,
     /** Delay before a dead enemy ship comes back. */
     enemyRespawnDelayMs: 3000,
+  },
+
+  /**
+   * Jump drive + carrier resupply (docs/JUMP-DRIVE-AND-RESUPPLY.md). Cannon
+   * MAGAZINES are per ship type (shipTypes[*].cannonAmmo); the knobs here are
+   * the shared jump-drive and service-bubble tuning. Starter values — owner
+   * tunes later, these are not final balance.
+   */
+  jump: {
+    /**
+     * Spool-up before the teleport fires (ms). Matched 1:1 to the
+     * jump-drive.mp3 build-up so the audio IS the audible countdown. You can
+     * fly/fight/maneuver freely while spooling; enemy fire can't interrupt it.
+     */
+    spoolMs: 6000,
+    /**
+     * Drive recharge after EITHER a completed jump OR a cancel (ms). Gates
+     * re-arming — stops chain-jumping and makes a cancel cost something (no
+     * fake-jump baiting). Key is inert while cooling down.
+     */
+    cooldownMs: 12000,
+    /**
+     * Final commit window (ms before fire) during which a cancel is refused
+     * ("coordinates locked"). 0 disables the flourish.
+     */
+    commitMs: 1000,
+    /** Camera trauma kick when the player's jump fires (the "whoosh out" punch). */
+    arrivalTrauma: 0.35,
+
+    /**
+     * AI jump-out doctrine (AIController). A pilot rolls its OWN thresholds
+     * ONCE at spawn from the seeded sim RNG (never Math.random()), so a fleet
+     * never bugs out in unison — some pilots timid, some berserkers. A single
+     * 0..1 "caution" trait drives both the HP threshold and the survival-spool
+     * personality (flee vs. blaze of glory). Starter values — owner tunes.
+     */
+    doctrine: {
+      /** HP-fraction jump trigger at caution=0 (berserker waits until ~20%). */
+      hpFracMin: 0.2,
+      /** HP-fraction jump trigger at caution=1 (timid bugs out by ~45%). */
+      hpFracMax: 0.45,
+      /**
+       * Cannon-ammo-fraction trigger (late is fine — low ammo doesn't kill you
+       * during the no-interrupt spool; out of ammo = defenseless, so go home).
+       */
+      ammoFrac: 0.1,
+      /** Retreat latch RELEASES once serviced back up to this HP fraction. */
+      recoverHpFrac: 0.85,
+      /** …and this cannon-ammo fraction (so an ammo retreat actually rearms). */
+      recoverAmmoFrac: 0.6,
+      /**
+       * Range split: a ship needing service that's CLOSER than this to home
+       * flies in & docks (cheap, no telegraph); farther, it jumps. Mirrors
+       * optimal player play.
+       */
+      dockRange: 260,
+      /**
+       * caution ≥ this → FLEE during a survival spool (full throttle for open
+       * space, biased home, fire only opportunistically); below → blaze of
+       * glory (keep pressing the attack while the drive charges).
+       */
+      fleeCautionThreshold: 0.5,
+      /** How hard a fleeing ship biases toward home vs. straight away (0..1). */
+      homeFleeBias: 0.5,
+      /** A detected, spooling opponent within this range is pressed ("kill the runner"). */
+      finishRunnerRange: 400,
+    },
+  },
+
+  /**
+   * Carrier service bubble — ONE service (repair HP + refill cannon/missile
+   * ammo), reached by flying in & docking OR by jumping home. Loiter (slow
+   * down) inside a generous proximity bubble around your carrier's bow/bays
+   * and everything refills OVER TIME — not instant, not precise docking. The
+   * bow faces the enemy, so the bubble sits on the contested front.
+   */
+  service: {
+    /**
+     * Radius (world units) of the service bubble around each launch bay's
+     * staging point. Forgiving (no precise alignment) but tight enough that you
+     * have to nuzzle up to the bow/bays — the carrier hull is ~280 units long,
+     * so this should keep "docked" reading as "right at the carrier", not
+     * "anywhere in the neighborhood".
+     */
+    radius: 40,
+    /**
+     * Loiter gate: a ship faster than this (units/sec) is strafing past, not
+     * docking, and gets no service. Forces a real slow-down decision.
+     */
+    loiterMaxSpeed: 7,
+    /** HP healed per second while servicing. */
+    healPerSec: 30,
+    /** Cannon rounds refilled per second while servicing. */
+    cannonRefillPerSec: 140,
+    /** Missiles refilled per second while servicing. */
+    missileRefillPerSec: 4,
+  },
+
+  /**
+   * Jump-FX (view only — the BSG "FTL crack"). A white flash + an expanding
+   * shockwave ring play at BOTH the departure point and the arrival point of a
+   * jump (so it reads whether you watch a ship leave or appear). Spawned off
+   * the jumpFired SimEvent; never touches the sim. (JumpFlashSystem.)
+   */
+  jumpFx: {
+    /** Lifetime (ms) of the central flash "pop". */
+    durationMs: 420,
+    /** Flash sphere base radius (world units) before the peak scale-up. */
+    flashRadius: 4,
+    /** Flash peaks at this × base radius, then collapses (kept modest — the
+     *  shockwave is carried by the ripple distortion below, not a bright ball). */
+    flashPeakScale: 2.4,
+    /** Cool flash tint (>1 so a small core still punches through the bloom). */
+    flashColor: { r: 1.4, g: 1.7, b: 2.2 },
+
+    /**
+     * Shockwave RIPPLE — a screen-space refraction post-process (JumpRipple),
+     * not a mesh. A wavefront expands from the jump point and the area BEHIND
+     * it ripples and settles like a pond (it displaces the rendered scene, so
+     * stars/ships warp through it). Tuning is in aspect-corrected screen UV
+     * (center = 0.5,0.5; ~1.1 reaches the corners).
+     */
+    ripple: {
+      /** How long one ripple expands + settles (ms). Outlives the flash. */
+      durationMs: 850,
+      /** Wavefront radius at end of life (UV; ~1.1 covers the screen). */
+      maxRadius: 1.15,
+      /** Peak UV displacement (refraction strength) — fades over life. */
+      strength: 0.022,
+      /** Wavefront band thickness (UV) — the sharp leading edge. */
+      width: 0.04,
+      /** Ring density of the trailing pond ripples behind the front. */
+      frequency: 34,
+      /** How far behind the front (UV) the trailing ripples reach. */
+      trailLength: 0.4,
+      /** Subtle cool brightening right at the leading edge (0 = none). */
+      highlight: 0.35,
+    },
   },
 
   /**

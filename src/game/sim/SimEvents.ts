@@ -48,6 +48,23 @@ export interface SimEventMap {
   shipDied: { ship: Ship };
   /** A mothership fell — the match-ending death spectacle. */
   mothershipDied: { mothership: Mothership };
+  /** A ship armed its jump drive and began the spool-up countdown. */
+  jumpSpoolStarted: { ship: Ship };
+  /**
+   * A ship's jump drive fired — it teleported into its carrier's service
+   * bubble. Carries BOTH ends so the view can crack a flash where the ship
+   * left (from*) and where it arrived (to*); `ship.position` already holds the
+   * arrival point, but the pre-teleport spot is gone, so it rides the payload.
+   */
+  jumpFired: {
+    ship: Ship;
+    fromX: number;
+    fromZ: number;
+    toX: number;
+    toZ: number;
+  };
+  /** A ship aborted its jump spool (pays the drive cooldown). */
+  jumpCancelled: { ship: Ship };
   /** A rock shattered into chunks. */
   asteroidShattered: { position: Vector3; radius: number };
 }

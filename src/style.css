@@ -983,6 +983,55 @@ body {
   display: none;
 }
 
+/* Jump-drive spool ring — a circular gauge that FILLS as the player's drive
+   charges (0 at arm → full at the moment of jump-fire), with the remaining
+   seconds in the center. Driven per-frame by Hud.setJumpSpool from the ship's
+   jumpSpoolProgress. Bottom-center, clear of the combat focus. Cyan to read as
+   "system/utility", distinct from the red incoming-missile warning. */
+.jump-ring {
+  position: fixed;
+  left: 50%;
+  bottom: 13%;
+  transform: translateX(-50%);
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  /* The conic-gradient angle is set inline per frame (--spool). */
+  background: conic-gradient(
+    rgba(116, 199, 236, 0.85) var(--spool, 0deg),
+    rgba(116, 199, 236, 0.12) 0
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  user-select: none;
+  box-shadow: 0 0 24px 4px rgba(116, 199, 236, 0.4);
+}
+
+/* Inner disk punches a hole so the conic gradient reads as a RING, not a pie. */
+.jump-ring::before {
+  content: "";
+  position: absolute;
+  inset: 12px;
+  border-radius: 50%;
+  background: rgba(17, 17, 27, 0.92);
+}
+
+.jump-ring .jump-ring-text {
+  position: relative;
+  z-index: 1;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #cdd6f4;
+  text-shadow: 0 0 10px rgba(116, 199, 236, 0.8);
+}
+
+.jump-ring.hidden {
+  display: none;
+}
+
 /* ── Match settings (data-state="settings") ────────────────────────────── */
 /* SettingsMenu.ts renders the schema-driven tuning screen (TuningSchema.ts)
    into #settings — a full-splash overlay above the poster/panel columns.

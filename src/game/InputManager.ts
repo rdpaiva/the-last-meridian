@@ -20,9 +20,16 @@ export class InputManager {
     strafeRight: false,
     fire: false,
     fireMissile: false,
+    jumpPressed: false,
     zoomIn: false,
     zoomOut: false,
   };
+
+  /**
+   * Set on the keydown that FIRST presses the jump key (auto-repeat guarded),
+   * surfaced as the one-frame `jumpPressed` edge by update(), then cleared.
+   */
+  private jumpQueued = false;
 
   attach(): void {
     window.addEventListener("keydown", this.onKeyDown);
@@ -49,11 +56,20 @@ export class InputManager {
     this.state.zoomIn = this.held.has("Equal") || this.held.has("NumpadAdd");
     this.state.zoomOut =
       this.held.has("Minus") || this.held.has("NumpadSubtract");
+    // Jump is an EDGE (true for one frame on a fresh press), not a held bool —
+    // a toggle that arms or cancels the spool. Consume the queued press.
+    this.state.jumpPressed = this.jumpQueued;
+    this.jumpQueued = false;
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
     if (this.isGameKey(e.code)) {
       e.preventDefault();
+      // Edge-detect the jump key: queue only on the transition into held, so
+      // key auto-repeat doesn't re-arm/cancel the spool every repeat tick.
+      if (e.code === "KeyJ" && !this.held.has("KeyJ")) {
+        this.jumpQueued = true;
+      }
       this.held.add(e.code);
     }
   };
@@ -67,6 +83,7 @@ export class InputManager {
 
   private onBlur = (): void => {
     this.held.clear();
+    this.jumpQueued = false; // don't fire a stale jump when focus returns
   };
 
   private isGameKey(code: string): boolean {
@@ -89,6 +106,7 @@ export class InputManager {
       case "NumpadAdd":
       case "NumpadSubtract":
       case "KeyM":
+      case "KeyJ":
         return true;
       default:
         return false;

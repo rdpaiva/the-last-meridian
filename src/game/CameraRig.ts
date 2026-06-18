@@ -83,6 +83,24 @@ export class CameraRig {
     this.zoom = Math.max(GameConfig.camera.minZoom, value);
   }
 
+  /**
+   * Hard-snap the camera to a target position with no smoothing — used when
+   * the player jump-teleports (a position discontinuity; lerping `trackedTarget`
+   * across the map would streak the whole world by). Zeroes the lead filter so
+   * the first post-jump frame doesn't whip. Mirrors the respawn trail-flush.
+   */
+  snapTo(position: Vector3): void {
+    this.smoothedLeadVelocity.set(0, 0, 0);
+    this.desiredTarget.copyFrom(position);
+    this.trackedTarget.copyFrom(position);
+    this.camera.position.set(
+      position.x + this.offset.x * this.zoom,
+      position.y + this.offset.y * this.zoom,
+      position.z + this.offset.z * this.zoom,
+    );
+    this.camera.setTarget(this.trackedTarget);
+  }
+
   update(
     deltaSeconds: number,
     playerPosition: Vector3,

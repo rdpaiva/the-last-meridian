@@ -1,6 +1,6 @@
 import type { Ship } from "./sim/Ship";
-import type { LaserSystem } from "./sim/LaserSystem";
 import { FACTION_THEME } from "./Faction";
+import { GameConfig } from "./GameConfig";
 
 /**
  * Plain DOM debug HUD. DOM updates are throttled to 10 Hz — the HUD doesn't
@@ -17,8 +17,9 @@ export class Hud {
   private readonly hpEl: HTMLElement | null;
   private readonly posEl: Element | null;
   private readonly velEl: Element | null;
-  private readonly lasersEl: Element | null;
+  private readonly cannonEl: HTMLElement | null;
   private readonly missilesEl: HTMLElement | null;
+  private readonly dockEl: HTMLElement | null;
   private readonly lockEl: HTMLElement | null;
   private readonly sigEl: HTMLElement | null;
   private readonly warnEl: HTMLElement | null;
@@ -32,6 +33,10 @@ export class Hud {
   private readonly endBannerEl: HTMLElement | null;
 
   private readonly incomingOverlayEl: HTMLElement;
+  private readonly jumpRingEl: HTMLElement;
+  private readonly jumpRingTextEl: HTMLElement | null;
+  /** Last spool tenth written to the ring (write-on-change; per-frame). */
+  private lastJumpTenths = -1;
 
   private lastTextUpdateMs = 0;
   private lastOverlayText: string | null = null;
@@ -46,8 +51,9 @@ export class Hud {
       <div><span class="label">hp</span><span id="hud-hp">100 / 100</span></div>
       <div><span class="label">pos</span><span id="hud-pos">0.0, 0.0</span></div>
       <div><span class="label">vel</span><span id="hud-vel">0.0</span> u/s</div>
-      <div><span class="label">lasers</span><span id="hud-lasers">0</span></div>
+      <div><span class="label">cannon</span><span id="hud-cannon">0</span></div>
       <div><span class="label">missiles</span><span id="hud-missiles">0</span></div>
+      <div><span class="label">dock</span><span id="hud-dock">---</span></div>
       <div><span class="label">lock</span><span id="hud-lock">---</span></div>
       <div><span class="label">sig</span><span id="hud-sig">---</span></div>
       <div><span class="label">warn</span><span id="hud-warn">---</span></div>
@@ -59,8 +65,9 @@ export class Hud {
     this.hpEl = root.querySelector<HTMLElement>("#hud-hp");
     this.posEl = root.querySelector("#hud-pos");
     this.velEl = root.querySelector("#hud-vel");
-    this.lasersEl = root.querySelector("#hud-lasers");
+    this.cannonEl = root.querySelector<HTMLElement>("#hud-cannon");
     this.missilesEl = root.querySelector<HTMLElement>("#hud-missiles");
+    this.dockEl = root.querySelector<HTMLElement>("#hud-dock");
     this.lockEl = root.querySelector<HTMLElement>("#hud-lock");
     this.sigEl = root.querySelector<HTMLElement>("#hud-sig");
     this.warnEl = root.querySelector<HTMLElement>("#hud-warn");
@@ -79,6 +86,16 @@ export class Hud {
     incoming.className = "incoming-overlay";
     document.body.appendChild(incoming);
     this.incomingOverlayEl = incoming;
+
+    // Jump-drive spool ring — bottom-center gauge that fills as the player's
+    // drive charges. Driven per-frame (not 10Hz) by setJumpSpool.
+    const jumpRing = document.createElement("div");
+    jumpRing.id = "jump-ring";
+    jumpRing.className = "jump-ring hidden";
+    jumpRing.innerHTML = `<span class="jump-ring-text">JUMP</span>`;
+    document.body.appendChild(jumpRing);
+    this.jumpRingEl = jumpRing;
+    this.jumpRingTextEl = jumpRing.querySelector<HTMLElement>(".jump-ring-text");
 
     // Launch overlay lives outside the debug panel — it's fullscreen-centered.
     const overlay = document.createElement("div");
@@ -171,6 +188,59 @@ export class Hud {
     }
   }
 
+  /** Last dock state written (write-on-change; called every frame). */
+  private dockShown: "servicing" | "docked" | null = null;
+
+  /**
+   * Carrier-service cue: SERVICING (actively repairing/rearming, green),
+   * DOCKED (in the bubble but already full, dim green), or hidden. Called
+   * every frame from updateViews; only touches the DOM when the state flips.
+   */
+  setServiceStatus(state: "servicing" | "docked" | null): void {
+    if (state === this.dockShown) return;
+    this.dockShown = state;
+    if (!this.dockEl) return;
+    if (state === "servicing") {
+      this.dockEl.textContent = "SERVICING";
+      this.dockEl.style.color = "#a6e3a1";
+    } else if (state === "docked") {
+      this.dockEl.textContent = "DOCKED";
+      this.dockEl.style.color = "#74c7ec";
+    } else {
+      this.dockEl.textContent = "---";
+      this.dockEl.style.color = "#6c7086";
+    }
+  }
+
+  /**
+   * Drive the jump-drive spool ring. `progress` is 0→1 (arm→fire) while the
+   * player's drive is spooling, or null to hide it. Called every frame; only
+   * touches the DOM when the displayed tenth-of-a-second changes (the conic
+   * fill + countdown text move together). The countdown counts DOWN to the
+   * jump (the audio build-up is its audible companion).
+   */
+  setJumpSpool(progress: number | null): void {
+    if (progress === null) {
+      if (this.lastJumpTenths !== -1) {
+        this.lastJumpTenths = -1;
+        this.jumpRingEl.classList.add("hidden");
+      }
+      return;
+    }
+    const remainingSec = (1 - progress) * (GameConfig.jump.spoolMs / 1000);
+    const tenths = Math.ceil(remainingSec * 10);
+    if (tenths === this.lastJumpTenths) return;
+    if (this.lastJumpTenths === -1) this.jumpRingEl.classList.remove("hidden");
+    this.lastJumpTenths = tenths;
+    this.jumpRingEl.style.setProperty(
+      "--spool",
+      `${Math.round(progress * 360)}deg`,
+    );
+    if (this.jumpRingTextEl) {
+      this.jumpRingTextEl.textContent = (tenths / 10).toFixed(1);
+    }
+  }
+
   setMuted(muted: boolean): void {
     if (!this.sfxEl) return;
     this.sfxEl.textContent = muted ? "off" : "on";
@@ -204,7 +274,6 @@ export class Hud {
 
   update(
     player: Ship,
-    lasers: LaserSystem,
     nowMs: number,
     lockAvailable: boolean,
     zoom: number,
@@ -219,7 +288,9 @@ export class Hud {
 
     // HP with color cue.
     if (this.hpEl) {
-      this.hpEl.textContent = `${player.hp} / ${player.maxHp}`;
+      // hp can be fractional mid-service — show a whole number (ceil so a
+      // barely-alive ship never reads "0").
+      this.hpEl.textContent = `${Math.ceil(player.hp)} / ${player.maxHp}`;
       const frac = player.hp / player.maxHp;
       // Catppuccin Mocha-ish palette: green / yellow / red, plus dim while dead.
       let color = "#a6e3a1";
@@ -233,13 +304,27 @@ export class Hud {
       this.posEl.textContent = `${player.position.x.toFixed(1)}, ${player.position.z.toFixed(1)}`;
     }
     if (this.velEl) this.velEl.textContent = player.speed.toFixed(1);
-    if (this.lasersEl) this.lasersEl.textContent = String(lasers.count);
+
+    // Cannon ammo — the draining magazine that gates primary fire. Yellow
+    // while stocked, orange when low (<25%), dim red when empty (defenseless
+    // on cannons — go rearm at the carrier). The visible drain is part of the
+    // anti-spam mechanic (docs/JUMP-DRIVE-AND-RESUPPLY.md).
+    if (this.cannonEl) {
+      // floor: only WHOLE rounds are fireable, so don't advertise a partial.
+      this.cannonEl.textContent = `${Math.floor(player.cannonAmmo)} / ${player.maxCannonAmmo}`;
+      const frac =
+        player.maxCannonAmmo > 0 ? player.cannonAmmo / player.maxCannonAmmo : 0;
+      let color = "#f9e2af";
+      if (player.cannonAmmo <= 0) color = "#f38ba8";
+      else if (frac < 0.25) color = "#fab387";
+      this.cannonEl.style.color = color;
+    }
 
     // Missile ammo — dim once empty.
     if (this.missilesEl) {
-      this.missilesEl.textContent = String(player.missileAmmo);
+      this.missilesEl.textContent = String(Math.floor(player.missileAmmo));
       this.missilesEl.style.color =
-        player.missileAmmo > 0 ? "#f9e2af" : "#6c7086";
+        player.missileAmmo >= 1 ? "#f9e2af" : "#6c7086";
     }
 
     if (this.zoomEl) this.zoomEl.textContent = zoom.toFixed(2);
@@ -247,7 +332,7 @@ export class Hud {
     // Lock cue: green LOCK only when a lock is available AND we have a missile
     // to use it; otherwise a dim placeholder.
     if (this.lockEl) {
-      const canLock = lockAvailable && player.missileAmmo > 0;
+      const canLock = lockAvailable && player.missileAmmo >= 1;
       this.lockEl.textContent = canLock ? "LOCK" : "---";
       this.lockEl.style.color = canLock ? "#a6e3a1" : "#6c7086";
     }

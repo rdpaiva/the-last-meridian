@@ -169,6 +169,15 @@ export class SensorSystem {
 
   /** Can `faction` currently detect `target`? (One sweep's rules.) */
   private detect(faction: Faction, friendlies: Ship[], target: Ship): boolean {
+    // A spooling jump drive is a SIGNATURE SPIKE: it fully overrides nebula
+    // stealth AND ordinary range gating — charging the drive lights you up for
+    // the whole enemy faction, so a fleeing ship can't quietly bug out and the
+    // "kill the runner" telegraph is symmetric (docs/JUMP-DRIVE-AND-RESUPPLY.md
+    // → Detection). Lives here in the SIM so it rides Phase 2's sensor-filtered
+    // replication (a spooling enemy becomes visible through the SERVER's filter,
+    // not just client UI).
+    if (target.isSpoolingJump) return true;
+
     const cfg = GameConfig.sensors;
     const concealed = this.isConcealed(target.position);
     const tx = target.position.x;

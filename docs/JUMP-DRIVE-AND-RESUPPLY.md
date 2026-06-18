@@ -1,7 +1,49 @@
 # Jump Drive & Resupply — Design Notes
 
-> **Status:** design fully converged, not yet implemented — ready to build.
-> **Phase 1 only** — deployable jump gates are a later phase.
+> **Status:** Phase 1 **IMPLEMENTED** (2026-06-18) on `feat/phase0-smoke-harness`
+> — all six slices landed; typecheck + headless smoke green. See *Implementation
+> notes & deviations* below for where the build differs from this spec.
+> **Phase 1 only** — deployable jump gates (Phase 2) are still a later phase.
+
+---
+
+## Implementation notes & deviations (as built)
+
+The slices below were all built. A few things differ from the spec — recorded
+here so the doc matches the code:
+
+- **Detection audio.** The spec called for an RWR "rising whine" (reusing the
+  `MissileWarning` idiom) when you detect an enemy spool. That literally reused
+  the missile-warning blip and read as a *missile lock* — confusing. Replaced
+  with the enemy's **own jump-drive clip played spatially** at their position
+  (you hear their drive winding up, attenuating with distance; the trigger
+  "boom" lands where they vanish). The radar **filling-ring** is unchanged.
+- **Jump FX.** Implemented as a **BSG "FTL crack"**: a small cool flash plus a
+  **screen-space ripple post-process** (`JumpRipple`) that refracts the scene —
+  the wavefront expands and the area behind it ripples like a pond. Plays at
+  **both** ends (departure + arrival), so observers see a ship vanish and a
+  jumper sees itself arrive. New view files: `JumpFlash`, `JumpFlashSystem`,
+  `JumpRipple`. (The HUD countdown ring + camera snap/trail-flush are also in.)
+- **Player spool also shows on the radar** (a filling ring around your own
+  center marker), not just enemies — symmetric.
+- **Jump-drive sound lifecycle** is tracked **per ship** so a spool clip is cut
+  (quick fade) if the ship is destroyed *or* cancels mid-spool; a completed jump
+  is released to ring out (trigger + tail). See `SoundSystem.startJumpDrive` /
+  `stopJumpDrive` / `releaseJumpDrive`.
+- **Drive cooldown** (`GameConfig.jump.cooldownMs`) is **12s**; `spoolMs` 6000.
+  The state machine returns `cooldown → idle` when the timer expires (a ship can
+  jump again after it recharges).
+- **Magazines** (`shipTypes[*].cannonAmmo`): spitfire 240, breaker 420,
+  wraith 180, reaver 480. **Service** (`GameConfig.service`) radius tuned to 40
+  (measured per launch-bay), loiter gate 7 u/s.
+- **Config homes:** `GameConfig.jump` (spool/cooldown/commit/arrivalTrauma +
+  `doctrine` for the AI), `GameConfig.service`, `GameConfig.jumpFx` (flash +
+  `ripple`). AI thresholds roll once per pilot from the seeded sim RNG.
+- **Wingmen jump too** — they're `AIController`s, so the doctrine is symmetric;
+  they retreat/dock/jump to *your* carrier. There is currently **no separate
+  wing tuning** (shared `jump.doctrine`).
+- **Still pending (owner):** a CC0 attribution line for `jump-drive.mp3` in
+  `public/sounds/SOURCES.md` (the mp3 is present; agents don't author audio).
 
 ---
 
@@ -232,6 +274,79 @@
 - **Phase 2 (deferred):** **deployable jump gates** — a heavy ship deploys a forward
   jump node (a new mid-match entity system; the biggest novelty/risk). Framing it as
   diegetic "fielded technology" fits the realism lean better than a personal teleport.
+
+## Implementation / build order
+
+Build in **slices**, in order — each independently shippable and verifiable. Don't
+one-shot the whole feature. Build on `feat/phase0-smoke-harness`; respect the
+*Build on Phase 0* section (sim vs view vs input).
+
+**Cross-cutting rules (every slice):**
+- Run `npm run typecheck` + the headless smoke harness after each slice.
+- Sim changes that legitimately alter behavior (ammo runs dry, AI retreats) **will
+  shift the smoke baseline** — recapture it and sanity-check the new trace, don't just
+  bless the diff.
+- All new tunables live in `GameConfig`; numbers below are **starter values — owner
+  tunes later**, not final balance.
+- Schema/protocol work is **not** needed yet (no networking until Phase 1) — but the
+  Phase 1 ship schema already anticipates `ammo` + jump state.
+
+**Slice 0 — prereqs (`[human]`/owner):**
+- Confirm you're on `feat/phase0-smoke-harness`.
+- Drop `jump-drive.mp3` into `public/sounds/` + a CC0 line in `SOURCES.md` (agents
+  don't author/commit audio — this unblocks Slice 4).
+- Add a `GameConfig` section for the jump/ammo/service knobs.
+
+**Slice 1 — finite cannon ammo + HUD readout** (smallest, self-contained):
+- Sim: add `cannonAmmo` / `startCannonAmmo` to `Ship` (mirror `missileAmmo`); per-ship
+  magazine in `shipTypes`. Gate `tryFire()` on `> 0`, decrement on fire, refill on
+  respawn.
+- View: replace the HUD "bolts in flight" number with a **draining ammo readout** (dim
+  at empty).
+- Done: typecheck green; baseline recaptured (ships now run dry); eyeball — ammo drains
+  and the HUD shows it.
+- Starter: fighters ~240 rounds (~30s sustained), gunships ~400; wraith/pure-dogfighter
+  smaller. *(owner tunes)*
+
+**Slice 2 — carrier service bubble (repair + rearm):**
+- Sim (server-authoritative): proximity to own carrier bow/bays **+ loiter (speed gate)**
+  → heal HP + refill ammo over time. Reuse `Mothership` position/bay geometry (cheap
+  circle test).
+- View: a "DOCKED / SERVICING" HUD cue.
+- Done: fly in, slow down, HP + ammo refill over time.
+- Starter: bubble radius, heal rate (HP/s), refill rate (rounds/s) *(owner tunes)*.
+
+**Slice 3 — jump state machine + input toggle:**
+- Sim: jump state machine on `Ship` (idle → spooling(timer) → fired/cancelled) +
+  drive cooldown, **ticking on `dt`**; teleport to assigned bay at zero velocity
+  (respawn-style; reuse trail reset).
+- Input: `jumpPressed` edge intent on `InputState`; `LocalInputController` edge-detects
+  the toggle key (`J`). Tap = arm, tap again = cancel; inert during cooldown.
+- Done: press `J` → ~6s spool → teleport into the service bubble; second tap cancels;
+  cooldown gates re-arm.
+- Starter: `spoolMs` 6000 (match the audio), `cooldownMs` *(owner tunes)*.
+
+**Slice 4 — audio + jump FX (via `SimEventBus`):** *(needs Slice 0 mp3)*
+- Sim emits `jumpSpoolStarted` / `jumpFired` / `jumpCancelled`.
+- View: `jump-drive.mp3` (build = spool, trigger on teleport, 2s tail through arrival),
+  quick fade on cancel; HUD countdown ring; departure whoosh.
+- Done (`[human]` eyeball): build → trigger on teleport → tail; cancel fades; ring
+  counts down.
+
+**Slice 5 — detection signature + radar:**
+- Sim: `SensorSystem` signature spike while spooling, **overrides nebula concealment**.
+- View: radar **filling-ring** blip for detected spooling hostiles; RWR rising-whine
+  (reuse the `MissileWarning` idiom).
+- Done: a spooling enemy shows on radar even inside a nebula; RWR alerts.
+
+**Slice 6 — AI jump-out doctrine** (the meatiest; see *AI jump-out doctrine*):
+- `AIController`: OR trigger (low HP **or** low ammo), **per-ship thresholds rolled at
+  spawn from the harness's seeded RNG** (never `Math.random()`), jump-vs-dock range
+  split, survival-spool behavior by caution trait (flee vs blaze-of-glory), and the
+  "finish the runner" press on detected spoolers.
+- Done: baseline recaptured (AI now retreats/jumps — verify fights still resolve);
+  `[human]` eyeball — enemies bug out to resupply, some flee, some go down swinging.
+- Starter: HP ~35% (spread ~20–45%), ammo ~10% *(owner tunes)*.
 
 ## Considered but not adopted (or deferred)
 

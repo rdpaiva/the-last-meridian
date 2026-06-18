@@ -70,6 +70,8 @@ export class AIController implements ShipController {
     strafeRight: false,
     fire: false,
     fireMissile: false,
+    // Jump-out doctrine (Slice 6) sets this on its own frames; idle by default.
+    jumpPressed: false,
     zoomIn: false,
     zoomOut: false,
   };
@@ -173,6 +175,21 @@ export class AIController implements ShipController {
    */
   private lastCourse: number | null = null;
 
+  /**
+   * Jump-out doctrine, rolled ONCE per pilot at spawn from the seeded sim RNG
+   * (docs/JUMP-DRIVE-AND-RESUPPLY.md → AI jump-out doctrine). `caution` (0 =
+   * berserker, 1 = timid) drives the HP threshold AND the survival-spool
+   * personality. Drawn in the constructor body so the draw order is fixed and
+   * identical in the browser and the headless harness.
+   */
+  private readonly caution: number;
+  /** HP fraction at/below which this pilot commits to going home (from caution). */
+  private readonly hpJumpFrac: number;
+  /** Cannon-ammo fraction at/below which it commits to going home. */
+  private readonly ammoJumpFrac: number;
+  /** Latched once the pilot commits to RTB for service; released when serviced. */
+  private retreating = false;
+
   constructor(opts: AIControllerOptions = {}) {
     this.order = opts.order ?? "patrol";
     this.slot = opts.slot ?? { x: 0, z: 0 };
@@ -183,6 +200,11 @@ export class AIController implements ShipController {
       this.slot.x !== 0 || this.slot.z !== 0
         ? this.slot
         : { x: 0, z: -GameConfig.ai.huntEscortDistance };
+
+    const d = GameConfig.jump.doctrine;
+    this.caution = simRandom();
+    this.hpJumpFrac = d.hpFracMin + (d.hpFracMax - d.hpFracMin) * this.caution;
+    this.ammoJumpFrac = d.ammoFrac;
   }
 
   /** The pilot's current standing order (FleetCommander reads before re-tasking). */
@@ -215,6 +237,7 @@ export class AIController implements ShipController {
     out.strafeRight = false;
     out.fire = false;
     out.fireMissile = false;
+    out.jumpPressed = false;
     this.missileTarget = null;
     // zoom stays false for AI.
 
@@ -393,6 +416,41 @@ export class AIController implements ShipController {
       }
     }
 
+    // --- Jump-out doctrine (docs/JUMP-DRIVE-AND-RESUPPLY.md) ---
+    // Commit to going home for service on low HP OR low ammo; arm the drive
+    // when far (this frame's edge press), or dock when close. While retreating,
+    // movement is overridden per personality (cautious flee / hotshot blaze);
+    // otherwise, peel off to press a detected, spooling RUNNER.
+    if (this.thinkRetreat(self, world)) {
+      out.jumpPressed = true; // EDGE: arm the spool (never re-pressed mid-spool)
+    }
+    if (this.retreating) {
+      const r = this.retreatMovement(self, world);
+      if (r) {
+        steerHeading = r.heading;
+        thrust = r.thrust;
+        reverse = r.reverse;
+        strafeDir = r.strafeDir;
+        aim = r.aim;
+        fireRange = cfg.fireRange;
+      }
+      // r === null = a hotshot's blaze-of-glory spool: keep the attack plan.
+    } else {
+      const runner = this.nearestSpoolingOpponent(
+        self,
+        world,
+        GameConfig.jump.doctrine.finishRunnerRange,
+      );
+      if (runner) {
+        steerHeading = this.headingTo(self, runner.position.x, runner.position.z);
+        aim = runner;
+        thrust = true;
+        reverse = false;
+        strafeDir = 0;
+        fireRange = cfg.fireRange;
+      }
+    }
+
     // Asteroid avoidance overrides every order's COMMANDS: a pilot about to
     // fly into a rock steers for the clearing tangent, thrusts along it, and
     // strafes away — then resumes its order once past. It must own the
@@ -446,7 +504,7 @@ export class AIController implements ShipController {
     // doctrine gates live in findMissileShot/carrierMissileShot — see the
     // GameConfig.ai "Missiles" block for the full policy.
     this.missileTimerSec -= deltaSeconds;
-    if (self.missileAmmo > 0 && this.missileTimerSec <= 0) {
+    if (self.missileAmmo >= 1 && this.missileTimerSec <= 0) {
       const shot = this.findMissileShot(self, world);
       if (shot) {
         out.fireMissile = true;
@@ -851,6 +909,143 @@ export class AIController implements ShipController {
       }
     }
     return best;
+  }
+
+  // ─── Jump-out doctrine ──────────────────────────────────────────────────────
+
+  /**
+   * Decide whether to commit to (or stay committed to) going home for service,
+   * and whether to ARM a jump THIS frame. Trigger is OR — low HP *or* low ammo
+   * — latched so a pilot doesn't flip-flop at the threshold (releases only once
+   * serviced back up). Returns true on the single frame the drive should arm:
+   * only when far from home (close ships dock instead) and the drive is idle +
+   * off cooldown. Never returns true mid-spool (the AI commits, never cancels).
+   */
+  private thinkRetreat(self: Ship, world: ControllerWorld): boolean {
+    const d = GameConfig.jump.doctrine;
+    const hpFrac = self.hp / self.maxHp;
+    const ammoFrac =
+      self.maxCannonAmmo > 0 ? self.cannonAmmo / self.maxCannonAmmo : 1;
+
+    if (!this.retreating) {
+      if (hpFrac <= this.hpJumpFrac || ammoFrac <= this.ammoJumpFrac) {
+        this.retreating = true;
+      }
+    } else if (hpFrac >= d.recoverHpFrac && ammoFrac >= d.recoverAmmoFrac) {
+      this.retreating = false;
+    }
+
+    if (!this.retreating || self.isSpoolingJump) return false;
+    const home = world.homeMothership;
+    if (!home || !home.isAlive) return false;
+    const dist = Math.hypot(
+      self.position.x - home.position.x,
+      self.position.z - home.position.z,
+    );
+    return (
+      dist > d.dockRange && self.jumpState === "idle" && !self.isJumpOnCooldown
+    );
+  }
+
+  /**
+   * Movement override for a retreating pilot. Returns null to KEEP the normal
+   * attack plan (a hotshot's blaze-of-glory spool). Otherwise:
+   *   - close to home → DOCK: fly to the bow service bubble, brake to loiter so
+   *     the carrier services it (the existing speed-gated refuel).
+   *   - far + cautious → FLEE: full throttle away from the nearest threat,
+   *     biased toward home, firing only opportunistically.
+   */
+  private retreatMovement(
+    self: Ship,
+    world: ControllerWorld,
+  ): {
+    heading: number;
+    thrust: boolean;
+    reverse: boolean;
+    strafeDir: number;
+    aim: AimTarget | null;
+  } | null {
+    const d = GameConfig.jump.doctrine;
+    const home = world.homeMothership;
+    if (!home || !home.isAlive) return null;
+
+    // Opportunistic gun target — fire only if one happens to line up.
+    const oppo = this.nearestLiveOpponent(self, world, GameConfig.ai.fireRange);
+
+    const dist = Math.hypot(
+      self.position.x - home.position.x,
+      self.position.z - home.position.z,
+    );
+
+    if (dist <= d.dockRange) {
+      // DOCK: steer for the bow bay (inside the service bubble, clear of the
+      // hull center) and brake once there so the loiter gate refuels us.
+      const bay = home.getLaunchStartPosition(0);
+      const toBay = Math.hypot(
+        self.position.x - bay.x,
+        self.position.z - bay.z,
+      );
+      const inBubble = toBay <= GameConfig.service.radius * 0.6;
+      return {
+        heading: this.headingTo(self, bay.x, bay.z),
+        thrust: !inBubble,
+        reverse: inBubble && self.speed > GameConfig.service.loiterMaxSpeed,
+        strafeDir: 0,
+        aim: oppo,
+      };
+    }
+
+    // FAR. A hotshot keeps swinging while it spools — leave the attack plan.
+    const cautious = this.caution >= d.fleeCautionThreshold;
+    if (self.isSpoolingJump && !cautious) return null;
+
+    // Cautious flee (and the approach before the spool arms): break weapons
+    // range, biased home toward open space.
+    const threat = this.nearestLiveOpponent(self, world, Infinity);
+    let heading: number;
+    if (threat) {
+      const awayH = Math.atan2(
+        self.position.x - threat.position.x,
+        self.position.z - threat.position.z,
+      );
+      const homeH = this.headingTo(self, home.position.x, home.position.z);
+      heading = this.blendHeading(awayH, homeH, d.homeFleeBias);
+    } else {
+      heading = this.headingTo(self, home.position.x, home.position.z);
+    }
+    return { heading, thrust: true, reverse: false, strafeDir: 0, aim: oppo };
+  }
+
+  /**
+   * Nearest DETECTED opponent that is spooling a jump within `maxRange` — the
+   * "kill the runner" target. Only fresh tracks (the signature spike makes a
+   * spooling ship visible even in a nebula, so this still works through cover).
+   */
+  private nearestSpoolingOpponent(
+    self: Ship,
+    world: ControllerWorld,
+    maxRange: number,
+  ): SensorContact | null {
+    let best: SensorContact | null = null;
+    let bestSq = maxRange * maxRange;
+    for (const o of world.opponents) {
+      if (!o.isAlive || !o.fresh || !o.ship.isSpoolingJump) continue;
+      const dx = o.position.x - self.position.x;
+      const dz = o.position.z - self.position.z;
+      const dSq = dx * dx + dz * dz;
+      if (dSq < bestSq) {
+        bestSq = dSq;
+        best = o;
+      }
+    }
+    return best;
+  }
+
+  /** Blend two headings (radians) by `t` (0 = a, 1 = b) via unit-vector lerp. */
+  private blendHeading(a: number, b: number, t: number): number {
+    const x = Math.sin(a) * (1 - t) + Math.sin(b) * t;
+    const z = Math.cos(a) * (1 - t) + Math.cos(b) * t;
+    return Math.atan2(x, z);
   }
 
   /** Advance the wander timer and return the current leashed wander heading. */

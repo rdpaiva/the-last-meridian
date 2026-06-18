@@ -39,6 +39,8 @@ import { Nebulas } from "./Nebulas";
 import { CombatNebulas } from "./CombatNebulas";
 import { Backdrop } from "./Backdrop";
 import { ExplosionSystem } from "./ExplosionSystem";
+import { JumpFlashSystem } from "./JumpFlashSystem";
+import { JumpRipple } from "./JumpRipple";
 import { SoundSystem } from "./SoundSystem";
 import { MusicSystem } from "./MusicSystem";
 import { DamageFlash } from "./DamageFlash";
@@ -120,6 +122,8 @@ export class Game {
   private readonly arena: Arena;
   private readonly asteroids: AsteroidField;
   private readonly explosions: ExplosionSystem;
+  private readonly jumpFlashes: JumpFlashSystem;
+  private readonly jumpRipple: JumpRipple;
   private readonly sound: SoundSystem;
   /**
    * Sim→view event channel. Sim sites EMIT facts; the client-side feedback
@@ -219,6 +223,8 @@ export class Game {
   private playerKills = 0;
   private wingKills = 0;
   private score = 0;
+  /** Player's carrier-service state this frame (HUD cue); null = not docked. */
+  private playerServiceState: "servicing" | "docked" | null = null;
   private bestScore = 0;
 
   /**
@@ -454,6 +460,7 @@ export class Game {
     };
 
     this.explosions = new ExplosionSystem(this.scene, this.glowLayer);
+    this.jumpFlashes = new JumpFlashSystem(this.scene, this.glowLayer);
 
     // A rock shattered — the feedback (explosion + sound + trauma) is depicted
     // by the asteroidShattered listener.
@@ -469,6 +476,9 @@ export class Game {
     // clone the player's loaded ship.
 
     this.cameraRig = new CameraRig(this.scene);
+    // Jump shockwave refraction — needs the camera, so it's built after the rig
+    // (the jumpFired handler wired above reads it lazily, only at jump time).
+    this.jumpRipple = new JumpRipple(this.scene, this.cameraRig.camera);
     // Self-registers with the scene (like Nebulas/CapitalShips) — no handle kept.
     this.buildPostPipeline();
     this.starfield = new Starfield(this.scene, this.cameraRig.camera);
@@ -599,6 +609,7 @@ export class Game {
       maxHp: playerType.maxHp,
       respawnDelayMs: GameConfig.combat.playerRespawnDelayMs,
       startMissileAmmo: playerType.missileAmmo,
+      startCannonAmmo: playerType.cannonAmmo,
       movement: playerType,
       laserDamage: playerType.laserDamage,
       hitRadius: playerType.hitRadius,
@@ -635,6 +646,7 @@ export class Game {
           maxHp: playerType.maxHp,
           respawnDelayMs: GameConfig.combat.enemyRespawnDelayMs,
           startMissileAmmo: playerType.missileAmmo,
+          startCannonAmmo: playerType.cannonAmmo,
           movement: playerType,
           laserDamage: playerType.laserDamage,
           hitRadius: playerType.hitRadius,
@@ -871,6 +883,9 @@ export class Game {
     // Ship death: explosion + sound + (distance-scaled for AI) trauma/hitstop.
     this.events.on("shipDied", ({ ship }) => {
       const isPlayer = ship === this.playerShip;
+      // Destroyed mid-spool: cut its jump-drive clip (no-op if it wasn't
+      // spooling — a ship that already jumped was released and rings out).
+      this.sound.stopJumpDrive(ship);
       this.explosions.spawn(ship.position);
       this.sound.playExplosion(ship.position);
       this.cameraRig.addTrauma(
@@ -900,6 +915,43 @@ export class Game {
       this.sound.playExplosion(center);
       this.cameraRig.addTrauma(cfg.deathTrauma);
       this.applyHitstop(cfg.deathHitstopMs);
+    });
+
+    // Jump drive. The PLAYER's own drive sound is the 8s clip (build = spool,
+    // trigger on teleport, 2s tail = whoosh); a cancel fades it. On a completed
+    // jump the trails are flushed so no streak follows the teleport across the
+    // map, and the player's camera hard-snaps to the arrival point. (The RWR
+    // whine + radar ring for DETECTING an enemy spool are the detection slice.)
+    this.events.on("jumpSpoolStarted", ({ ship }) => {
+      // Your own drive is full-volume at the listener; everyone else's winds up
+      // spatially (the "runner charging" telegraph — distinct from the RWR).
+      this.sound.startJumpDrive(
+        ship,
+        ship === this.playerShip ? null : ship.position,
+      );
+    });
+    this.events.on("jumpCancelled", ({ ship }) => {
+      this.sound.stopJumpDrive(ship);
+    });
+    this.events.on("jumpFired", ({ ship, fromX, fromZ, toX, toZ }) => {
+      // BSG "FTL crack" at BOTH ends — where the ship left and where it
+      // arrived — so it reads whether you watch a ship vanish or appear.
+      const y = ship.position.y;
+      const fromPos = new Vector3(fromX, y, fromZ);
+      const toPos = new Vector3(toX, y, toZ);
+      this.jumpFlashes.spawn(fromPos);
+      this.jumpFlashes.spawn(toPos);
+      this.jumpRipple.spawn(fromPos);
+      this.jumpRipple.spawn(toPos);
+      // Completed jump: let the drive ring out (trigger hit + departure tail).
+      this.sound.releaseJumpDrive(ship);
+      if (ship === this.playerShip) {
+        this.engineGlow?.resetTrails();
+        this.cameraRig.snapTo(ship.position);
+        this.cameraRig.addTrauma(GameConfig.jump.arrivalTrauma);
+      } else {
+        this.aiVisuals.get(ship)?.glow?.resetTrails();
+      }
     });
 
     // Rock shatter: explosion + sound + trauma scaled by distance AND size.
@@ -1405,6 +1457,53 @@ export class Game {
           this.events.emit("missileFired", { ship });
         }
       }
+
+      // Jump drive: a key edge (player) or the AI jump-out doctrine arms or
+      // cancels the spool; completing it teleports the ship home into its
+      // service bubble at zero velocity (docs/JUMP-DRIVE-AND-RESUPPLY.md).
+      if (ship.isAlive) {
+        if (input.jumpPressed) {
+          const ev = ship.onJumpIntent();
+          if (ev === "spool-started") {
+            this.events.emit("jumpSpoolStarted", { ship });
+          } else if (ev === "spool-cancelled") {
+            this.events.emit("jumpCancelled", { ship });
+          }
+        }
+        if (ship.tickJump(deltaSeconds)) {
+          const home = this.motherships[ship.faction];
+          if (home.isAlive) {
+            const fromX = ship.position.x;
+            const fromZ = ship.position.z;
+            const bay = home.getLaunchStartPosition(c.bayIndex);
+            ship.jumpTeleport(bay.x, bay.z, home.rotationY);
+            this.events.emit("jumpFired", {
+              ship,
+              fromX,
+              fromZ,
+              toX: ship.position.x,
+              toZ: ship.position.z,
+            });
+          }
+        }
+      }
+
+      // Carrier service: a ship loitering (slowed below loiterMaxSpeed) inside
+      // its OWN carrier's service bubble repairs + rearms over time. The same
+      // service a jump arrival drops into (docs/JUMP-DRIVE-AND-RESUPPLY.md).
+      if (ship.isAlive) {
+        const home = this.motherships[ship.faction];
+        const docked =
+          home.isAlive &&
+          ship.speed <= GameConfig.service.loiterMaxSpeed &&
+          home.serviceZoneContains(ship.position.x, ship.position.z);
+        const state: "servicing" | "docked" | null = docked
+          ? ship.serviceTick(deltaSeconds)
+            ? "servicing"
+            : "docked"
+          : null;
+        if (isPlayer) this.playerServiceState = state;
+      }
     }
 
     // Ships that rammed a rock this frame: hard-bump them off it + damage.
@@ -1498,6 +1597,11 @@ export class Game {
     // Explosions animate through the end screen (so the death spectacle plays
     // out) but pause during hitstop, like the rest of the sim.
     if (!inHitstop) this.explosions.update(deltaSeconds, deltaMs);
+    // Jump cracks ride the same hitstop gate as explosions.
+    if (!inHitstop) this.jumpFlashes.update(deltaMs);
+    // The shockwave refraction animates THROUGH hitstop (like camera shake —
+    // it's a screen distortion, not a simulated object).
+    this.jumpRipple.update(deltaMs);
 
     // --- Animations that continue THROUGH hitstop ---
     if (this.playerShip && this.playerShip.isAlive) {
@@ -1573,7 +1677,6 @@ export class Game {
           : "untracked";
       this.hud.update(
         this.playerShip,
-        this.factionLasers[this.playerFaction],
         nowMs,
         this.lockTarget !== null,
         this.cameraRig.currentZoom,
@@ -1582,6 +1685,10 @@ export class Game {
         this.wingKills,
         this.score,
         this.bestScore,
+      );
+      this.hud.setServiceStatus(this.playerServiceState);
+      this.hud.setJumpSpool(
+        this.playerShip.isSpoolingJump ? this.playerShip.jumpSpoolProgress : null,
       );
     }
     this.hud.setMothershipHp(
@@ -1745,6 +1852,7 @@ export class Game {
       maxHp: type.maxHp,
       respawnDelayMs: GameConfig.combat.enemyRespawnDelayMs,
       startMissileAmmo: type.missileAmmo,
+      startCannonAmmo: type.cannonAmmo,
       movement: type,
       laserDamage: type.laserDamage,
       hitRadius: type.hitRadius,

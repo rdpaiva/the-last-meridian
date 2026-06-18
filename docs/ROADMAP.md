@@ -393,8 +393,30 @@ and explicitly skipped. Update this when you finish or start work.
 ### HUD
 - Plain DOM HUD throttled to 10 Hz
 - HP readout with color cue (green/yellow/red/dimmed-on-death)
-- Position, velocity, laser count, model label (fallback or fighter.glb)
+- Position, velocity, **draining cannon-ammo gauge**, missiles, **DOCKED/SERVICING** cue
+- **Jump spool ring** (DOM countdown ring) + per-frame border/incoming cues
 - `setLaunchOverlay(text)` — fullscreen countdown overlay during launch sequence
+
+### Jump Drive & Resupply (Phase 1, 2026-06-18)
+Full design + as-built notes: `docs/JUMP-DRIVE-AND-RESUPPLY.md`. Built in 6 slices
+on `feat/phase0-smoke-harness`, sim/view-split-clean.
+- **Finite cannon ammo** per ship type (`shipTypes[*].cannonAmmo`); no regen — empty =
+  defenseless on guns; HUD shows the draining drum
+- **Carrier service bubble**: loiter (speed-gated) near your carrier's bow/bays → repair
+  HP + refill cannon/missile ammo over time (`Mothership.serviceZoneContains` +
+  `Ship.serviceTick`)
+- **Jump drive** (`J` toggle): ~6s spool → teleport into your service bubble at zero
+  velocity; cancel (pays cooldown); 12s drive cooldown. Sim state machine on `Ship`,
+  ticking on `dt`; `jumpPressed` edge on `InputState`
+- **Detection**: spooling = a `SensorSystem` signature spike that overrides nebula
+  stealth (sim, so it rides Phase 2 replication); radar filling-ring; spatial drive sound
+- **FX**: BSG "FTL crack" — flash + screen-space ripple refraction at both ends
+  (`JumpFlash`/`JumpFlashSystem`/`JumpRipple`)
+- **AI doctrine**: per-pilot thresholds rolled from the seeded RNG; retreat on low HP
+  *or* ammo; dock-when-close / jump-when-far; cautious flee vs hotshot blaze; "finish the
+  runner" press. Wingmen included (symmetric). Smoke baseline recaptured (fewer deaths —
+  ships retreat instead of dying)
+- _Pending (owner):_ CC0 attribution line for `jump-drive.mp3` in `SOURCES.md`
 
 ### Asset pipeline
 - `AssetLoader` with GLB import → procedural fallback ship

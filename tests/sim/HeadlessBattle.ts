@@ -462,6 +462,34 @@ export class HeadlessBattle {
             );
           }
         }
+
+        // Jump drive: arm/cancel on the input edge, teleport home on spool
+        // completion. Mirrors Game.advanceSim (AI sets jumpPressed in Slice 6;
+        // the stand-in/wing/enemy never press it until then, so this is a
+        // no-op for the current baseline).
+        if (ship.isAlive) {
+          if (input.jumpPressed) ship.onJumpIntent();
+          if (ship.tickJump(dtSeconds)) {
+            const home = this.motherships[ship.faction];
+            if (home.isAlive) {
+              const bay = home.getLaunchStartPosition(c.bayIndex);
+              ship.jumpTeleport(bay.x, bay.z, home.rotationY);
+            }
+          }
+        }
+
+        // Carrier service: loiter (slow) inside the home carrier's bubble →
+        // repair + rearm over time. Mirrors Game.advanceSim exactly.
+        if (ship.isAlive) {
+          const home = this.motherships[ship.faction];
+          if (
+            home.isAlive &&
+            ship.speed <= GameConfig.service.loiterMaxSpeed &&
+            home.serviceZoneContains(ship.position.x, ship.position.z)
+          ) {
+            ship.serviceTick(dtSeconds);
+          }
+        }
       }
 
       this.resolveAsteroidCollisions(nowMs);
@@ -656,6 +684,7 @@ export class HeadlessBattle {
       maxHp: type.maxHp,
       respawnDelayMs: opts.respawnDelayMs,
       startMissileAmmo: type.missileAmmo,
+      startCannonAmmo: type.cannonAmmo,
       movement: type,
       laserDamage: type.laserDamage,
       hitRadius: type.hitRadius,
