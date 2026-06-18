@@ -50,8 +50,13 @@ export class HulkView {
     this.root.scaling.setAll(sim.scale);
 
     const mat = new StandardMaterial(`hulk_${sim.source}_dead_mat`, scene);
-    mat.diffuseColor = new Color3(0.12, 0.12, 0.14);
-    mat.specularColor = new Color3(0.02, 0.02, 0.03);
+    // Mid-grey matte metal so the placeholder reads as a SOLID hull, not a void
+    // hole. A faint emissive floor keeps it from going pure-black in shadow
+    // (it's not added to the GlowLayer, so it doesn't bloom). The real wreck GLB
+    // (applyModel) replaces these blocks entirely.
+    mat.diffuseColor = new Color3(0.28, 0.29, 0.32);
+    mat.specularColor = new Color3(0.06, 0.06, 0.08);
+    mat.emissiveColor = new Color3(0.04, 0.04, 0.05);
 
     const height = 18;
     const rects = GameConfig.mothership.hullRects[sim.source];

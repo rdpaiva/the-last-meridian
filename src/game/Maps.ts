@@ -147,10 +147,11 @@ export const MAPS: Record<ConcreteMapId, MapConfig> = {
       { xFrac: -0.42, zFrac: 0.28, radius: 55 },
       { xFrac: 0.42, zFrac: -0.28, radius: 55 },
     ],
-    // One large derelict (the dead Novari Choirship "Silent Choir") adrift
-    // dead-center — a slowly-spinning circular hazard both fleets flank around.
-    // scale > 1 gives it presence as the map's landmark.
-    hazards: [{ kind: "hulk", source: "machines", x: 0, z: 0, rotationY: 0, scale: 1.1 }],
+    // A dead Novari Choirship adrift dead-center — a slowly-spinning hazard
+    // both fleets flank around. scale 0.5 = ~half a carrier: a substantial
+    // landmark that's still navigable within the combat zoom (tune to taste;
+    // 1.0 = full carrier size).
+    hazards: [{ kind: "hulk", source: "machines", x: 0, z: 0, rotationY: 0, scale: 0.5 }],
   },
 };
 
