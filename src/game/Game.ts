@@ -492,11 +492,13 @@ export class Game {
     this.factionLaserViews = {
       humans: new LaserSystemView(this.scene, humansLasers, {
         emissive: FACTION_THEME.humans.laserEmissive,
+        heavyEmissive: FACTION_THEME.humans.laserHeavyEmissive,
         materialName: FACTION_THEME.humans.laserMaterialName,
         turretEmissive: turretBoltEmissive,
       }),
       machines: new LaserSystemView(this.scene, machinesLasers, {
         emissive: FACTION_THEME.machines.laserEmissive,
+        heavyEmissive: FACTION_THEME.machines.laserHeavyEmissive,
         materialName: FACTION_THEME.machines.laserMaterialName,
         turretEmissive: turretBoltEmissive,
       }),
@@ -697,6 +699,7 @@ export class Game {
       hitRadius: playerType.hitRadius,
       muzzles: markers.muzzles.length > 0 ? markers.muzzles : undefined,
       fireSound: playerType.fireSound,
+      heavy: playerType.heavy,
     });
 
     // Player-side AI wingmen (Phase 5): real fighters like the player, each
@@ -731,6 +734,7 @@ export class Game {
           hitRadius: playerType.hitRadius,
           muzzles: markers.muzzles.length > 0 ? markers.muzzles : undefined,
           fireSound: playerType.fireSound,
+          heavy: playerType.heavy,
         });
         // Each wingman gets its own engine glow + RCS plumes on its outer root,
         // so it reads as a real fighter under thrust instead of floating. Driven
@@ -2149,6 +2153,7 @@ export class Game {
       laserDamage: type.laserDamage,
       hitRadius: type.hitRadius,
       fireSound: type.fireSound,
+      heavy: type.heavy,
     });
     return { ship, view: new ShipView(root) };
   }

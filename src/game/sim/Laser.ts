@@ -47,6 +47,13 @@ export class Laser {
      * the carrier's battery reads distinct from the faction fighter lasers.
      */
     readonly turret: boolean = false,
+    /**
+     * True if the shooter is a HEAVY craft (gunship). Pure VIEW hint (sim
+     * treats it like any other bolt): LaserSystemView tints heavy bolts with
+     * the faction's heavy-laser color so a gunship's fire reads distinct from a
+     * light fighter's. Derived from the shooter at spawn.
+     */
+    readonly heavy: boolean = false,
   ) {}
 
   update(deltaSeconds: number, deltaMs: number): void {

@@ -49,6 +49,12 @@ export interface ShipTypeConfig extends ShipMovementConfig {
   hitRadius: number;
   /** Audio cue when this ship fires its primary guns. */
   fireSound: FireSoundKey;
+  /**
+   * True for HEAVY craft (gunships — Breaker/Reaver). Pure VIEW hint: its bolts
+   * are tinted with the faction's heavy-laser color so a gunship's fire reads
+   * distinct from a light fighter's. No sim effect.
+   */
+  heavy: boolean;
 }
 
 export interface ShipOptions {
@@ -78,6 +84,9 @@ export interface ShipOptions {
   muzzles?: ReadonlyArray<{ x: number; y: number; z: number }>;
   /** Sound played when this ship fires. Maps ship type to audio cue. */
   fireSound: FireSoundKey;
+  /** Heavy (gunship) class — tints this ship's bolts with the faction's heavy
+   *  laser color. View hint only; defaults to false (light fighter). */
+  heavy?: boolean;
 }
 
 /**
@@ -126,6 +135,9 @@ export class Ship implements DamageTarget, ShipPose {
   readonly hitRadius: number;
   /** Damage each laser bolt this ship fires carries (per-type knob). */
   readonly laserDamage: number;
+  /** Heavy (gunship) class — its bolts are tinted with the faction's heavy
+   *  laser color (LaserSystemView). View hint only; no sim effect. */
+  readonly heavy: boolean;
 
   /**
    * DEBUG/test cheats (client-only — the player's god-mode toggle, see
@@ -200,6 +212,7 @@ export class Ship implements DamageTarget, ShipPose {
     this.hp = opts.maxHp;
     this.hitRadius = opts.hitRadius ?? GameConfig.combat.shipHitRadius;
     this.laserDamage = opts.laserDamage ?? GameConfig.combat.laserDamage;
+    this.heavy = opts.heavy ?? false;
     this.respawnDelayMs = opts.respawnDelayMs;
     this.startMissileAmmo = opts.startMissileAmmo;
     this.missileAmmo = opts.startMissileAmmo;

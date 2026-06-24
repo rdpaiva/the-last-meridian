@@ -143,7 +143,18 @@ export class LaserSystem {
     );
 
     this.lasers.push(
-      new Laser(position, velocity, cfg.lifetimeMs, rotationY, shooter, damage ?? this.damage, turret),
+      new Laser(
+        position,
+        velocity,
+        cfg.lifetimeMs,
+        rotationY,
+        shooter,
+        damage ?? this.damage,
+        turret,
+        // Heavy (gunship) bolts get the faction's heavy-laser tint. Turret flak
+        // has no shooter, so it stays on the turret material regardless.
+        shooter?.heavy ?? false,
+      ),
     );
   }
 

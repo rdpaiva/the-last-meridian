@@ -21,6 +21,12 @@ export type LaserSystemViewOptions = {
    * turret bolts the same as ship bolts.
    */
   turretEmissive?: Color3;
+  /**
+   * Emissive RGB for HEAVY (gunship) bolts (Laser.heavy === true) — the
+   * faction's heavy-laser tint, so a Breaker/Reaver's fire reads distinct from
+   * a light fighter's. Omit to tint heavy bolts the same as light ship bolts.
+   */
+  heavyEmissive?: Color3;
 };
 
 /**
@@ -44,6 +50,12 @@ export class LaserSystemView {
    * once and assigned per-mesh each frame by the bolt's `turret` flag.
    */
   private readonly turretMaterial: StandardMaterial | null;
+  /**
+   * Second material for heavy (gunship) bolts, or null when no heavyEmissive
+   * was given — then heavy bolts share the light ship material. Built once and
+   * assigned per-mesh each frame by the bolt's `heavy` flag.
+   */
+  private readonly heavyMaterial: StandardMaterial | null;
   private readonly pool: Mesh[] = [];
 
   constructor(
@@ -59,6 +71,12 @@ export class LaserSystemView {
       ? this.buildMaterial(
           `${options.materialName ?? "laser"}_turret`,
           options.turretEmissive,
+        )
+      : null;
+    this.heavyMaterial = options.heavyEmissive
+      ? this.buildMaterial(
+          `${options.materialName ?? "laser"}_heavy`,
+          options.heavyEmissive,
         )
       : null;
   }
@@ -83,10 +101,17 @@ export class LaserSystemView {
       const bolt = bolts[i];
       mesh.position.copyFrom(bolt.position);
       mesh.rotation.y = bolt.rotationY;
-      // Pool meshes are reused across bolts of either kind, so re-select the
-      // material each frame from the bolt's turret flag (a cheap reference set).
+      // Pool meshes are reused across bolts of every kind, so re-select the
+      // material each frame from the bolt's flags (a cheap reference set).
+      // Turret flak wins over heavy (a turret bolt has no shooter/heavy);
+      // heavy gunship bolts get the heavy tint; everything else is the light
+      // ship material.
       const mat =
-        bolt.turret && this.turretMaterial ? this.turretMaterial : this.material;
+        bolt.turret && this.turretMaterial
+          ? this.turretMaterial
+          : bolt.heavy && this.heavyMaterial
+            ? this.heavyMaterial
+            : this.material;
       if (mesh.material !== mat) mesh.material = mat;
       if (!mesh.isEnabled(false)) mesh.setEnabled(true);
     }
@@ -117,5 +142,6 @@ export class LaserSystemView {
     this.pool.length = 0;
     this.material.dispose();
     this.turretMaterial?.dispose();
+    this.heavyMaterial?.dispose();
   }
 }
