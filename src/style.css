@@ -72,6 +72,33 @@
 
 #splash[data-state="factionSelect"] #splash-panel {
   display: flex;
+  /* Centered column in the MIDDLE of the page (the poster is dropped below),
+     not a panel pinned to the poster's right edge. #splash's
+     justify-content:center does the centering once the poster column collapses. */
+  flex: 0 1 960px;
+  width: 100%;
+  margin: 0 auto;
+  border-left: none;
+  padding-bottom: 60px; /* clear the bottom-pinned Match Settings link */
+}
+
+/* Faction select trades the cinematic poster for room: collapse the poster
+   column to width 0 so the loadout sits centered in the page. */
+#splash[data-state="factionSelect"] #splash-poster {
+  display: none;
+}
+
+#splash[data-state="factionSelect"] #splash-poster-wrap {
+  flex: 0 0 0;
+  width: 0;
+  min-width: 0;
+}
+
+/* The Match Settings link normally rides the poster overlay; with the poster
+   gone it would squash into the collapsed column, so pin it to the viewport —
+   centered along the bottom — to keep it reachable. */
+#splash[data-state="factionSelect"] #splash-actions {
+  position: fixed;
 }
 
 /* ── Cinematic story crawl (over the poster's upper half) ── */
@@ -162,7 +189,8 @@
 #splash[data-state="landing"] #splash-skip,
 #splash[data-state="intro"] #splash-skip,
 #splash[data-state="quickPlay"] #splash-change,
-#splash[data-state="quickPlay"] #splash-replay {
+#splash[data-state="quickPlay"] #splash-replay,
+#splash[data-state="factionSelect"] #splash-replay {
   display: inline-block;
 }
 
@@ -515,15 +543,15 @@
 .map-card {
   display: flex;
   align-items: center;
-  gap: 12px;
-  max-width: 250px;
-  padding: 8px 12px;
+  gap: 14px;
+  max-width: 320px;
+  padding: 14px 18px;
 }
 
 .map-thumb {
-  flex: 0 0 60px;
-  width: 60px;
-  height: 60px;
+  flex: 0 0 80px;
+  width: 80px;
+  height: 80px;
   border-radius: 4px;
   border: 1px solid rgba(120, 140, 200, 0.18);
   overflow: hidden;
@@ -541,6 +569,56 @@
   border-color: #b4befe;
   box-shadow: 0 0 14px rgba(180, 190, 254, 0.3);
   background: rgba(180, 190, 254, 0.08);
+}
+
+/* ── Difficulty cards: big name + blurb tiles, neutral lavender like maps ── */
+.diff-card {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  max-width: 260px;
+  min-height: 130px;
+  padding: 18px 22px;
+  text-align: center;
+}
+
+.diff-card .card-title {
+  font-size: 16px;
+  letter-spacing: 0.16em;
+}
+
+.diff-card .card-blurb {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.diff-card.selected {
+  border-color: #b4befe;
+  box-shadow: 0 0 14px rgba(180, 190, 254, 0.3);
+  background: rgba(180, 190, 254, 0.08);
+}
+
+.loadout-row.active .diff-card:not(.selected) {
+  border-color: rgba(120, 140, 200, 0.45);
+}
+
+/* ── Mission-setup page (step 2): center the column so the cards aren't
+   crammed at the top, and let each section breathe. ── */
+#loadout[data-step="2"] {
+  justify-content: center;
+  gap: 26px;
+}
+
+#loadout[data-step="2"] .loadout-row {
+  gap: 18px;
+}
+
+#loadout[data-step="2"] .loadout-subheading {
+  font-size: 13px;
+  margin-bottom: 2px;
 }
 
 /* When the faction row is the active one, frame the unselected side too. */
@@ -733,8 +811,8 @@
   margin-bottom: 4px;
 }
 
-/* PLAY — the faction-select primary action, beneath the hangar preview. */
-#loadout-play {
+/* The page's primary action — NEXT ▸ (page 1) and PLAY (page 2). */
+.loadout-cta {
   align-self: center;
   padding: 12px 64px;
   background: rgba(5, 7, 14, 0.55);
@@ -748,22 +826,62 @@
   transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, color 0.15s;
 }
 
-#loadout-play:hover {
+.loadout-cta:hover {
   background: rgba(137, 180, 250, 0.16);
   border-color: rgba(137, 180, 250, 0.9);
   color: #89b4fa;
   box-shadow: 0 0 18px rgba(137, 180, 250, 0.3);
 }
 
-#loadout-play.machines {
+.loadout-cta.machines {
   border-color: rgba(243, 139, 168, 0.55);
 }
 
-#loadout-play.machines:hover {
+.loadout-cta.machines:hover {
   background: rgba(243, 139, 168, 0.14);
   border-color: rgba(243, 139, 168, 0.9);
   color: #f38ba8;
   box-shadow: 0 0 18px rgba(243, 139, 168, 0.3);
+}
+
+/* Page 2's button row — BACK alongside PLAY. */
+.loadout-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.loadout-actions .loadout-cta {
+  align-self: auto;
+}
+
+/* BACK — subdued secondary, steps to page 1. */
+.loadout-back {
+  padding: 12px 28px;
+  background: none;
+  border: 1px solid rgba(120, 140, 200, 0.3);
+  border-radius: 4px;
+  color: #8a96b8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.loadout-back:hover {
+  border-color: rgba(180, 196, 240, 0.55);
+  color: #cdd6f4;
+}
+
+/* "STEP n OF 2" — quiet page indicator above the action button. */
+.loadout-step {
+  text-align: center;
+  font-size: 9px;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: #5b6680;
 }
 
 .loadout-hint {
@@ -838,6 +956,15 @@
   #splash-panel {
     border-left: none;
     padding: 14px 14px 20px;
+  }
+
+  /* Stacked layout: undo the desktop centered-column sizing so the panel
+     fills the narrow viewport top-to-bottom. */
+  #splash[data-state="factionSelect"] #splash-panel {
+    flex: 1 1 auto;
+    max-width: none;
+    margin: 0;
+    padding-bottom: 20px;
   }
 
   .faction-card {

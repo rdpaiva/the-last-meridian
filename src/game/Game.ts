@@ -13,7 +13,7 @@ import { ImageProcessingConfiguration } from "@babylonjs/core/Materials/imagePro
 // the PBR (metallic) GLB ships, which need an environment to reflect.
 import { EquiRectangularCubeTexture } from "@babylonjs/core/Materials/Textures/equiRectangularCubeTexture";
 
-import { GameConfig, type ShipTypeId } from "./GameConfig";
+import { GameConfig, type ShipTypeId, type WingOrder } from "./GameConfig";
 import { InputManager } from "./InputManager";
 import { Arena } from "./Arena";
 import { AssetLoader } from "./AssetLoader";
@@ -603,6 +603,42 @@ export class Game {
     ip.vignetteBlendMode = ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
   }
 
+  /**
+   * Resolve the player's wing for this match from the RUNTIME loadout. The
+   * default `player.wingmen.composition` is role-based ("self"/"other"/
+   * "gunship") because a static type list can't express "the same ship the
+   * player chose" — so the roles are mapped to concrete catalog types here,
+   * given the picked faction + ship:
+   *   self    → the player's chosen type (a clone of the loaded model)
+   *   other   → the other ship type in the player's faction
+   *   gunship → the faction's heavy gunship (factionShips[*] last entry)
+   * `count` ships are taken from the composition (wrapping). When the
+   * composition is emptied, the legacy per-slot `shipTypes`/`orders` lists
+   * (and their match-settings dropdowns) drive the wing instead.
+   */
+  private resolveWingPlan(): { typeId: ShipTypeId; order: WingOrder }[] {
+    const w = GameConfig.player.wingmen;
+    const ships = GameConfig.factionShips[this.playerFaction];
+    const self = this.playerShipTypeId;
+    const other = ships.find((t) => t !== self) ?? self;
+    const gunship = ships[ships.length - 1];
+    const resolveRole = (role: "self" | "other" | "gunship"): ShipTypeId =>
+      role === "self" ? self : role === "other" ? other : gunship;
+
+    const plan: { typeId: ShipTypeId; order: WingOrder }[] = [];
+    for (let i = 0; i < w.count; i++) {
+      if (w.composition.length > 0) {
+        const c = w.composition[i % w.composition.length];
+        plan.push({ typeId: resolveRole(c.role), order: c.order });
+      } else {
+        const types = w.shipTypes[this.playerFaction];
+        const typeId = types.length > 0 ? types[i % types.length] : self;
+        plan.push({ typeId, order: w.orders[i % w.orders.length] });
+      }
+    }
+    return plan;
+  }
+
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
@@ -624,14 +660,17 @@ export class Game {
     // The AI opposition flies the OTHER faction's fleet; the wing list is the
     // player's faction's.
     const enemyFleet = GameConfig.fleets[this.enemyFaction];
-    const wingTypes = GameConfig.player.wingmen.shipTypes[this.playerFaction];
+    // The wing is resolved from the RUNTIME loadout (roles → concrete types),
+    // so "2 of your ship + 2 of the other type + 2 gunship guards" tracks the
+    // ship you actually picked. See resolveWingPlan.
+    const wingPlan = this.resolveWingPlan();
     // One clone template per unique GLB an AI ship needs: the enemy fleet
     // composition, plus any wingman flying a type OTHER than the player's
     // (same-type wingmen clone the player's loaded model instead). A type
     // with model: null falls back to the procedural FighterMesh.
     const templateTypeIds: ShipTypeId[] = [
       ...enemyFleet.fleet.map((e) => e.type),
-      ...wingTypes.filter((t) => t !== this.playerShipTypeId),
+      ...wingPlan.filter((w) => w.typeId !== this.playerShipTypeId).map((w) => w.typeId),
     ];
     const shipTemplates = new Map<string, TransformNode | null>();
     for (const id of templateTypeIds) {
@@ -667,11 +706,8 @@ export class Game {
     // assigned a DIFFERENT type via wingmen.shipTypes is built like an enemy
     // fleet clone of that type instead (config muzzles, derived rear glow).
     const wcfg = GameConfig.player.wingmen;
-    for (let i = 0; i < wcfg.count; i++) {
-      const typeId =
-        wingTypes.length > 0
-          ? wingTypes[i % wingTypes.length]
-          : this.playerShipTypeId;
+    for (let i = 0; i < wingPlan.length; i++) {
+      const typeId = wingPlan[i].typeId;
       let ship: Ship;
       let view: ShipView;
       if (typeId === this.playerShipTypeId) {
@@ -721,7 +757,7 @@ export class Game {
         });
       }
       const controller = new AIController({
-        order: wcfg.orders[i % wcfg.orders.length],
+        order: wingPlan[i].order,
         slot: wcfg.formationSlot(i),
       });
       this.combatants.push({ ship, view, controller, launch: null, bayIndex: 0, lastInput: null });
@@ -1194,6 +1230,12 @@ export class Game {
     // main.ts to skip the splash and drop the player straight back in.
     if (e.code === "Enter" && (this.state === "victory" || this.state === "defeat")) {
       sessionStorage.setItem(RESTART_FLAG, "1");
+      window.location.reload();
+    }
+    // Escape returns to the splash menu at any time. Same clean-reset reload as
+    // the restart above, but WITHOUT the RESTART_FLAG — so main.ts shows the
+    // splash flow (quick play / landing) instead of dropping straight back in.
+    if (e.code === "Escape") {
       window.location.reload();
     }
   };
