@@ -44,8 +44,13 @@ export interface FactionTheme {
   fighterClass: string;
   /** Canon heavy strike craft type (story bible §8). */
   gunshipClass: string;
-  /** Emissive RGB of this faction's laser bolts (components > 1 bloom harder). */
+  /** Emissive RGB of this faction's LIGHT (fighter) laser bolts (components > 1
+   *  bloom harder). */
   laserEmissive: Color3;
+  /** Emissive RGB of this faction's HEAVY (gunship) laser bolts — a hue-shifted
+   *  cousin of laserEmissive so a Breaker/Reaver's fire reads as the same
+   *  faction but heavier ordnance (and distinct from the orange turret flak). */
+  laserHeavyEmissive: Color3;
   /** Material name for this faction's laser bolts (inspector aid). */
   laserMaterialName: string;
   /** Procedural fighter body color. */
@@ -67,6 +72,7 @@ export const FACTION_THEME: Record<Faction, FactionTheme> = {
     fighterClass: "Spitfire Interceptor",
     gunshipClass: "Breaker Gunship",
     laserEmissive: new Color3(2.0, 0.6, 0.9), // hot pink (old player)
+    laserHeavyEmissive: new Color3(0.5, 0.7, 2.8), // electric blue (Breaker) — warm pink → cool blue reads clearly distinct
     laserMaterialName: "humans_laser_mat",
     bodyColor: new Color3(0.16, 0.24, 0.5),
     wingColor: new Color3(0.12, 0.18, 0.36),
@@ -81,6 +87,7 @@ export const FACTION_THEME: Record<Faction, FactionTheme> = {
     fighterClass: "Wraith Interceptor",
     gunshipClass: "Reaver Gunship",
     laserEmissive: new Color3(0.3, 2.0, 0.6), // electric green (old enemy)
+    laserHeavyEmissive: new Color3(0.25, 1.9, 1.5), // teal/aqua (Reaver)
     laserMaterialName: "machines_laser_mat",
     bodyColor: new Color3(0.5, 0.12, 0.14),
     wingColor: new Color3(0.35, 0.1, 0.12),

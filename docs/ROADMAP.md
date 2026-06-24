@@ -198,6 +198,11 @@ and explicitly skipped. Update this when you finish or start work.
 - **Kills + score** — per-shooter kill attribution (player lasers tagged
   `fromPlayer`, missiles, wing kills tallied separately); score = victim max
   hull; best score persists in localStorage; HUD rows + end-banner summary.
+- **Heavy-gunship laser tint** — Breaker/Reaver bolts fire a hue-shifted color
+  (`FACTION_THEME.laserHeavyEmissive`: Commonwealth electric blue, Novari teal)
+  so heavy fire reads distinct from light fighters. A shipType `heavy` flag →
+  `Ship.heavy` → `Laser.heavy` selects a second `LaserSystemView` material —
+  same pattern as the orange turret flak. Pure view hint, no sim effect.
 - **Two-page faction-select** — the loadout is split so neither page feels
   busy: page 1 picks your craft (faction + ship + hangar preview, NEXT ▸),
   page 2 the mission (difficulty + arena, ◂ BACK / PLAY). `LoadoutMenu` owns

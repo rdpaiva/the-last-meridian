@@ -245,7 +245,7 @@ The whole game's tuning lives in `src/game/GameConfig.ts`. Major sections:
 | `mothership` | Carrier objective: HP, GLB models + correction, launch bays, death FX — and `hullRects`, the PER-FACTION solid hull footprint (fitted to the GLBs via `scripts/measure-carrier-footprint.mjs`; re-fit after re-exporting a carrier model). `mothership.turrets` = defense-gun knobs + per-faction edge mounts + per-faction skinned GLB |
 | `debug` | Dev/test only: `godSpeedMultiplier` for the Backquote god-mode toggle (player invuln + boost) |
 | `player.wingmen` | Wing size (`count`, default 6) + role-based `composition` (the DEFAULT wing: `self`/`other`/`gunship` roles resolved from the runtime loadout in `Game.resolveWingPlan` → 2 your ship + 2 the other type on `cover` + 2 gunships on `defend`). Legacy per-slot orders + formation slots + PER-FACTION `shipTypes` lists drive the wing only when `composition` is emptied |
-| `laser` | Bolt speed/lifetime/visuals (shared across both factions; per-bolt damage comes from the firing ship's type) |
+| `laser` | Bolt speed/lifetime/geometry (shared across both factions; per-bolt damage comes from the firing ship's type). Bolt COLOR is per faction (`FACTION_THEME.laserEmissive`) with a heavy-gunship tint (`laserHeavyEmissive`, selected by the shipType's `heavy` flag → `Laser.heavy` → `LaserSystemView`) and a shared orange turret-flak tint |
 | `missile` | Homing secondary: speed, turnRate, damage range, lock range/cone, mesh + trail dims (rack size is per ship type) |
 | `arena` | Half-width, half-depth |
 | `camera` | Offset, smoothing rate, velocity lead, zoom range/rate |

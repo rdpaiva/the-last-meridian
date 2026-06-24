@@ -77,6 +77,7 @@ const shipTypes = {
     /** X/Z collision radius (world units). */
     hitRadius: 1.2,
     fireSound: "playerGuns",
+    heavy: false,
   },
 
   /**
@@ -124,6 +125,7 @@ const shipTypes = {
     /** Physically bigger ship, bigger capture circle. */
     hitRadius: 1.7,
     fireSound: "breakerLaser",
+    heavy: true,
   },
 
   /**
@@ -164,6 +166,7 @@ const shipTypes = {
     /** Slim airframe, hardest target in the catalog to hit. */
     hitRadius: 1.0,
     fireSound: "laserGun",
+    heavy: false,
   },
 
   /**
@@ -211,6 +214,7 @@ const shipTypes = {
     /** Big scythe-winged silhouette, big capture circle. */
     hitRadius: 1.9,
     fireSound: "breakerLaser",
+    heavy: true,
   },
 } satisfies Record<string, ShipTypeConfig>;
 
