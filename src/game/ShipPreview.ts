@@ -42,6 +42,8 @@ export class ShipPreview {
   private readonly models = new Map<ShipTypeId, TransformNode>();
   private readonly loads = new Map<ShipTypeId, Promise<TransformNode | null>>();
   private readonly thumbs = new Map<ShipTypeId, string>();
+  /** Resolves when the IBL environment texture has loaded — see thumbnail(). */
+  private readonly envReady: Promise<void>;
   private current: ShipTypeId | null = null;
   private disposed = false;
 
@@ -87,12 +89,20 @@ export class ShipPreview {
     rim.diffuse = new Color3(0.62, 0.6, 1.0);
 
     // Same IBL source the game scene uses, at a smaller cube size — the PBR
-    // metal hulls go flat/dark without an environment to reflect.
-    this.scene.environmentTexture = new EquiRectangularCubeTexture(
-      `${import.meta.env.BASE_URL}textures/space-backdrop.jpg`,
-      this.scene,
-      128,
-    );
+    // metal hulls go flat/dark without an environment to reflect. The onLoad
+    // callback gates the card thumbnails: they're captured once and cached
+    // forever, so we must not shoot them before the IBL exists (see thumbnail).
+    this.envReady = new Promise<void>((resolve) => {
+      this.scene.environmentTexture = new EquiRectangularCubeTexture(
+        `${import.meta.env.BASE_URL}textures/space-backdrop.jpg`,
+        this.scene,
+        128,
+        undefined,
+        undefined,
+        () => resolve(),
+        () => resolve(), // capture even on error rather than hang forever
+      );
+    });
     this.scene.environmentIntensity = cfg.environmentIntensity;
 
     this.turntable = new TransformNode("previewTurntable", this.scene);
@@ -136,6 +146,16 @@ export class ShipPreview {
     if (cached) return cached;
     const node = await this.ensureModel(id);
     if (this.disposed || !node) return null;
+
+    // The hulls are PBR metal — they render black until the IBL environment
+    // (and the model's own materials) finish loading. Capturing before then
+    // bakes a blank frame into the permanent cache, which is why the default
+    // faction's cards came up empty on a cold load. Wait for both first.
+    await this.envReady;
+    await this.scene.whenReadyAsync();
+    if (this.disposed) return null;
+    const recheck = this.thumbs.get(id);
+    if (recheck) return recheck;
 
     // One-frame photo shoot on the live canvas: pose the target alone at the
     // thumbnail yaw, render, read back, then restore the live preview state.
