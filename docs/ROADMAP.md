@@ -63,10 +63,18 @@ and explicitly skipped. Update this when you finish or start work.
 - Tuning: slower than the player so the duel is beatable
 
 ### Player wingmen (Phase 5)
-- **AI wingmen on the player's side** — `GameConfig.player.wingmen.count` (default 3)
+- **AI wingmen on the player's side** — `GameConfig.player.wingmen.count` (default 6)
   player-faction `Ship`s wearing an `AIController`, the same seam that drives the
   enemy fighters. Friendly-fire-free by construction (per-faction LaserSystems);
   they appear on the radar as friendly blips and are missile-immune to the player.
+- **Default wing composition is role-based** (`player.wingmen.composition`,
+  resolved from the RUNTIME loadout in `Game.resolveWingPlan`): every match
+  fields 2 wingmen flying your chosen ship + 2 flying the other type in your
+  faction (all on `cover`) + 2 heavy gunships guarding your carrier (on
+  `defend`). Roles (`self`/`other`/`gunship`) map to concrete catalog types
+  given your pick — a static type list can't say "the same ship the player
+  chose". Empty the composition to fall back to the legacy per-slot
+  `shipTypes`/`orders` lists (and their match-settings dropdowns).
 - **Standing orders** (`AIController` `AIOrder`, static per-wingman, no command UI
   yet — multiplayer would re-issue them): `cover` (escort the leader in a slot,
   break to engage threats within `ai.coverBreakRange` of the leader, reform),
@@ -190,6 +198,25 @@ and explicitly skipped. Update this when you finish or start work.
 - **Kills + score** — per-shooter kill attribution (player lasers tagged
   `fromPlayer`, missiles, wing kills tallied separately); score = victim max
   hull; best score persists in localStorage; HUD rows + end-banner summary.
+- **Two-page faction-select** — the loadout is split so neither page feels
+  busy: page 1 picks your craft (faction + ship + hangar preview, NEXT ▸),
+  page 2 the mission (difficulty + arena, ◂ BACK / PLAY). `LoadoutMenu` owns
+  an internal `step`; ENTER advances page 1 → 2 then launches, ESC steps back
+  (`main.ts` no longer launches on ENTER in `factionSelect`). On select the
+  cinematic poster is dropped and the loadout column is CENTERED in the page
+  (no longer a right-hand side panel). A **Replay Intro** link is reachable
+  from faction select, and **Esc returns to the menu** from anywhere in a live
+  match (a clean reload without the restart flag).
+- **Difficulty levels** (`Difficulty.ts`, parallel to arena `Maps`) — Easy /
+  Normal / Hard preset bundles chosen on page 2, persisted under
+  `lastMeridian_difficulty` (default Normal). Applied at launch like a map
+  (`applyDifficulty` writes into `GameConfig`, a hand-tuned match-settings
+  override still wins). Tunes ONLY the enemy — AI reflex (`ai.reactionSec`),
+  accuracy/willingness (`ai.fireConeAngle`/`fireRange`/`engagementRange`),
+  missile pressure (`ai.missileCooldownSec`/`missileMaxRange`), and how many
+  fleet ships press you (`commander.escortCount`/`huntCount`). The old stock
+  tuning ≈ Hard; Normal is the new, gentler out-of-box baseline. The player's
+  own wing is a fixed baseline, unaffected by difficulty.
 
 ### Asteroid field (terrain + cover)
 - **`AsteroidField` + `Asteroid`** — a drifting, tumbling field of procedural

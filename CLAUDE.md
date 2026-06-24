@@ -164,7 +164,7 @@ gets clobbered every frame; modifying inner root persists.
 
 ```
 src/
-  main.ts                  entry: staged splash state machine (landing → intro crawl → faction select | quick play for returning players) → construct Game with the chosen loadout; centralized unlockAudio(); handle resize
+  main.ts                  entry: staged splash state machine (landing → intro crawl → faction select | quick play for returning players) → construct Game with the chosen loadout; centralized unlockAudio(); applies the active Map + Difficulty at launch; handle resize
   style.css                full-viewport canvas + HUD styling
   game/
     Game.ts                top-level coordinator and render loop
@@ -177,8 +177,10 @@ src/
     AsteroidField.ts       rock collection: spawn/drift/wrap + shatter-into-chunks; exposes obstacles[] (held by reference by the weapon systems for cover)
     AssetLoader.ts         GLB importer with procedural fallback (two-tier root); fallback has two designs (classic/viper) via GameConfig.player.shipDesign
     Faction.ts             humans|machines type + opposing() + FACTION_THEME (colors/labels)
-    Loadout.ts             PlayerLoadout {faction, shipType} + localStorage persistence (lastMeridian_* keys incl. introSeen; validated vs GameConfig.factionShips; hasSavedLoadout gates quick play)
-    LoadoutMenu.ts         splash faction/ship select: faction cards → per-faction ship cards w/ thumbnails → hangar preview + PLAY (plain DOM, keyboard-driven; stats read from shipTypes)
+    Loadout.ts             PlayerLoadout {faction, shipType} + localStorage persistence (lastMeridian_* keys incl. introSeen; validated vs GameConfig.factionShips; hasSavedLoadout gates quick play). The map + difficulty selections persist under sibling lastMeridian_* keys (Maps.ts / Difficulty.ts), not on PlayerLoadout
+    LoadoutMenu.ts         splash faction/ship select, TWO PAGES (internal `step`): page 1 = faction cards → ship cards w/ thumbnails → hangar preview → NEXT; page 2 = difficulty + arena cards → BACK/PLAY (plain DOM, keyboard-driven: ←/→ select, ↑/↓ row, ENTER next-then-launch, ESC back; stats read from shipTypes). Owns ENTER while in factionSelect
+    Maps.ts                arena presets (docs/ARENA-MAPS.md): named battlefield bundles (carrier spacing, asteroids, nebula zones, hazards, fleet comp) written into GameConfig at launch via applyMap; selection persists (lastMeridian_map); player match-settings overrides win
+    Difficulty.ts          ENEMY-skill presets (easy/normal/hard), parallel to Maps: applyDifficulty writes ai.*/commander.* knobs into GameConfig at launch (reflex/accuracy/missile pacing/how many press you); selection persists (lastMeridian_difficulty, default normal); player overrides win; player's own wing unaffected
     ShipPreview.ts         standalone Babylon engine for the splash: rotating selected-ship GLB turntable + cached ship-card thumbnails (disposed at launch)
     TuningSchema.ts        CURATED declarative tuning surface (~70 gameplay knobs w/ label+bounds+step) — the match-settings GUI renders from this; add an entry = expose a knob
     ConfigOverrides.ts     sparse {dot-path: value} override map (lastMeridian_tuning) written into the live GameConfig at startup; schema-clamped; JSON export/import for sharing setups
@@ -242,7 +244,7 @@ The whole game's tuning lives in `src/game/GameConfig.ts`. Major sections:
 | `ai` | Shared AI decision knobs: engage/fire ranges, fire cone, carrier-strike standoff, missile launch doctrine (envelope/pacing), wander, leash, formation gains |
 | `mothership` | Carrier objective: HP, GLB models + correction, launch bays, death FX — and `hullRects`, the PER-FACTION solid hull footprint (fitted to the GLBs via `scripts/measure-carrier-footprint.mjs`; re-fit after re-exporting a carrier model). `mothership.turrets` = defense-gun knobs + per-faction edge mounts + per-faction skinned GLB |
 | `debug` | Dev/test only: `godSpeedMultiplier` for the Backquote god-mode toggle (player invuln + boost) |
-| `player.wingmen` | Wing size, per-wingman orders + formation slots + PER-FACTION `shipTypes` lists (empty list = wing clones the player's type) |
+| `player.wingmen` | Wing size (`count`, default 6) + role-based `composition` (the DEFAULT wing: `self`/`other`/`gunship` roles resolved from the runtime loadout in `Game.resolveWingPlan` → 2 your ship + 2 the other type on `cover` + 2 gunships on `defend`). Legacy per-slot orders + formation slots + PER-FACTION `shipTypes` lists drive the wing only when `composition` is emptied |
 | `laser` | Bolt speed/lifetime/visuals (shared across both factions; per-bolt damage comes from the firing ship's type) |
 | `missile` | Homing secondary: speed, turnRate, damage range, lock range/cone, mesh + trail dims (rack size is per ship type) |
 | `arena` | Half-width, half-depth |

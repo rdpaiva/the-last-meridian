@@ -5,6 +5,7 @@ import { SettingsMenu } from "./game/SettingsMenu";
 import { FACTION_THEME } from "./game/Faction";
 import { applyStoredOverrides, overrideCount } from "./game/ConfigOverrides";
 import { applyMap, resolveMapId, loadSavedMapSelection } from "./game/Maps";
+import { applyDifficulty, loadSavedDifficulty } from "./game/Difficulty";
 import {
   hasSavedLoadout,
   hasSeenIntro,
@@ -142,12 +143,23 @@ function applyActiveMap(): void {
   applyMap(resolveMapId(loadSavedMapSelection()));
 }
 
+/**
+ * Apply the saved difficulty (enemy-skill preset) at LAUNCH, mirroring
+ * applyActiveMap: the picker persists the selection and quick play / restart
+ * read it from storage. Touches only ai/commander knobs (disjoint from the
+ * map), and a hand-tuned match-settings override still wins.
+ */
+function applyActiveDifficulty(): void {
+  applyDifficulty(loadSavedDifficulty());
+}
+
 function startGame(): void {
   if (game) return;
   // commit() persists the choice and releases the menu's arrow keys back to
   // the ship; quick play (no menu constructed) launches the saved loadout.
   const loadout = menu ? menu.commit() : loadSavedLoadout();
   applyActiveMap();
+  applyActiveDifficulty();
   stopSplashMusic();
   preview?.dispose();
   preview = null;
@@ -248,6 +260,7 @@ if (sessionStorage.getItem(RESTART_FLAG)) {
   // reloaded page has no user gesture yet, so it can't resume here).
   sessionStorage.removeItem(RESTART_FLAG);
   applyActiveMap();
+  applyActiveDifficulty();
   splash.classList.add("hidden");
   game = new Game(canvas, hudRoot, loadSavedLoadout());
   void game.start();
@@ -314,9 +327,10 @@ if (sessionStorage.getItem(RESTART_FLAG)) {
         skipIntro();
         break;
       case "quickPlay":
-      case "factionSelect":
         startGame();
         break;
+      // factionSelect's Enter is owned by LoadoutMenu (page 1 → NEXT, page 2 →
+      // PLAY), so it's intentionally not handled here.
     }
   });
 }

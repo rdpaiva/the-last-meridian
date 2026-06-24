@@ -301,20 +301,31 @@ export class HeadlessBattle {
       respawnDelayMs: GameConfig.combat.playerRespawnDelayMs,
     });
 
+    // Resolve the wing exactly as Game.resolveWingPlan does: the role-based
+    // composition maps to concrete types from the (headless) player type +
+    // faction, falling back to the legacy shipTypes/orders lists when empty.
     const wcfg = GameConfig.player.wingmen;
+    const ships = GameConfig.factionShips[this.playerFaction];
+    const otherType = ships.find((t) => t !== playerTypeId) ?? playerTypeId;
+    const gunshipType = ships[ships.length - 1];
     const wingTypes = wcfg.shipTypes[this.playerFaction];
     for (let i = 0; i < wcfg.count; i++) {
-      const typeId: ShipTypeId =
-        wingTypes.length > 0 ? wingTypes[i % wingTypes.length] : playerTypeId;
+      let typeId: ShipTypeId;
+      let order: (typeof wcfg.orders)[number];
+      if (wcfg.composition.length > 0) {
+        const c = wcfg.composition[i % wcfg.composition.length];
+        typeId = c.role === "self" ? playerTypeId : c.role === "other" ? otherType : gunshipType;
+        order = c.order;
+      } else {
+        typeId = wingTypes.length > 0 ? wingTypes[i % wingTypes.length] : playerTypeId;
+        order = wcfg.orders[i % wcfg.orders.length];
+      }
       const ship = this.makeShip(
         this.playerFaction,
         GameConfig.shipTypes[typeId],
         { respawnDelayMs: GameConfig.combat.enemyRespawnDelayMs },
       );
-      const controller = new AIController({
-        order: wcfg.orders[i % wcfg.orders.length],
-        slot: wcfg.formationSlot(i),
-      });
+      const controller = new AIController({ order, slot: wcfg.formationSlot(i) });
       this.combatants.push({ ship, controller, launch: null, bayIndex: 0 });
     }
 

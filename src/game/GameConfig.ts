@@ -217,6 +217,9 @@ const shipTypes = {
 /** A key into the ship catalog: "spitfire" | "breaker" | "wraith". */
 export type ShipTypeId = keyof typeof shipTypes;
 
+/** A standing order an AI wingman can fly (mirrors AIController's AIOrder). */
+export type WingOrder = "cover" | "formation" | "hunt" | "strike" | "defend";
+
 /**
  * A placed battlefield hazard (docs/ARENA-MAPS.md slice 5). The first net-new
  * persistent mid-match entity beyond ships/bolts/scenery. Maps inject these via
@@ -321,7 +324,30 @@ export const GameConfig = {
      */
     wingmen: {
       /** How many AI wingmen launch on the player's side. 0 disables the wing. */
-      count: 2,
+      count: 6,
+      /**
+       * DEFAULT wing composition by ROLE, resolved against the player's RUNTIME
+       * loadout at spawn (a static type list can't express "the same ship the
+       * player chose"). Each entry is one wingman: a role that maps to a
+       * concrete catalog type given the chosen faction + ship, plus its order.
+       *   "self"    → the player's chosen ship type (clones the player's model)
+       *   "other"   → the OTHER ship type in the player's faction
+       *   "gunship" → the player's faction heavy gunship (factionShips[*][1])
+       * `count` ships are taken from this list (wraps if shorter). The default
+       * baseline (every match) is 4 wingmen on your wing — 2 flying your ship,
+       * 2 flying the other type — plus 2 heavy gunships guarding your carrier.
+       *
+       * Set this to an EMPTY array to fall back to the legacy per-slot
+       * `shipTypes`/`orders` lists below (and their match-settings dropdowns).
+       */
+      composition: [
+        { role: "self", order: "cover" },
+        { role: "self", order: "cover" },
+        { role: "other", order: "cover" },
+        { role: "other", order: "cover" },
+        { role: "gunship", order: "defend" },
+        { role: "gunship", order: "defend" },
+      ] as ReadonlyArray<{ role: "self" | "other" | "gunship"; order: WingOrder }>,
       /**
        * Per-wingman SHIP TYPE, one list per side the player might fly (the
        * wing has to match the chosen faction). Within a list, entries wrap if
@@ -355,9 +381,7 @@ export const GameConfig = {
        * (TuningSchema reads this array's length), and behavior is identical
        * to the old single wrapped ["cover"] entry.
        */
-      orders: ["cover", "cover", "cover", "cover", "cover", "cover"] as ReadonlyArray<
-        "cover" | "formation" | "hunt" | "strike" | "defend"
-      >,
+      orders: ["cover", "cover", "cover", "cover", "cover", "cover"] as ReadonlyArray<WingOrder>,
       /**
        * Returns the formation slot for wingman `index` in leader-local units
        * (+x = starboard, -z = behind). Generates an expanding V so any count

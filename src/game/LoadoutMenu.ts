@@ -8,6 +8,13 @@ import {
   type ConcreteMapId,
   type MapId,
 } from "./Maps";
+import {
+  DIFFICULTIES,
+  DIFFICULTY_ORDER,
+  loadSavedDifficulty,
+  saveDifficulty,
+  type DifficultyId,
+} from "./Difficulty";
 import type { ShipPreview } from "./ShipPreview";
 
 /**
@@ -212,15 +219,30 @@ const MAX_STAT = {
   missiles: Math.max(...ALL_IDS.map((id) => GameConfig.shipTypes[id].missileAmmo)),
 };
 
-/** Top-to-bottom order of the keyboard-walkable rows (↑/↓ move between them). */
-const ROWS = ["faction", "ship", "map"] as const;
-type Row = (typeof ROWS)[number];
+type Row = "faction" | "ship" | "difficulty" | "map";
+
+/**
+ * The loadout is split across two pages so neither feels busy:
+ *   1 — your craft: faction + ship (+ the hangar preview)
+ *   2 — the mission: difficulty + arena
+ * Each page's keyboard-walkable rows (↑/↓ move between them); ENTER advances
+ * page 1 → 2 then launches, ESC steps back.
+ */
+type Step = 1 | 2;
+const STEP_ROWS: Record<Step, readonly Row[]> = {
+  1: ["faction", "ship"],
+  2: ["difficulty", "map"],
+};
 
 export class LoadoutMenu {
   private faction: Faction;
   private shipType: ShipTypeId;
+  /** Enemy-skill preset — easy / medium / hard. */
+  private difficulty: DifficultyId;
   /** The arena selection — a concrete map (pinned) or "random" (re-rolls). */
   private mapSelection: MapId;
+  /** Which page of the loadout is showing. */
+  private step: Step = 1;
   /** Which row ←/→ act on; ↑/↓ move between them. */
   private activeRow: Row = "faction";
   private detached = false;
@@ -233,6 +255,7 @@ export class LoadoutMenu {
     const saved = loadSavedLoadout();
     this.faction = saved.faction;
     this.shipType = saved.shipType;
+    this.difficulty = loadSavedDifficulty();
     this.mapSelection = loadSavedMapSelection();
     this.render();
     window.addEventListener("keydown", this.onKeyDown);
@@ -251,23 +274,44 @@ export class LoadoutMenu {
       this.detached = true;
       window.removeEventListener("keydown", this.onKeyDown);
       saveLoadout(this.loadout);
+      saveDifficulty(this.difficulty);
       saveMapSelection(this.mapSelection);
     }
     return this.loadout;
   }
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
+    // Only act while the loadout is the active splash page — never behind the
+    // match-settings overlay (whose Enter would otherwise launch the game), nor
+    // on the landing/quick-play screens.
+    if (document.getElementById("splash")?.dataset.state !== "factionSelect") return;
     // A focused form control owns the arrow keys (the match-settings overlay
     // can sit on top of this menu, and its sliders/number fields would be
     // frozen by the preventDefault below).
     const target = e.target as HTMLElement | null;
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
     switch (e.code) {
+      case "Enter":
+        // Page 1 advances to the mission setup; page 2 launches (the same
+        // path the NEXT/PLAY buttons take). main.ts no longer launches on
+        // Enter in factionSelect — this owns it.
+        e.preventDefault();
+        if (this.step === 1) this.goStep(2);
+        else this.onPlay();
+        break;
+      case "Escape":
+      case "Backspace":
+        if (this.step === 2) {
+          e.preventDefault();
+          this.goStep(1);
+        }
+        break;
       case "ArrowUp":
       case "ArrowDown": {
         const dir = e.code === "ArrowDown" ? 1 : -1;
-        const i = ROWS.indexOf(this.activeRow);
-        this.activeRow = ROWS[(i + dir + ROWS.length) % ROWS.length];
+        const rows = STEP_ROWS[this.step];
+        const i = Math.max(0, rows.indexOf(this.activeRow));
+        this.activeRow = rows[(i + dir + rows.length) % rows.length];
         e.preventDefault();
         this.render();
         break;
@@ -282,6 +326,11 @@ export class LoadoutMenu {
           const ships = GameConfig.factionShips[this.faction];
           const idx = (ships.indexOf(this.shipType) + dir + ships.length) % ships.length;
           this.shipType = ships[idx];
+        } else if (this.activeRow === "difficulty") {
+          const idx =
+            (DIFFICULTY_ORDER.indexOf(this.difficulty) + dir + DIFFICULTY_ORDER.length) %
+            DIFFICULTY_ORDER.length;
+          this.difficulty = DIFFICULTY_ORDER[idx];
         } else {
           const idx =
             (MAP_OPTIONS.indexOf(this.mapSelection) + dir + MAP_OPTIONS.length) %
@@ -294,6 +343,13 @@ export class LoadoutMenu {
       }
     }
   };
+
+  /** Move to a loadout page, landing the cursor on its first row. */
+  private goStep(next: Step): void {
+    this.step = next;
+    this.activeRow = STEP_ROWS[next][0];
+    this.render();
+  }
 
   /** Switch sides, carrying the ship ROLE across (fighter ↔ fighter, etc.). */
   private setFaction(f: Faction): void {
@@ -311,6 +367,7 @@ export class LoadoutMenu {
    *  reads the same keys next session). Row toggles use plain render(). */
   private saveAndRender(): void {
     saveLoadout(this.loadout);
+    saveDifficulty(this.difficulty);
     saveMapSelection(this.mapSelection);
     this.render();
   }
@@ -344,18 +401,36 @@ export class LoadoutMenu {
       .map((id) => this.shipCard(id))
       .join("");
 
+    const diffCards = DIFFICULTY_ORDER.map((id) => this.diffCard(id)).join("");
     const mapCards = MAP_OPTIONS.map((id) => this.mapCard(id)).join("");
 
-    this.root.innerHTML = `
-      <div class="loadout-heading">Choose your side</div>
+    // Page 1 — your craft (faction + ship + hangar); page 2 — the mission
+    // (difficulty + arena). Splitting them keeps either page from feeling busy.
+    // The step drives the page-specific CSS (vertical centering + card sizing).
+    this.root.dataset.step = String(this.step);
+    this.root.innerHTML =
+      this.step === 1
+        ? `
+      <div class="loadout-heading">Choose your craft</div>
       <div class="loadout-row${this.activeRow === "faction" ? " active" : ""}" id="loadout-factions">${factionCards}</div>
       <div class="faction-desc">${FACTION_DESC[this.faction]}</div>
       <div class="loadout-row${this.activeRow === "ship" ? " active" : ""}" id="loadout-ships">${shipCards}</div>
       ${this.previewPanel()}
+      <div class="loadout-step">STEP 1 OF 2</div>
+      <button id="loadout-next" class="loadout-cta ${this.faction}">NEXT ▸</button>
+      <div class="loadout-hint">←/→ SELECT · ↑/↓ ROW · ENTER NEXT</div>`
+        : `
+      <div class="loadout-heading">Mission setup</div>
+      <div class="loadout-subheading">Difficulty</div>
+      <div class="loadout-row${this.activeRow === "difficulty" ? " active" : ""}" id="loadout-difficulty">${diffCards}</div>
       <div class="loadout-subheading">Arena</div>
       <div class="loadout-row${this.activeRow === "map" ? " active" : ""}" id="loadout-maps">${mapCards}</div>
-      <button id="loadout-play" class="${this.faction}">PLAY</button>
-      <div class="loadout-hint">←/→ SELECT · ↑/↓ ROW · ENTER TO LAUNCH</div>`;
+      <div class="loadout-step">STEP 2 OF 2</div>
+      <div class="loadout-actions">
+        <button id="loadout-back" class="loadout-back">◂ BACK</button>
+        <button id="loadout-play" class="loadout-cta ${this.faction}">PLAY</button>
+      </div>
+      <div class="loadout-hint">←/→ SELECT · ↑/↓ ROW · ESC BACK · ENTER LAUNCH</div>`;
 
     for (const el of this.root.querySelectorAll<HTMLElement>(".faction-card")) {
       el.addEventListener("click", () => {
@@ -371,6 +446,13 @@ export class LoadoutMenu {
         this.saveAndRender();
       });
     }
+    for (const el of this.root.querySelectorAll<HTMLElement>(".diff-card")) {
+      el.addEventListener("click", () => {
+        this.activeRow = "difficulty";
+        this.difficulty = el.dataset.diff as DifficultyId;
+        this.saveAndRender();
+      });
+    }
     for (const el of this.root.querySelectorAll<HTMLElement>(".map-card")) {
       el.addEventListener("click", () => {
         this.activeRow = "map";
@@ -378,17 +460,25 @@ export class LoadoutMenu {
         this.saveAndRender();
       });
     }
+    // Page navigation buttons (only one page's buttons exist per render).
     this.root
-      .querySelector<HTMLButtonElement>("#loadout-play")!
-      .addEventListener("click", () => this.onPlay());
+      .querySelector<HTMLButtonElement>("#loadout-next")
+      ?.addEventListener("click", () => this.goStep(2));
+    this.root
+      .querySelector<HTMLButtonElement>("#loadout-back")
+      ?.addEventListener("click", () => this.goStep(1));
+    this.root
+      .querySelector<HTMLButtonElement>("#loadout-play")
+      ?.addEventListener("click", () => this.onPlay());
 
-    // Re-adopt the live preview canvas (one shared element across renders)
-    // and point it at the current selection.
-    this.root
-      .querySelector<HTMLElement>("#ship-preview-stage")!
-      .appendChild(this.preview.canvas);
-    this.preview.resize();
-    void this.preview.show(this.shipType);
+    // Re-adopt the live preview canvas (one shared element across renders) and
+    // point it at the current selection. The hangar only exists on page 1.
+    const stage = this.root.querySelector<HTMLElement>("#ship-preview-stage");
+    if (stage) {
+      stage.appendChild(this.preview.canvas);
+      this.preview.resize();
+      void this.preview.show(this.shipType);
+    }
 
     // Static thumbnails for the visible ship cards — cached after first
     // capture, so this is async exactly once per ship.
@@ -418,6 +508,18 @@ export class LoadoutMenu {
           <div class="card-blurb">${info.summary}</div>
           ${miniBars}
         </div>
+      </div>`;
+  }
+
+  /** Compact difficulty card: name + one-line blurb. Drives the enemy-skill
+   *  preset (Difficulty.ts); the player's own wing is unaffected. */
+  private diffCard(id: DifficultyId): string {
+    const d = DIFFICULTIES[id];
+    const sel = id === this.difficulty ? " selected" : "";
+    return `
+      <div class="loadout-card diff-card${sel}" data-diff="${id}">
+        <div class="card-title">${d.name.toUpperCase()}</div>
+        <div class="card-blurb">${d.blurb}</div>
       </div>`;
   }
 

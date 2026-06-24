@@ -168,7 +168,7 @@ export class Hud {
     const subEl = this.endBannerEl.querySelector<HTMLElement>(".end-sub");
     if (titleEl) titleEl.textContent = title;
     if (statsEl) statsEl.textContent = stats;
-    if (subEl) subEl.textContent = "Press Enter to restart";
+    if (subEl) subEl.textContent = "Press Enter to restart · Esc for menu";
     this.endBannerEl.className = `end-banner ${outcome}`;
   }
 
