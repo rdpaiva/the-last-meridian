@@ -132,6 +132,10 @@ export class SoundSystem {
   private readonly enemyLaser: PooledSound;
   private readonly laserGun: PooledSound;
   private readonly laserGunOwn: PooledSound;
+  // Carrier defense-turret cannon. Always spatial — every turret is mounted on
+  // a (distant) mothership, never the player, so it only ever attenuates in
+  // from the hull. cannon.mp3 is a heavier flak report than the fighter lasers.
+  private readonly turretCannon: PooledSound;
   private readonly breakerLaserOwn: PooledSound;
   private readonly breakerLaserSpatial: PooledSound;
   private readonly hit: PooledSound;
@@ -237,6 +241,13 @@ export class SoundSystem {
       scene,
       4,
       { volume: 0.35 },
+    );
+    this.turretCannon = new PooledSound(
+      "sfx_turret_cannon",
+      `${baseUrl}/cannon.mp3`,
+      scene,
+      4,
+      { volume: 0.32, spatial: true },
     );
     this.breakerLaserOwn = new PooledSound(
       "sfx_breaker_laser_own",
@@ -411,6 +422,10 @@ export class SoundSystem {
   }
   playLaserGun(position: Vector3): void {
     this.laserGun.playAt(position);
+  }
+  /** Carrier defense-turret cannon report at a world position (spatial only). */
+  playTurretFire(position: Vector3): void {
+    this.turretCannon.playAt(position);
   }
   /**
    * Play the fire sound mapped to a ship's FireSoundKey.

@@ -485,14 +485,20 @@ export class Game {
         this.events.emit("missileIntercepted", { position: pos }),
     });
     this.factionLasers = { humans: humansLasers, machines: machinesLasers };
+    // Dark-orange flak tint shared by both carriers' turret bolts (distinct from
+    // each faction's fighter laser colour) — see GameConfig.mothership.turrets.
+    const tb = GameConfig.mothership.turrets.boltEmissive;
+    const turretBoltEmissive = new Color3(tb.r, tb.g, tb.b);
     this.factionLaserViews = {
       humans: new LaserSystemView(this.scene, humansLasers, {
         emissive: FACTION_THEME.humans.laserEmissive,
         materialName: FACTION_THEME.humans.laserMaterialName,
+        turretEmissive: turretBoltEmissive,
       }),
       machines: new LaserSystemView(this.scene, machinesLasers, {
         emissive: FACTION_THEME.machines.laserEmissive,
         materialName: FACTION_THEME.machines.laserMaterialName,
+        turretEmissive: turretBoltEmissive,
       }),
     };
 
@@ -991,12 +997,13 @@ export class Game {
       this.applyHitstop(cfg.deathHitstopMs);
     });
 
-    // Carrier turret fire: a spatial laser blip at the muzzle (attenuates with
-    // distance from the player). The bolt itself is the main read; this just
-    // gives the carriers some presence. The pooled sound caps overlap so a full
-    // battery can't drown the mix.
+    // Carrier turret fire: a spatial cannon report at the muzzle (attenuates
+    // with distance from the player) plus a brief muzzle flash. The bolt itself
+    // is the main read; these give the carriers some presence. The pooled sound
+    // caps overlap so a full battery can't drown the mix.
     this.events.on("turretFired", ({ origin }) => {
-      this.sound.playFireSound("laserGun", origin);
+      this.sound.playTurretFire(origin);
+      this.explosions.spawnMuzzleFlash(origin);
     });
     // A turret was shot off: explosion + sound + distance-scaled trauma (a
     // smaller cue than a ship death — it's a sub-part, not a kill).
@@ -1717,7 +1724,7 @@ export class Game {
       const ms = this.motherships[f];
       const fires = ms.updateTurrets(deltaSeconds, this.sensors.contacts[f], nowMs);
       for (const cmd of fires) {
-        this.factionLasers[f].spawn(cmd.origin, cmd.rotationY, null, cmd.damage);
+        this.factionLasers[f].spawn(cmd.origin, cmd.rotationY, null, cmd.damage, true, cmd.velocityY);
         this.events.emit("turretFired", { faction: f, origin: cmd.origin });
       }
     }

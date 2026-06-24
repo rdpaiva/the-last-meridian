@@ -279,6 +279,27 @@ Auto-tracking flak the carriers shoot back with. Read before touching them.
   stale/identity matrices there gives a zero/garbage muzzle (bolts from the
   pivot, mis-angled). The static base hangs off the carrier; only the
   `TurretBody` node rotates.
+- **Bolts SLOPE DOWN onto the fighter plane.** The muzzle sits up on the carrier
+  deck (`muzzleHeight`, ~8+ units) but fighters fly Y=0, and bolt collision is
+  X/Z only — so a flat bolt sails *above* a ship yet still tags it (an on-screen
+  "hit without touching", worsened by the angled top-down camera's parallax).
+  Fix: `Turret.update` launches each bolt with a downward `velocityY` sized to
+  cross Y=0 at the target's horizontal distance (X/Z speed unchanged, so heading
+  + the swept test are identical to a ship bolt). `Laser` integrates `velocity.y`
+  (zero for every other bolt). Belt-and-braces, `LaserSystem` gates a turret
+  bolt's ship hit on `|bolt.y − target.y| ≤ turrets.boltVerticalHitRange` — a
+  bolt still high overhead can't damage a ship it's only passing above. The view
+  streak stays flat (a short descending dash); no Euler pitch (heading-dependent
+  near ±90°).
+- **Own sound + FX, distinct from fighter lasers.** Turret fire plays
+  `cannon.mp3` (`SoundSystem.playTurretFire`, spatial) and pops a muzzle flash
+  (`ExplosionSystem.spawnMuzzleFlash`, a debris-less hot-orange `Explosion`),
+  both off the `turretFired` SimEvent. Bolts carry a view-only `turret` flag so
+  `LaserSystemView` tints them with a second **dark-orange flak** material
+  (`turrets.boltEmissive`) — both factions' turrets share it (a carrier-battery
+  read, not a faction colour). Flash + bolt + vertical-hit knobs all live under
+  `GameConfig.mothership.turrets` (`muzzleFlash`, `boltEmissive`,
+  `boltVerticalHitRange`).
 - **Asset pipeline:** `art/turret.blend` (top-down planar UV unwrap, barrel
   along +Y) → two GLBs with the per-faction skin baked in
   (`art/textures/turret_{human,novari}.png`). Re-export both after editing the

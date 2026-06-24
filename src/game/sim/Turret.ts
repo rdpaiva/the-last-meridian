@@ -18,6 +18,15 @@ export interface TurretFireCommand {
   rotationY: number;
   /** Per-bolt damage (the turret's configured value). */
   damage: number;
+  /**
+   * Vertical bolt velocity (units/sec, world Y). Turret muzzles sit up on the
+   * carrier deck while fighters fly the Y=0 plane, so the bolt is launched with
+   * a downward slope sized to land it AT the plane by the time it reaches the
+   * target's horizontal distance — otherwise it sails flat above the fighters
+   * and (collision being X/Z only) tags them while visibly passing overhead.
+   * Negative = descending. Ship bolts omit this (fly flat at their own Y).
+   */
+  velocityY: number;
 }
 
 /**
@@ -172,12 +181,20 @@ export class Turret implements DamageTarget {
       return null;
     }
     this.cooldown = cfg.fireCooldownSec;
+    const muzzleY = this.muzzleHeight ?? this.position.y;
     const origin = new Vector3(
       this.position.x + Math.sin(this.aimAngle) * this.muzzleForward,
-      this.muzzleHeight ?? this.position.y,
+      muzzleY,
       this.position.z + Math.cos(this.aimAngle) * this.muzzleForward,
     );
-    return { origin, rotationY: this.aimAngle, damage: cfg.damage };
+    // Slope the bolt down onto the fighter plane (Y=0). Horizontal speed is
+    // unchanged (cfg.laser.speed in X/Z, so XZ timing + swept collision match a
+    // normal bolt); vy is set so it descends `muzzleY` over the time it takes to
+    // cover the target's horizontal distance — i.e. it crosses Y=0 right at the
+    // target. sqrt(bestSq) is that distance (bestSq is the locked target's).
+    const horizDist = Math.sqrt(bestSq) || 1;
+    const velocityY = (-muzzleY * GameConfig.laser.speed) / horizDist;
+    return { origin, rotationY: this.aimAngle, damage: cfg.damage, velocityY };
   }
 }
 

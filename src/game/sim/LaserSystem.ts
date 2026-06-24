@@ -118,6 +118,8 @@ export class LaserSystem {
     rotationY: number,
     shooter: Ship | null = null,
     damage?: number,
+    turret = false,
+    velocityY = 0,
   ): void {
     const cfg = GameConfig.laser;
 
@@ -131,14 +133,17 @@ export class LaserSystem {
       origin.z + Math.cos(rotationY) * cfg.spawnOffset,
     );
 
+    // X/Z speed is always the full bolt speed (so heading + swept collision are
+    // identical to every other bolt); `velocityY` is an optional vertical slope
+    // (turret bolts descending onto the fighter plane — see TurretFireCommand).
     const velocity = new Vector3(
       Math.sin(rotationY) * cfg.speed,
-      0,
+      velocityY,
       Math.cos(rotationY) * cfg.speed,
     );
 
     this.lasers.push(
-      new Laser(position, velocity, cfg.lifetimeMs, rotationY, shooter, damage ?? this.damage),
+      new Laser(position, velocity, cfg.lifetimeMs, rotationY, shooter, damage ?? this.damage, turret),
     );
   }
 
@@ -225,6 +230,19 @@ export class LaserSystem {
       // intersectsSegmentXZ so the bolt only dies on the visible hull.
       for (const target of targets) {
         if (!target.isAlive) continue;
+        // Turret bolts fly a downward slope from the carrier deck onto the Y=0
+        // fighter plane (see spawn's velocityY). Collision is otherwise X/Z
+        // only, which would let a bolt still high overhead tag a ship it's
+        // merely passing ABOVE — the on-screen "hit without touching". Gate
+        // turret bolts on the bolt actually being near the target's plane, so a
+        // hit only lands once the slope has brought it down to the ship.
+        if (
+          laser.turret &&
+          Math.abs(laser.position.y - target.position.y) >
+            GameConfig.mothership.turrets.boltVerticalHitRange
+        ) {
+          continue;
+        }
         const distSq = distSqSegmentToPoint(target.position.x, target.position.z, ax, az, bx, bz);
         const radiusSq = target.hitRadius * target.hitRadius;
         if (distSq > radiusSq) continue;

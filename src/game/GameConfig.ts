@@ -969,6 +969,41 @@ export const GameConfig = {
       destroyTrauma: 0.28,
 
       /**
+       * Bolt emissive colour for turret fire — a DARK ORANGE flak round, visually
+       * distinct from the faction fighter lasers (so the carrier's defensive
+       * battery reads as its own threat). Both factions' turrets share it. R > 1
+       * so the GlowLayer blooms it hot without washing to yellow/white; low green
+       * and near-zero blue keep it a deep orange rather than amber. Consumed by
+       * LaserSystemView as a second material, selected per-bolt by `Laser.turret`.
+       */
+      boltEmissive: { r: 1.6, g: 0.42, b: 0.04 },
+      /**
+       * Vertical hit window (world units) for turret bolts. Turret bolts launch
+       * from the carrier deck and slope DOWN onto the Y=0 fighter plane (so they
+       * visually converge on their target instead of sailing flat overhead). A
+       * bolt only damages a ship when it's within this band of the target's Y —
+       * i.e. once the slope has actually brought it down to the plane — so one
+       * still high overhead can't tag a ship it's only passing above. Sized with
+       * margin above the ship hit radius so a true firing solution (bolt reaches
+       * Y≈0 at the target) always lands; tighten to make near-miss flyovers whiff.
+       */
+      boltVerticalHitRange: 3,
+      /**
+       * Muzzle flash popped at the fire point each shot (ExplosionSystem
+       * .spawnMuzzleFlash). A debris-less flash sphere, tinted to match the bolt.
+       */
+      muzzleFlash: {
+        /** Flash sphere radius (world units) before the peak-scale punch. */
+        radius: 1.6,
+        /** Lifetime (ms) — short; it's a pop, not an explosion. */
+        durationMs: 110,
+        /** Peak scale multiple at the flash's brightest frame. */
+        peakScale: 2.2,
+        /** Emissive colour (hot orange, matched to boltEmissive). */
+        color: { r: 2.4, g: 0.8, b: 0.12 },
+      },
+
+      /**
        * Turret GLB (art/turret.blend → public/models/turret.glb): a tiered
        * static base + a rotating upper gun. TurretView loads it once per carrier
        * and instantiates one per mount, tinted per faction; the STATIC base

@@ -14,6 +14,13 @@ export type LaserSystemViewOptions = {
   emissive: Color3;
   /** Optional name for the material — handy when debugging in the inspector. */
   materialName?: string;
+  /**
+   * Emissive RGB for TURRET bolts (Laser.turret === true) — the carrier's
+   * dark-orange flak rounds, distinct from this faction's fighter lasers. Both
+   * factions share it (GameConfig.mothership.turrets.boltEmissive). Omit to tint
+   * turret bolts the same as ship bolts.
+   */
+  turretEmissive?: Color3;
 };
 
 /**
@@ -31,6 +38,12 @@ export type LaserSystemViewOptions = {
  */
 export class LaserSystemView {
   private readonly material: StandardMaterial;
+  /**
+   * Second material for turret bolts (dark-orange flak), or null when no
+   * turretEmissive was given — then turret bolts share the ship material. Built
+   * once and assigned per-mesh each frame by the bolt's `turret` flag.
+   */
+  private readonly turretMaterial: StandardMaterial | null;
   private readonly pool: Mesh[] = [];
 
   constructor(
@@ -38,21 +51,27 @@ export class LaserSystemView {
     private readonly system: LaserSystem,
     options: LaserSystemViewOptions,
   ) {
-    const mat = new StandardMaterial(
+    this.material = this.buildMaterial(
       options.materialName ?? "laser_mat",
-      scene,
+      options.emissive,
     );
+    this.turretMaterial = options.turretEmissive
+      ? this.buildMaterial(
+          `${options.materialName ?? "laser"}_turret`,
+          options.turretEmissive,
+        )
+      : null;
+  }
+
+  private buildMaterial(name: string, emissive: Color3): StandardMaterial {
+    const mat = new StandardMaterial(name, this.scene);
     // Diffuse is irrelevant when lighting is disabled — kept dark so the
     // bolt reads as near-pure emission even outside the bloom pass.
-    mat.diffuseColor = new Color3(
-      options.emissive.r * 0.2,
-      options.emissive.g * 0.2,
-      options.emissive.b * 0.2,
-    );
-    mat.emissiveColor = options.emissive;
+    mat.diffuseColor = new Color3(emissive.r * 0.2, emissive.g * 0.2, emissive.b * 0.2);
+    mat.emissiveColor = emissive;
     mat.specularColor = new Color3(0, 0, 0);
     mat.disableLighting = true;
-    this.material = mat;
+    return mat;
   }
 
   /** Copy live bolts onto pool meshes. Call once per frame, before render. */
@@ -64,6 +83,11 @@ export class LaserSystemView {
       const bolt = bolts[i];
       mesh.position.copyFrom(bolt.position);
       mesh.rotation.y = bolt.rotationY;
+      // Pool meshes are reused across bolts of either kind, so re-select the
+      // material each frame from the bolt's turret flag (a cheap reference set).
+      const mat =
+        bolt.turret && this.turretMaterial ? this.turretMaterial : this.material;
+      if (mesh.material !== mat) mesh.material = mat;
       if (!mesh.isEnabled(false)) mesh.setEnabled(true);
     }
     for (let i = bolts.length; i < this.pool.length; i++) {
@@ -92,5 +116,6 @@ export class LaserSystemView {
     for (const mesh of this.pool) mesh.dispose();
     this.pool.length = 0;
     this.material.dispose();
+    this.turretMaterial?.dispose();
   }
 }

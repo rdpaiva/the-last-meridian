@@ -40,6 +40,13 @@ export class Laser {
      * Spitfire's on the same LaserSystem).
      */
     readonly damage: number = 0,
+    /**
+     * True if this bolt came from a carrier defense turret rather than a ship.
+     * Pure VIEW hint (sim/collision treat it like any other bolt): the
+     * LaserSystemView tints turret bolts with the dark-orange flak material so
+     * the carrier's battery reads distinct from the faction fighter lasers.
+     */
+    readonly turret: boolean = false,
   ) {}
 
   update(deltaSeconds: number, deltaMs: number): void {
@@ -49,6 +56,7 @@ export class Laser {
       return;
     }
     this.position.x += this.velocity.x * deltaSeconds;
+    this.position.y += this.velocity.y * deltaSeconds;
     this.position.z += this.velocity.z * deltaSeconds;
     this.ageMs += deltaMs;
   }

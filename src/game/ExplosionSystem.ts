@@ -22,6 +22,8 @@ export class ExplosionSystem {
   private readonly active: Explosion[] = [];
   private readonly flashMat: StandardMaterial;
   private readonly debrisMat: StandardMaterial;
+  /** Hot-orange flash for turret muzzle pops (spawnMuzzleFlash). */
+  private readonly muzzleFlashMat: StandardMaterial;
 
   constructor(
     private readonly scene: Scene,
@@ -40,6 +42,33 @@ export class ExplosionSystem {
     this.debrisMat.specularColor = new Color3(0, 0, 0);
     this.debrisMat.emissiveColor = new Color3(1.8, 0.6, 0.15);
     this.debrisMat.disableLighting = true;
+
+    // Muzzle flash: hot orange, tinted to match the turret bolt (config-driven).
+    const mf = GameConfig.mothership.turrets.muzzleFlash.color;
+    this.muzzleFlashMat = new StandardMaterial("turret_muzzle_flash_mat", scene);
+    this.muzzleFlashMat.diffuseColor = new Color3(0, 0, 0);
+    this.muzzleFlashMat.specularColor = new Color3(0, 0, 0);
+    this.muzzleFlashMat.emissiveColor = new Color3(mf.r, mf.g, mf.b);
+    this.muzzleFlashMat.disableLighting = true;
+  }
+
+  /**
+   * A brief, debris-less flash sphere at a carrier turret's fire point — the
+   * muzzle pop wired off the turretFired sim event. Reuses the Explosion entity
+   * (flash-only: empty debris list) so it tweens + disposes like any other.
+   */
+  spawnMuzzleFlash(position: Vector3): void {
+    const cfg = GameConfig.mothership.turrets.muzzleFlash;
+    const flash = MeshBuilder.CreateSphere(
+      "turret_muzzle_flash",
+      { diameter: cfg.radius * 2, segments: 6 },
+      this.scene,
+    );
+    flash.position.copyFrom(position);
+    flash.material = this.muzzleFlashMat;
+    flash.isPickable = false;
+    this.glowLayer.addIncludedOnlyMesh(flash);
+    this.active.push(new Explosion(flash, [], cfg.durationMs, cfg.peakScale));
   }
 
   spawn(position: Vector3): void {
