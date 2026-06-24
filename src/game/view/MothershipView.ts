@@ -16,6 +16,7 @@ import "@babylonjs/loaders/glTF";
 
 import { GameConfig } from "../GameConfig";
 import { Mothership } from "../sim/Mothership";
+import { TurretView } from "./TurretView";
 
 /**
  * Procedural BSG-style carrier/battleship (Galactica silhouette) — the VIEW
@@ -63,6 +64,14 @@ export class MothershipView {
    */
   private proceduralMeshes: AbstractMesh[] = [];
 
+  /**
+   * One depiction per sim turret, parented under `root` (so they ride either
+   * the procedural or the swapped-in GLB carrier — they're built AFTER the
+   * proceduralMeshes snapshot so applyModel() doesn't dispose them). Index-
+   * aligned with `sim.turrets`; syncTurrets() swings each from sim state.
+   */
+  private readonly turretViews: TurretView[] = [];
+
   constructor(scene: Scene, glowLayer: GlowLayer, sim: Mothership) {
     this.scene = scene;
     this.glowLayer = glowLayer;
@@ -91,6 +100,85 @@ export class MothershipView {
     // GLB loads. The carrier is visible immediately (and is the fallback if the
     // model is missing or fails to load).
     this.proceduralMeshes = this.root.getChildMeshes(true);
+
+    // Turret depictions — built AFTER the snapshot above so the GLB swap leaves
+    // them intact. Placed from the SAME config mounts the sim turrets are built
+    // from (index-aligned), in carrier-LOCAL coords under `root`.
+    const tcfg = GameConfig.mothership.turrets;
+    const mounts = tcfg.mounts[faction] ?? [];
+    for (const m of mounts) {
+      this.turretViews.push(
+        new TurretView(
+          scene,
+          this.root,
+          faction,
+          m.x,
+          tcfg.mountY,
+          m.z,
+          sim.rotationY,
+        ),
+      );
+    }
+  }
+
+  /**
+   * Swing every turret barrel to its sim turret's current aim, and drop a
+   * destroyed turret to a charred stump. Called each view frame from
+   * Game.updateViews (carriers never move, so the body alone needs syncing).
+   */
+  syncTurrets(): void {
+    const turrets = this.sim.turrets;
+    for (let i = 0; i < this.turretViews.length; i++) {
+      const t = turrets[i];
+      if (t) this.turretViews[i].update(t.aimAngle, t.isAlive);
+    }
+  }
+
+  /**
+   * Load the shared turret GLB once and swap every procedural turret on this
+   * carrier for an instance of it (static base + rotating gun, faction-tinted).
+   * Returns the muzzle fire-point distance (game units) measured off the model —
+   * the caller hands it to each sim Turret via setMuzzleData so bolts spawn at
+   * the barrel tip. Returns null (keeping the procedural turrets + the sim's
+   * config muzzleForward) if the model is disabled or fails to load. Awaited from
+   * Game.start after the carrier model swap; resolves, never rejects.
+   */
+  async applyTurretModel(): Promise<{ forward: number; height: number } | null> {
+    const cfg = GameConfig.mothership.turrets.model;
+    const file = cfg?.file[this.sim.faction];
+    if (!cfg || !file || this.turretViews.length === 0) return null;
+    try {
+      const result = await SceneLoader.ImportMeshAsync(
+        "",
+        `${import.meta.env.BASE_URL}models/`,
+        file,
+        this.scene,
+      );
+      // Park the import under a scaled, disabled prefab the views instantiate.
+      const prefab = new TransformNode(`turret_prefab_${this.sim.faction}`, this.scene);
+      const gltfRoot = result.transformNodes.find((n) => n.name === "__root__");
+      if (gltfRoot) {
+        gltfRoot.parent = prefab;
+      } else {
+        for (const m of result.meshes) if (m.parent === null) m.parent = prefab;
+      }
+      prefab.scaling.setAll(cfg.scale);
+      prefab.setEnabled(false);
+
+      let fire: { forward: number; height: number } | null = null;
+      for (const tv of this.turretViews) {
+        const f = tv.applyModel(prefab);
+        if (f !== null) fire = f;
+      }
+      return fire;
+    } catch (err) {
+      console.warn(
+        `[MothershipView] Failed to load /models/${cfg.file} — keeping the ` +
+          `procedural turrets.`,
+        err,
+      );
+      return null;
+    }
   }
 
   /** Tear down the scene nodes (match end). */

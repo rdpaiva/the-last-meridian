@@ -1,6 +1,7 @@
 import type { Vector3 } from "@babylonjs/core/Maths/math.vector";
 
 import type { DamageTarget } from "../types";
+import type { Faction } from "../Faction";
 import type { Ship } from "./Ship";
 import type { Mothership } from "./Mothership";
 
@@ -48,6 +49,10 @@ export interface SimEventMap {
   shipDied: { ship: Ship };
   /** A mothership fell — the match-ending death spectacle. */
   mothershipDied: { mothership: Mothership };
+  /** A carrier defense turret fired a bolt this frame (faction = the shooter's). */
+  turretFired: { faction: Faction; origin: Vector3 };
+  /** A carrier defense turret was shot off the hull (fires once, latched). */
+  turretDestroyed: { position: Vector3 };
   /** A ship armed its jump drive and began the spool-up countdown. */
   jumpSpoolStarted: { ship: Ship };
   /**

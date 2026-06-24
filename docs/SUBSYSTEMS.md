@@ -240,6 +240,51 @@ friendly-fire-free without per-bolt faction checks.
   trauma/hitstop) — otherwise sustained fire on the stationary 1500-HP target
   would spam hitstop and crawl the whole game.
 
+## Carrier defense turrets (Turret / TurretView)
+Auto-tracking flak the carriers shoot back with. Read before touching them.
+
+- **Sim/view split, like everything else.** `sim/Turret.ts` is pure
+  (Maths-only): aim slew, fire cooldown, hp, sensor targeting. `view/TurretView.ts`
+  is the mesh. `Mothership` OWNS its turrets (built from
+  `GameConfig.mothership.turrets.mounts[faction]`); `Mothership.updateTurrets()`
+  ticks them and returns fire commands the CALLER spawns into the faction
+  `LaserSystem` — the turret never references a weapon system (no
+  construction-order coupling, trivially headless). Both `Game.advanceSim` AND
+  the smoke harness do this wiring; keep them in lockstep.
+- **Sub-emitter, not a Ship.** Turret bolts spawn with shooter `null` (a turret
+  isn't a `Ship`). `onLaserHit`/feedback already handle a null shooter, so no
+  kill attribution — fine.
+- **Targets the faction SENSOR PICTURE, FRESH contacts only.** A ghost/last-known
+  track never draws flak; a ship concealed in a combat nebula is invisible to
+  it. Mirrors the AI pilots — and stays correct under Phase-2 sensor-filtered
+  replication. No `Math.random` (deterministic / server-clean).
+- **Individually destructible — placement is gameplay, not cosmetics.** Each
+  turret is a `DamageTarget` with its own hp, registered on the OPPOSING
+  faction's laser + missile systems **before** the hull sections (first-overlap-
+  consumes ordering) so a bolt grazing a turret kills it instead of passing to
+  the carrier. Mounts MUST sit on the OUTER pod/sponson edges so the hit circle
+  (`hitRadius`) pokes past the hull silhouette — an inboard mount hides behind
+  the hull and can't be hit. `mountY` is cosmetic only (collision is X/Z).
+- **Fire point comes from the model's `muzzle` empty, derived not guessed.** The
+  GLB (`turret_human.glb` / `turret_novari.glb`, per faction) carries a `muzzle`
+  empty parented to the rotating `TurretBody`. On load `TurretView.applyModel`
+  measures it for THREE things: the pivot→muzzle distance (sim `muzzleForward`),
+  the muzzle's world height (bolts spawn at the barrel tip, not the base), and
+  the barrel's world heading — from which it derives the `yawOffset` that aligns
+  the visible barrel with the bolt (`yawOffset = carrierRotationY −
+  atan2(dx, dz)`). This is handedness-agnostic: whatever way the glTF import
+  lands the barrel, it cancels it, so there's no magic orientation constant.
+  **Gotcha:** `applyModel` runs BEFORE the first render, so it force-recomputes
+  the whole world-matrix chain (root→mount→gun→body→muzzle) first — reading
+  stale/identity matrices there gives a zero/garbage muzzle (bolts from the
+  pivot, mis-angled). The static base hangs off the carrier; only the
+  `TurretBody` node rotates.
+- **Asset pipeline:** `art/turret.blend` (top-down planar UV unwrap, barrel
+  along +Y) → two GLBs with the per-faction skin baked in
+  (`art/textures/turret_{human,novari}.png`). Re-export both after editing the
+  model; the fire point re-derives itself from the `muzzle` empty, no code
+  change. A procedural box turret is the fallback if a GLB is missing.
+
 ## Radar
 - Player-centered, **north-up** circular minimap on its own canvas
   (bottom-right), redrawn every frame (read-only — it never feeds gameplay).

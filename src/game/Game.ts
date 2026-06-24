@@ -46,6 +46,7 @@ import { MusicSystem } from "./MusicSystem";
 import { DamageFlash } from "./DamageFlash";
 import { Mothership } from "./sim/Mothership";
 import { MothershipSection } from "./sim/MothershipSection";
+import { Turret } from "./sim/Turret";
 import { MothershipView } from "./view/MothershipView";
 import { Hulk } from "./sim/Hulk";
 import { HulkView } from "./view/HulkView";
@@ -214,6 +215,10 @@ export class Game {
   /** The locally-controlled ship (built on async asset load). */
   private playerShip: Ship | null = null;
   private readonly playerController: LocalInputController;
+
+  /** DEBUG god mode (Backquote toggle): player invuln + boosted speed. */
+  private debugGodMode = false;
+  private debugBadgeEl: HTMLElement | null = null;
   private engineGlow: EngineGlow | null = null;
   private secondaryThrusters: SecondaryThrusters | null = null;
   private playerDamageFlash: DamageFlash | null = null;
@@ -821,6 +826,16 @@ export class Game {
       this.factionLasers[opposing(c.ship.faction)].addTarget(c.ship);
       this.factionMissiles[opposing(c.ship.faction)].addTarget(c.ship);
     }
+    // Carrier turrets are shootable: register each on the opposing faction's
+    // weapons BEFORE the hull sections so a bolt grazing a turret destroys it
+    // (the turret sits proud of the hull) rather than passing through to the
+    // carrier behind it — first-overlap-consumes ordering.
+    for (const f of ["humans", "machines"] as Faction[]) {
+      for (const turret of this.motherships[f].turrets) {
+        this.factionLasers[opposing(f)].addTarget(turret);
+        this.factionMissiles[opposing(f)].addTarget(turret);
+      }
+    }
     // Carriers are targeted per HULL SECTION (overlapping circles covering the
     // full hull, each forwarding damage to the one HP pool) — not via the
     // center hitRadius, which left the bow/stern intangible.
@@ -843,6 +858,21 @@ export class Game {
       (["humans", "machines"] as Faction[]).map((f) => {
         const file = GameConfig.mothership.model.file[f];
         return file ? this.mothershipViews[f].applyModel(file) : Promise.resolve(false);
+      }),
+    );
+
+    // Swap each carrier's procedural box turrets for the shared turret GLB
+    // (static base + rotating gun, tinted per faction). The model's `muzzle`
+    // empty gives the fire-point distance, fed back to each sim turret so bolts
+    // spawn at the barrel tip. Falls back to the procedural turrets per carrier.
+    await Promise.all(
+      (["humans", "machines"] as Faction[]).map(async (f) => {
+        const fire = await this.mothershipViews[f].applyTurretModel();
+        if (fire !== null) {
+          for (const turret of this.motherships[f].turrets) {
+            turret.setMuzzleData(fire.forward, fire.height);
+          }
+        }
       }),
     );
 
@@ -961,6 +991,23 @@ export class Game {
       this.applyHitstop(cfg.deathHitstopMs);
     });
 
+    // Carrier turret fire: a spatial laser blip at the muzzle (attenuates with
+    // distance from the player). The bolt itself is the main read; this just
+    // gives the carriers some presence. The pooled sound caps overlap so a full
+    // battery can't drown the mix.
+    this.events.on("turretFired", ({ origin }) => {
+      this.sound.playFireSound("laserGun", origin);
+    });
+    // A turret was shot off: explosion + sound + distance-scaled trauma (a
+    // smaller cue than a ship death — it's a sub-part, not a kill).
+    this.events.on("turretDestroyed", ({ position }) => {
+      this.explosions.spawn(position);
+      this.sound.playExplosion(position);
+      this.cameraRig.addTrauma(
+        this.traumaAtDistance(GameConfig.mothership.turrets.destroyTrauma, position),
+      );
+    });
+
     // Jump drive. The PLAYER's own drive sound is the 8s clip (build = spool,
     // trigger on teleport, 2s tail = whoosh); a cancel fades it. On a completed
     // jump the trails are flushed so no streak follows the teleport across the
@@ -1021,6 +1068,12 @@ export class Game {
     // Chipping a mothership: light cue only (avoid hitstop spam on the
     // objective). Carriers are hit through their hull-section proxies.
     if (target instanceof MothershipSection) {
+      return;
+    }
+    // Chipping a carrier turret: light cue (no hitstop spam). The player gets a
+    // subtle camera confirm; the turret's destruction explosion is the payoff.
+    if (target instanceof Turret) {
+      if (fromPlayer) this.cameraRig.addTrauma(GameConfig.shake.traumaEnemyLaserHit);
       return;
     }
     if (target === this.playerShip) {
@@ -1413,6 +1466,38 @@ export class Game {
     }
   }
 
+  /**
+   * DEBUG/test cheat (Backquote `` ` ``): toggle player invulnerability +
+   * boosted speed so you can blaze across a live match to inspect things (e.g.
+   * carrier turrets up close) without being shot down. Client-only — flips
+   * fields on the player Ship and shows a corner badge. Persists across
+   * respawns; no effect on the AI or the headless sim.
+   */
+  private toggleGodMode(): void {
+    this.debugGodMode = !this.debugGodMode;
+    const ship = this.playerShip;
+    if (ship) {
+      ship.debugInvulnerable = this.debugGodMode;
+      ship.debugSpeedMultiplier = this.debugGodMode
+        ? GameConfig.debug.godSpeedMultiplier
+        : 1;
+      if (this.debugGodMode) ship.hp = ship.maxHp;
+    }
+    if (!this.debugBadgeEl) {
+      const el = document.createElement("div");
+      el.style.cssText =
+        "position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:50;" +
+        "font:600 13px/1.4 monospace;letter-spacing:1px;color:#ffd166;" +
+        "background:rgba(0,0,0,0.55);border:1px solid #ffd166;border-radius:4px;" +
+        "padding:3px 10px;pointer-events:none;text-shadow:0 0 6px #ffae00;";
+      document.body.appendChild(el);
+      this.debugBadgeEl = el;
+    }
+    this.debugBadgeEl.textContent = `GOD MODE — invuln + ${GameConfig.debug.godSpeedMultiplier}× speed`;
+    this.debugBadgeEl.style.display = this.debugGodMode ? "block" : "none";
+    console.info(`[debug] god mode ${this.debugGodMode ? "ON" : "OFF"}`);
+  }
+
   private readonly tick = (): void => {
     try {
       const deltaSeconds = Math.min(
@@ -1429,6 +1514,7 @@ export class Game {
       const simStepRan = !inHitstop && !ended;
 
       this.input.update();
+      if (this.input.consumeDebugToggle()) this.toggleGodMode();
 
       const anyInputHeld =
         this.input.state.thrust ||
@@ -1623,6 +1709,19 @@ export class Game {
       }
     }
 
+    // Carrier defense turrets: each live turret tracks its faction's sensor
+    // picture and fires into that faction's LaserSystem (shooter = null — a
+    // turret isn't a Ship; onHit/feedback handle a null shooter). Bolts go
+    // into the carrier's OWN faction system, so a humans turret hits machines.
+    for (const f of ["humans", "machines"] as Faction[]) {
+      const ms = this.motherships[f];
+      const fires = ms.updateTurrets(deltaSeconds, this.sensors.contacts[f], nowMs);
+      for (const cmd of fires) {
+        this.factionLasers[f].spawn(cmd.origin, cmd.rotationY, null, cmd.damage);
+        this.events.emit("turretFired", { faction: f, origin: cmd.origin });
+      }
+    }
+
     // Ships that rammed a rock this frame: hard-bump them off it + damage.
     this.resolveAsteroidCollisions(nowMs);
     // The carriers are solid: bump out anyone overlapping a hull section.
@@ -1639,6 +1738,17 @@ export class Game {
         ship.explosionFired = true;
       }
       if (ship.shouldRespawn(nowMs)) this.respawnShip(c, isPlayer);
+    }
+
+    // Turret death FX (fires once per turret, gated by its explosionFired
+    // latch — same shape as ship death). No respawn: a shot-off gun stays gone.
+    for (const f of ["humans", "machines"] as Faction[]) {
+      for (const turret of this.motherships[f].turrets) {
+        if (!turret.isAlive && !turret.explosionFired) {
+          this.events.emit("turretDestroyed", { position: turret.position });
+          turret.explosionFired = true;
+        }
+      }
     }
 
     this.factionLasers.humans.update(deltaSeconds, deltaMs, nowMs);
@@ -1684,6 +1794,10 @@ export class Game {
         this.hulks[i].rotationZ,
       );
     }
+    // Swing each carrier's turret barrels to their sim aim (carriers are static,
+    // so only the turrets need a per-frame sync).
+    this.mothershipViews.humans.syncTurrets();
+    this.mothershipViews.machines.syncTurrets();
     this.factionLaserViews.humans.update();
     this.factionLaserViews.machines.update();
     this.factionMissileViews.humans.update();

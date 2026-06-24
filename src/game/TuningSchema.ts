@@ -311,6 +311,21 @@ export const TUNING_SCHEMA: ReadonlyArray<TuningGroup> = [
         "How long enemy fighters wait after dying before they relaunch."),
     ],
   },
+  {
+    title: "Carrier Turrets",
+    entries: [
+      num("mothership.turrets.hp", "Turret HP", 20, 600, 10,
+        "Health of each carrier defense gun. Shoot a turret off the pod to open a lane before pressing the hull."),
+      num("mothership.turrets.range", "Turret range", 80, 600, 10,
+        "How far a carrier turret will engage approaching ships."),
+      num("mothership.turrets.damage", "Turret damage", 2, 60, 1,
+        "Damage per turret bolt."),
+      num("mothership.turrets.fireCooldownSec", "Turret fire interval (s)", 0.2, 4, 0.05,
+        "Seconds between shots for each turret — lower = heavier flak."),
+      num("mothership.turrets.turnRate", "Turret slew rate", 0.3, 6, 0.1,
+        "How fast a turret barrel tracks a moving target (radians/sec)."),
+    ],
+  },
 ];
 
 /** Flat path → entry lookup, for validation/clamping (ConfigOverrides). */

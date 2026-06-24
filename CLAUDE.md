@@ -99,6 +99,7 @@ Game (top-level coordinator)
 ├── FleetCommander (enemy-side doctrine: re-tasks the fleet on its own sensor picture)
 ├── Arena (wireframe grid + arena bounds)
 ├── Motherships × 2 (humans + machines; DamageTarget = the win/lose objective)
+│     └── Turrets (auto-tracking carrier flak; sub-emitters into the faction LaserSystem; own HP = shootable off)
 ├── Combatants: Ship × N, each driven by a ShipController
 │     ├── player Ship    = LocalInputController (+ EngineGlow + DamageFlash)
 │     ├── wingman Ships  = AIController (player faction, standing orders) [Phase 5]
@@ -211,6 +212,8 @@ src/
     CapitalShips.ts        3 procedural destroyer composites in deep background
     Mothership.ts          BSG-style carrier; DamageTarget objective (HP) + multi-bay launch helpers (getLaunchStartPosition(bayIndex)); hullSections = solid hull footprint, avoidanceCircles = AI steering shapes
     MothershipSection.ts   one world-space rectangle of a carrier's hull footprint: weapons-collision proxy via intersectsSegmentXZ (damage forwards to the carrier's single HP pool) + ship keep-out box
+    sim/Turret.ts          carrier defense gun SIM: auto-tracks a fresh SensorContact, slews, returns fire commands (Mothership.updateTurrets spawns them into the faction LaserSystem); own HP = individually destructible DamageTarget; setMuzzleData = GLB fire-point seam. Pure sim
+    view/TurretView.ts     carrier turret VIEW: per-faction skinned GLB (static base + rotating gun), procedural box fallback; reads sim aimAngle each frame; on load derives the fire point (distance/height/barrel-yaw) from the model's `muzzle` empty
     LaunchSequence.ts      per-ship catapult (hold→launching→complete); player's hold is the cinematic intro+3-2-1 countdown, others a staggered wait. Both fleets launch from their carrier's two bays at match start (Game.assignInitialLaunches/launchFleet); skipIntro = respawn relaunch
     Hud.ts                 DOM HUD: HP cue + sig (DETECTED/HIDDEN) + kills/score + mothership bars + victory/defeat banner
     Radar.ts               player-centered north-up canvas minimap (friendlies = truth; hostiles = sensor picture w/ ghost rings; nebula zones)
@@ -237,7 +240,8 @@ The whole game's tuning lives in `src/game/GameConfig.ts`. Major sections:
 | `sensors` | Per-faction awareness: ship/carrier radar ranges, eyeball `visualRange`, ghost `memorySec`, sweep cadence, nebula penalty |
 | `commander` | Enemy fleet doctrine: think cadence, escort/defend/hunt counts, carrier-alert radius |
 | `ai` | Shared AI decision knobs: engage/fire ranges, fire cone, carrier-strike standoff, missile launch doctrine (envelope/pacing), wander, leash, formation gains |
-| `mothership` | Carrier objective: HP, GLB models + correction, launch bays, death FX — and `hullRects`, the PER-FACTION solid hull footprint (fitted to the GLBs via `scripts/measure-carrier-footprint.mjs`; re-fit after re-exporting a carrier model) |
+| `mothership` | Carrier objective: HP, GLB models + correction, launch bays, death FX — and `hullRects`, the PER-FACTION solid hull footprint (fitted to the GLBs via `scripts/measure-carrier-footprint.mjs`; re-fit after re-exporting a carrier model). `mothership.turrets` = defense-gun knobs + per-faction edge mounts + per-faction skinned GLB |
+| `debug` | Dev/test only: `godSpeedMultiplier` for the Backquote god-mode toggle (player invuln + boost) |
 | `player.wingmen` | Wing size, per-wingman orders + formation slots + PER-FACTION `shipTypes` lists (empty list = wing clones the player's type) |
 | `laser` | Bolt speed/lifetime/visuals (shared across both factions; per-bolt damage comes from the firing ship's type) |
 | `missile` | Homing secondary: speed, turnRate, damage range, lock range/cone, mesh + trail dims (rack size is per ship type) |

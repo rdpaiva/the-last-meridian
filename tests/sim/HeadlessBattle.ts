@@ -364,10 +364,17 @@ export class HeadlessBattle {
       this.worldByFaction[this.enemyFaction],
     );
 
-    // --- Target wiring: ships + carrier hull sections (Game.start) ---
+    // --- Target wiring: ships + carrier turrets + hull sections (Game.start) ---
     for (const c of this.combatants) {
       this.factionLasers[opposing(c.ship.faction)].addTarget(c.ship);
       this.factionMissiles[opposing(c.ship.faction)].addTarget(c.ship);
+    }
+    // Turrets BEFORE sections (shootable, sit proud of the hull) — mirrors Game.
+    for (const f of ["humans", "machines"] as Faction[]) {
+      for (const turret of this.motherships[f].turrets) {
+        this.factionLasers[opposing(f)].addTarget(turret);
+        this.factionMissiles[opposing(f)].addTarget(turret);
+      }
     }
     for (const f of ["humans", "machines"] as Faction[]) {
       for (const section of this.motherships[f].hullSections) {
@@ -511,6 +518,20 @@ export class HeadlessBattle {
           ) {
             ship.serviceTick(dtSeconds);
           }
+        }
+      }
+
+      // Carrier turrets fire into their own faction system (mirrors Game.
+      // advanceSim; no turretFired/turretDestroyed FX — the harness has no
+      // listeners, the destruction LATCH is unused since turrets don't respawn).
+      for (const f of ["humans", "machines"] as Faction[]) {
+        const fires = this.motherships[f].updateTurrets(
+          dtSeconds,
+          this.sensors.contacts[f],
+          nowMs,
+        );
+        for (const cmd of fires) {
+          this.factionLasers[f].spawn(cmd.origin, cmd.rotationY, null, cmd.damage);
         }
       }
 

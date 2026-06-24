@@ -906,6 +906,124 @@ export const GameConfig = {
       ReadonlyArray<{ cx: number; cy: number; cz: number; hx: number; hy: number; hz: number }>
     >,
 
+    /**
+     * Defensive gun turrets — auto-tracking flak mounted on the carrier hull.
+     * Each turret is a SUB-EMITTER (it fires bolts into the carrier's own
+     * faction LaserSystem) AND an individually destructible DamageTarget with
+     * its OWN HP, separate from the carrier's pool: a strafing run can shoot a
+     * turret off the pod to open a lane before pressing the hull. Turrets read
+     * their faction's SENSOR PICTURE (like AI pilots), so a ship hiding in a
+     * combat nebula is invisible to the flak. Pure sim (sim/Turret.ts) — it
+     * runs in advanceSim and the headless harness; sim/view-split-clean and
+     * multiplayer-ready (docs/MULTIPLAYER.md). See docs/RECIPES.md.
+     *
+     * `mounts` are PER-FACTION, in carrier-LOCAL coordinates (the SAME frame as
+     * `colliders`/`hullRects` — z along the keel, bow = +z, x = beam), rotated
+     * into world space by the carrier's facing. v1 authors them here; a turret
+     * GLB can later supply mount points as `turret.*` empties (mirroring how the
+     * launch bays come from `launch.*` empties — MothershipView reads them and
+     * feeds the sim). `restAngle` (radians, LOCAL — added to the carrier facing)
+     * is the idle/forward pose + center of the slew arc; `arcHalf` limits the
+     * slew to ±that from rest (π = full 360°, the default).
+     */
+    turrets: {
+      // --- Shared combat knobs (every turret) ---
+      /** Per-turret hit points (shoot a turret off the pod). */
+      hp: 120,
+      /**
+       * Collision radius for being shot. Sized so the turret's hit circle
+       * pokes PAST the hull silhouette at its edge mount (see `mounts`): a bolt
+       * aimed at the turret crosses this circle at/before the hull, and since
+       * turrets register ahead of the hull sections (Game.start) the turret
+       * takes the hit instead of the carrier behind it.
+       */
+      hitRadius: 8,
+      /** Max engagement range (world units). Inside the carrier's AWADS bubble. */
+      range: 320,
+      /** Slew rate (radians/sec) the barrel tracks a target at. */
+      turnRate: 1.8,
+      /** Seconds between shots (per turret). */
+      fireCooldownSec: 0.85,
+      /** Damage per bolt. */
+      damage: 14,
+      /** Fire only when aimed within this many radians of the target bearing. */
+      aimTolerance: 0.12,
+      /** Default slew half-arc (radians) when a mount omits its own. π = 360°. */
+      arcHalf: Math.PI,
+      /**
+       * Distance (carrier-LOCAL units) from the turret pivot to the muzzle the
+       * bolt spawns at — the procedural fallback. The turret GLB overrides this
+       * from its `muzzle` empty (Turret.setMuzzleData), the same two-tier
+       * pattern the carrier launch geometry uses.
+       */
+      muzzleForward: 6,
+      /**
+       * Height (root-LOCAL Y) the turret base sits at. Tuned to perch the gun on
+       * top of the flight-pod / sponson deck (pod top ≈ 7.4, sponson ≈ 7.9) so
+       * it reads as bolted ON the hull rather than buried inside it. Cosmetic
+       * only — weapon collision is X/Z (the gameplay plane), so this never
+       * affects targetability, just where the mesh sits.
+       */
+      mountY: 8,
+      /** Camera trauma when a turret is destroyed (distance-scaled for far ones). */
+      destroyTrauma: 0.28,
+
+      /**
+       * Turret GLB (art/turret.blend → public/models/turret.glb): a tiered
+       * static base + a rotating upper gun. TurretView loads it once per carrier
+       * and instantiates one per mount, tinted per faction; the STATIC base
+       * stays put and only the `TurretBody` node swings to the aim, with the
+       * `muzzle` empty (child of the body) feeding the sim fire point. Falls back
+       * to the procedural barrel if the file is missing.
+       *
+       * `scale` brings the ~5-unit Blender model up to a carrier-appropriate
+       * size. `yaw` is only a FALLBACK barrel-alignment correction (radians):
+       * when the model carries a `muzzle` empty (ours does), TurretView derives
+       * the correction from the muzzle's actual heading so the visible gun
+       * always points where the bolt flies — `yaw` is used only if a future
+       * model omits the empty.
+       */
+      model: {
+        // PER-FACTION turret GLB (same geometry, faction skin baked in):
+        // humans = turret_human.glb (MCN / eagle), machines = turret_novari.glb
+        // (Novari Ascendancy). Set an entry to null to fall back to the grey
+        // procedural turret for that side.
+        file: {
+          humans: "turret_human.glb",
+          machines: "turret_novari.glb",
+        } as Record<import("./Faction").Faction, string | null>,
+        scale: 2.5,
+        yaw: Math.PI,
+      },
+
+      // --- Per-faction mount points (carrier-LOCAL x/z; see note above) ---
+      // Placed on the OUTER flanks of the flight pods / sponsons (the carrier's
+      // widest structures) so each turret's hit circle pokes past the hull edge
+      // and a strafing run can shoot it off. Inboard mounts sit behind the hull
+      // silhouette and can't be hit cleanly — keep these near the edges.
+      mounts: {
+        // Bastion Carrier: two per flight pod (fore + aft), on the outer edge
+        // (pod outer edge ≈ ±50.9; x=±47 + r8 reaches ±55, ~4 past the hull).
+        humans: [
+          { x: 47, z: 75 },   // starboard pod, fore
+          { x: 47, z: -25 },  // starboard pod, aft
+          { x: -47, z: 75 },  // port pod, fore
+          { x: -47, z: -25 }, // port pod, aft
+        ],
+        // Choirship: two per sponson (fore + aft), on the outer edge (sponson
+        // outer edge ≈ ±53; x=±49 + r8 reaches ±57, ~4 past the hull).
+        machines: [
+          { x: 49, z: -18 },  // starboard sponson, fore
+          { x: 49, z: -58 },  // starboard sponson, aft
+          { x: -49, z: -18 }, // port sponson, fore
+          { x: -49, z: -58 }, // port sponson, aft
+        ],
+      } as Record<
+        import("./Faction").Faction,
+        ReadonlyArray<{ x: number; z: number; restAngle?: number; arcHalf?: number }>
+      >,
+    },
+
     // --- Death spectacle (played once when a mothership is destroyed). ---
     /** Number of explosions scattered across the hull on death. */
     deathExplosionCount: 14,
@@ -2050,5 +2168,15 @@ export const GameConfig = {
      * laser-through-wall bugs when the tab refocuses after being backgrounded.
      */
     maxDeltaSeconds: 1 / 30,
+  },
+
+  /** Dev/test only — not part of normal play. */
+  debug: {
+    /**
+     * Speed multiplier applied to the PLAYER ship while god mode (the Backquote
+     * `` ` `` key) is on — lets you blaze across a live battle to inspect things
+     * without being shot down. Paired with invulnerability in the same toggle.
+     */
+    godSpeedMultiplier: 4,
   },
 };

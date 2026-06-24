@@ -31,6 +31,13 @@ export class InputManager {
    */
   private jumpQueued = false;
 
+  /**
+   * Set on a fresh press of the debug key (Backquote `` ` ``). Polled +
+   * consumed via consumeDebugToggle() — kept OFF the InputState wire format
+   * (it's a client-only test cheat, not ship input).
+   */
+  private debugToggleQueued = false;
+
   attach(): void {
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
@@ -62,6 +69,13 @@ export class InputManager {
     this.jumpQueued = false;
   }
 
+  /** Returns true once per fresh press of the debug key, then clears it. */
+  consumeDebugToggle(): boolean {
+    const q = this.debugToggleQueued;
+    this.debugToggleQueued = false;
+    return q;
+  }
+
   private onKeyDown = (e: KeyboardEvent): void => {
     if (this.isGameKey(e.code)) {
       e.preventDefault();
@@ -69,6 +83,10 @@ export class InputManager {
       // key auto-repeat doesn't re-arm/cancel the spool every repeat tick.
       if (e.code === "KeyJ" && !this.held.has("KeyJ")) {
         this.jumpQueued = true;
+      }
+      // Debug god-mode toggle — fresh press only (guard auto-repeat).
+      if (e.code === "Backquote" && !this.held.has("Backquote")) {
+        this.debugToggleQueued = true;
       }
       this.held.add(e.code);
     }
@@ -107,6 +125,7 @@ export class InputManager {
       case "NumpadSubtract":
       case "KeyM":
       case "KeyJ":
+      case "Backquote":
         return true;
       default:
         return false;

@@ -390,6 +390,43 @@ and explicitly skipped. Update this when you finish or start work.
 - Arena `halfDepth` expanded 400→600 to accommodate the post-launch glide path
 - Launch overlay styled in `style.css` (fullscreen centered, glow text-shadow)
 
+### Carrier defense turrets (2026-06-24)
+- **Auto-tracking flak on both carriers** (`sim/Turret.ts` + `view/TurretView.ts`,
+  the sim/view split pattern). Each carrier builds its turrets from
+  `GameConfig.mothership.turrets.mounts[faction]`; `Mothership.updateTurrets()`
+  ticks them and returns fire commands the caller spawns into that faction's
+  `LaserSystem` (shooter `null`). Pure sim — runs in `advanceSim` and the
+  headless harness; multiplayer-clean (small replicable state: `aimAngle`/`hp`/
+  `alive`; `turretFired`/`turretDestroyed` on the SimEventBus).
+- **Sensor-targeted** — turrets fire only on FRESH `SensorContact`s of their
+  faction's picture, so a ship hiding in a combat nebula is invisible to the
+  flak (same discipline as AI pilots).
+- **Individually destructible** — each turret is a `DamageTarget` with its OWN
+  hp pool, registered on the opposing faction's laser + missile systems BEFORE
+  the hull sections so a bolt grazing one shoots it off rather than passing to
+  the carrier. Mounts sit on the OUTER pod/sponson edges so the hit circle pokes
+  past the hull silhouette (inboard mounts can't be hit — they hide behind the
+  hull). Destruction pops an explosion; no respawn.
+- **Per-faction skinned GLB** (`public/models/turret_human.glb` /
+  `turret_novari.glb`, source `art/turret.blend` + `art/textures/turret_*.png`):
+  a tiered STATIC base + a rotating upper gun. `TurretView` loads it once per
+  carrier, instantiates per mount, keeps the baked skin (falls back to a flat
+  tint for an untextured model). The **fire point is derived from the model's
+  `muzzle` empty** — distance, barrel height, AND the yaw correction that aligns
+  the visible barrel with the bolt (handedness-agnostic; no magic constant). A
+  procedural box turret is the fallback if the GLB is missing.
+- **Knobs** in `GameConfig.mothership.turrets` (hp, range, turnRate,
+  fireCooldown, damage, hitRadius, mounts, model scale); the combat ones are
+  also exposed in the match-settings GUI (`TuningSchema`).
+- _Still on the table:_ missile-launcher turrets (same seam, MissileSystem).
+
+### Dev/test tooling
+- **God-mode cheat** (Backquote `` ` ``): toggles player invulnerability +
+  boosted speed (`GameConfig.debug.godSpeedMultiplier`) so you can blaze across
+  a live match to inspect things. `Ship.debugInvulnerable`/`debugSpeedMultiplier`
+  default to the no-op identity (sim baseline unaffected); the toggle edge is
+  kept off the `InputState` wire format (`InputManager.consumeDebugToggle`).
+
 ### HUD
 - Plain DOM HUD throttled to 10 Hz
 - HP readout with color cue (green/yellow/red/dimmed-on-death)
@@ -449,8 +486,9 @@ Things that have come up in conversation as good ideas but haven't been
 implemented yet. Roughly ordered by gameplay value.
 
 **Agreed next phases (battle build, continuing from the faction spine):**
-- **Mothership defenses** — pod-mounted gun turrets + missile launchers as
-  sub-emitters; optionally per-part hitboxes so pods/turrets can be shot off.
+- **Mothership defenses** — gun turrets DONE (see ✅ Done → "Carrier defense
+  turrets"). Still on the table: **missile-launcher turrets** (same sub-emitter
+  seam, firing into the per-faction MissileSystem instead of lasers).
 - **Multiplayer** — now a planned direction (not out of scope). The
   Ship/`ShipController` spine is built for it: add a `NetworkController`
   alongside `LocalInputController`/`AIController`; `InputState` is already a

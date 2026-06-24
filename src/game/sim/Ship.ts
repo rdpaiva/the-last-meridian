@@ -127,6 +127,16 @@ export class Ship implements DamageTarget, ShipPose {
   /** Damage each laser bolt this ship fires carries (per-type knob). */
   readonly laserDamage: number;
 
+  /**
+   * DEBUG/test cheats (client-only — the player's god-mode toggle, see
+   * Game.toggleGodMode). `debugInvulnerable` makes takeDamage a no-op;
+   * `debugSpeedMultiplier` scales thrust + speed cap. Both default to the
+   * no-op identity (false / 1), so a stock ship — and the headless sim
+   * baseline — is unaffected. A multiplayer server would never set these.
+   */
+  debugInvulnerable = false;
+  debugSpeedMultiplier = 1;
+
   /** Remaining heat-seeking missiles. Refills to startMissileAmmo on respawn. */
   missileAmmo: number;
   private missileCooldownRemainingMs = 0;
@@ -208,6 +218,7 @@ export class Ship implements DamageTarget, ShipPose {
 
   takeDamage(amount: number, nowMs: number): void {
     if (!this.isAlive) return;
+    if (this.debugInvulnerable) return; // god-mode test cheat: shrug it off
     this.hp = Math.max(0, this.hp - amount);
     if (this.hp <= 0) {
       this.die(nowMs);
@@ -288,23 +299,25 @@ export class Ship implements DamageTarget, ShipPose {
     const targetBank = turnRate * GameConfig.bank.maxAngle;
     this.bankAngle += (targetBank - this.bankAngle) * exponentialDecay(GameConfig.bank.rate, deltaSeconds);
 
-    // --- Acceleration ---
+    // --- Acceleration --- (debugSpeedMultiplier = 1 normally; the god-mode
+    // test cheat scales thrust + the speed cap below to blaze through a match.)
+    const sm = this.debugSpeedMultiplier;
     const fwd = this.forward();
     if (input.thrust) {
-      this.velocity.x += fwd.x * cfg.thrust * deltaSeconds;
-      this.velocity.z += fwd.z * cfg.thrust * deltaSeconds;
+      this.velocity.x += fwd.x * cfg.thrust * sm * deltaSeconds;
+      this.velocity.z += fwd.z * cfg.thrust * sm * deltaSeconds;
     }
     if (input.reverse) {
-      this.velocity.x -= fwd.x * cfg.reverseThrust * deltaSeconds;
-      this.velocity.z -= fwd.z * cfg.reverseThrust * deltaSeconds;
+      this.velocity.x -= fwd.x * cfg.reverseThrust * sm * deltaSeconds;
+      this.velocity.z -= fwd.z * cfg.reverseThrust * sm * deltaSeconds;
     }
 
     // --- Strafe (lateral thrust; heading unchanged) ---
     if (input.strafeLeft || input.strafeRight) {
       const right = this.right();
       const dir = (input.strafeRight ? 1 : 0) - (input.strafeLeft ? 1 : 0);
-      this.velocity.x += right.x * dir * cfg.strafeThrust * deltaSeconds;
-      this.velocity.z += right.z * dir * cfg.strafeThrust * deltaSeconds;
+      this.velocity.x += right.x * dir * cfg.strafeThrust * sm * deltaSeconds;
+      this.velocity.z += right.z * dir * cfg.strafeThrust * sm * deltaSeconds;
     }
 
     // --- Drag (frame-rate independent exponential decay) ---
@@ -315,9 +328,10 @@ export class Ship implements DamageTarget, ShipPose {
     // --- Speed cap ---
     const speedSq =
       this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z;
-    const maxSpeedSq = cfg.maxSpeed * cfg.maxSpeed;
+    const maxSpeed = cfg.maxSpeed * sm;
+    const maxSpeedSq = maxSpeed * maxSpeed;
     if (speedSq > maxSpeedSq) {
-      const scale = cfg.maxSpeed / Math.sqrt(speedSq);
+      const scale = maxSpeed / Math.sqrt(speedSq);
       this.velocity.x *= scale;
       this.velocity.z *= scale;
     }

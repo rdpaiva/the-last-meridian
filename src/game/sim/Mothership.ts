@@ -2,9 +2,11 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 
 import { GameConfig } from "../GameConfig";
 import { MothershipSection } from "./MothershipSection";
+import { Turret, type TurretFireCommand } from "./Turret";
 import { hullColliderBoxes } from "./Hulk";
 import type { DamageTarget } from "../types";
 import type { Faction } from "../Faction";
+import type { SensorContact } from "../SensorSystem";
 import type { AvoidObstacle } from "../ShipController";
 
 /**
@@ -59,6 +61,16 @@ export class Mothership implements DamageTarget {
    * broken, which is why steering and damage use different shapes.
    */
   readonly avoidanceCircles: ReadonlyArray<AvoidObstacle>;
+  /**
+   * Defensive gun turrets bolted to the hull — auto-tracking sub-emitters with
+   * their OWN hp (shootable off the pods), built from
+   * GameConfig.mothership.turrets.mounts[faction]. The carrier owns them
+   * (natural sim ownership); the CALLER (Game.advanceSim / the headless
+   * harness) ticks them via updateTurrets() and spawns the returned bolts into
+   * this faction's LaserSystem — Turret never references the weapon system, so
+   * the sim stays free of a construction-order coupling. See sim/Turret.ts.
+   */
+  readonly turrets: ReadonlyArray<Turret>;
 
   // Shared geometry constants — used by the view's procedural build and by the
   // launch-geometry helpers below.
@@ -111,6 +123,60 @@ export class Mothership implements DamageTarget {
       return new MothershipSection(this, minX, maxX, minZ, maxZ);
     });
     this.avoidanceCircles = this.buildAvoidanceCircles();
+    this.turrets = this.buildTurrets(worldPosition, sin, cos);
+  }
+
+  /**
+   * Builds the hull turrets from GameConfig.mothership.turrets.mounts[faction],
+   * rotating each carrier-LOCAL mount into world space with the same sin/cos
+   * the hull boxes used (the carrier is static, so the mounts are too). Each
+   * turret gets a closure over this carrier's `isAlive` so it goes silent the
+   * instant the carrier dies, plus its index/count for the deterministic
+   * fire-stagger.
+   */
+  private buildTurrets(
+    worldPosition: Vector3,
+    sin: number,
+    cos: number,
+  ): Turret[] {
+    const cfg = GameConfig.mothership.turrets;
+    const mounts = cfg.mounts[this.faction] ?? [];
+    const carrierAlive = () => this.isAlive;
+    return mounts.map((m, i) => {
+      const wx = worldPosition.x + cos * m.x + sin * m.z;
+      const wz = worldPosition.z - sin * m.x + cos * m.z;
+      const restAngle = this.rotationY + (m.restAngle ?? 0);
+      const arcHalf = m.arcHalf ?? cfg.arcHalf;
+      return new Turret(
+        carrierAlive,
+        wx,
+        worldPosition.y + cfg.mountY,
+        wz,
+        restAngle,
+        arcHalf,
+        i,
+        mounts.length,
+      );
+    });
+  }
+
+  /**
+   * Tick every live turret on this carrier and collect the bolts they want to
+   * fire this step. `contacts` is THIS faction's sensor picture (turrets shoot
+   * what their side can see, never ground truth). The caller spawns each
+   * command into this faction's LaserSystem. No allocation when nothing fires.
+   */
+  updateTurrets(
+    deltaSeconds: number,
+    contacts: readonly SensorContact[],
+    nowMs: number,
+  ): TurretFireCommand[] {
+    const fires: TurretFireCommand[] = [];
+    for (const turret of this.turrets) {
+      const cmd = turret.update(deltaSeconds, contacts, nowMs);
+      if (cmd) fires.push(cmd);
+    }
+    return fires;
   }
 
   /**
