@@ -468,8 +468,8 @@ export class Game {
     // too — though it doesn't aim for them on purpose.
     const humansLasers = new LaserSystem({
       damage: GameConfig.combat.laserDamage,
-      onHit: (target, shooter) =>
-        this.events.emit("laserHit", { target, shooter }),
+      onHit: (target, shooter, position) =>
+        this.events.emit("laserHit", { target, shooter, position }),
       obstacles: this.weaponObstacles,
       interceptables: machinesMissiles.interceptables,
       onIntercept: (pos) =>
@@ -477,8 +477,8 @@ export class Game {
     });
     const machinesLasers = new LaserSystem({
       damage: GameConfig.combat.laserDamage,
-      onHit: (target, shooter) =>
-        this.events.emit("laserHit", { target, shooter }),
+      onHit: (target, shooter, position) =>
+        this.events.emit("laserHit", { target, shooter, position }),
       obstacles: this.weaponObstacles,
       interceptables: humansMissiles.interceptables,
       onIntercept: (pos) =>
@@ -953,8 +953,8 @@ export class Game {
    * the formerly-inline FX calls.
    */
   private wireSimEventFeedback(): void {
-    this.events.on("laserHit", ({ target, shooter }) =>
-      this.onLaserHit(target, shooter),
+    this.events.on("laserHit", ({ target, shooter, position }) =>
+      this.onLaserHit(target, shooter, position),
     );
     this.events.on("missileHit", ({ position, struck, shooter }) =>
       this.onMissileHit(position, struck, shooter),
@@ -988,15 +988,12 @@ export class Game {
       );
     });
 
-    // Ram: the player gets the heavy cue (trauma + flash + hit SFX); an AI
-    // ship just flashes so the impact is still visible.
+    // Ram: the player gets the heavy cue (trauma + hit SFX). The per-hit
+    // damage flash is parked (see onLaserHit), so an AI ram has no extra cue.
     this.events.on("shipRammedAsteroid", ({ ship }) => {
       if (ship === this.playerShip) {
         this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
-        this.playerDamageFlash?.trigger();
         this.sound.playHit(ship.position);
-      } else {
-        this.aiDamageFlashes.get(ship)?.trigger();
       }
     });
 
@@ -1109,9 +1106,17 @@ export class Game {
    * derived here by comparing against the local player ship, so attribution
    * stays per-pilot (multiplayer-ready) rather than a baked-in boolean.
    */
-  private onLaserHit(target: DamageTarget, shooter: Ship | null): void {
+  private onLaserHit(
+    target: DamageTarget,
+    shooter: Ship | null,
+    position: Vector3,
+  ): void {
     const fromPlayer = shooter !== null && shooter === this.playerShip;
     this.sound.playHit(target.position);
+    // Subtle glint at the point of impact — every laser hit, on any target
+    // (ship, carrier hull, turret), so impacts read on the surface and not
+    // just through the victim's damage flash.
+    this.explosions.spawnSpark(position);
     // Chipping a mothership: light cue only (avoid hitstop spam on the
     // objective). Carriers are hit through their hull-section proxies.
     if (target instanceof MothershipSection) {
@@ -1123,14 +1128,15 @@ export class Game {
       if (fromPlayer) this.cameraRig.addTrauma(GameConfig.shake.traumaEnemyLaserHit);
       return;
     }
+    // NOTE: the per-hit damage flash (the glowing sphere that pulsed around a
+    // ship on every hit) is intentionally parked — impacts now read via the
+    // spark burst + sound + camera shake. The DamageFlash system is still
+    // built/updated; re-add the trigger() calls here and below to restore it.
     if (target === this.playerShip) {
       // The player's own ship took a hit — the heavy feedback.
       this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
       this.applyHitstop(GameConfig.hitstop.playerLaserHitMs);
-      this.playerDamageFlash?.trigger();
     } else {
-      // A non-player ship was hit — flash it so impacts are always visible.
-      this.aiDamageFlashes.get(target as Ship)?.trigger();
       if (fromPlayer) {
         // The player (not an AI wingman) landed the hit — add camera confirm.
         this.cameraRig.addTrauma(GameConfig.shake.traumaEnemyLaserHit);
@@ -1167,7 +1173,6 @@ export class Game {
     if (struck !== null && struck === this.playerShip) {
       this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerMissileHit);
       this.applyHitstop(GameConfig.hitstop.playerMissileHitMs);
-      this.playerDamageFlash?.trigger();
       return;
     }
     this.cameraRig.addTrauma(
@@ -1175,7 +1180,6 @@ export class Game {
     );
     if (fromPlayer) this.applyHitstop(GameConfig.hitstop.missileHitMs);
     if (struck instanceof Ship) {
-      this.aiDamageFlashes.get(struck)?.trigger();
       if (struck.faction === this.enemyFaction && !struck.isAlive) {
         this.recordKill(struck, shooter);
       }

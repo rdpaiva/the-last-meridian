@@ -2137,6 +2137,43 @@ export const GameConfig = {
     flashPeakScale: 5.0,
   },
 
+  /**
+   * Impact sparks: a small, subtle glint burst at a laser bolt's point of
+   * impact, fired on EVERY laser hit (ship, carrier hull, turret). Built from
+   * the same Explosion entity as a kill (ExplosionSystem.spawnSpark), just tiny
+   * and short-lived — sustained fire sparkles on the hull without reading as a
+   * string of explosions.
+   */
+  impactSpark: {
+    /**
+     * Sliver count is rolled per burst in [countMin, countMax] so no two
+     * impacts throw the same number — bursts don't read as one stamped shape.
+     */
+    countMin: 3,
+    countMax: 7,
+    /**
+     * Burst lifetime is jittered ±durationJitter (fraction) around durationMs,
+     * so sparks don't all wink out on the same beat under sustained fire.
+     */
+    durationMs: 180,
+    durationJitter: 0.25,
+    /** Outward speed of spark slivers (units / sec), rolled per sliver. */
+    speedMin: 7,
+    speedMax: 16,
+    /**
+     * Each sliver's edge length is size × a random factor in [sizeVarMin,
+     * sizeVarMax], so a burst mixes fine glints with chunkier flecks.
+     */
+    size: 0.18,
+    sizeVarMin: 0.6,
+    sizeVarMax: 1.4,
+    /** Central flash base radius (the per-burst scale is jittered below). */
+    flashRadius: 0.22,
+    /** Peak flash scale, rolled per burst in [flashPeakMin, flashPeakMax]. */
+    flashPeakMin: 1.7,
+    flashPeakMax: 2.7,
+  },
+
   shake: {
     /**
      * Trauma-based screen shake (Squirrel Eiserloh's pattern).
