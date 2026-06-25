@@ -138,7 +138,13 @@ export class SoundSystem {
   private readonly turretCannon: PooledSound;
   private readonly breakerLaserOwn: PooledSound;
   private readonly breakerLaserSpatial: PooledSound;
-  private readonly hit: PooledSound;
+  // Projectile-impact cue. A SET of interchangeable bullet clips (impacts +
+  // swishes) rather than one fixed sound: every laser/missile hit picks one at
+  // random (playHit) so repeated hits don't machine-gun the same sample. All
+  // spatial (attenuate from the struck ship). Each clip keeps its own small
+  // round-robin pool so the SAME clip can overlap if the dice land on it twice
+  // in a row.
+  private readonly hitImpacts: PooledSound[];
   private readonly explosion: PooledSound;
   private readonly engineHum: Sound;
   // The PLAYER's own jump drive — a single sustained ~8s clip (6s build-up =
@@ -263,12 +269,20 @@ export class SoundSystem {
       4,
       { volume: 0.4, spatial: true },
     );
-    this.hit = new PooledSound(
-      "sfx_hit",
-      `${baseUrl}/hit.mp3`,
-      scene,
-      4,
-      { volume: 0.35, spatial: true },
+    this.hitImpacts = [
+      "bullet_impact1",
+      "bullet_impact2",
+      "bullet_impact3",
+      "bullet_impact4",
+      "bullet_impact5",
+      "bullet_swish",
+      "bullet_swish2",
+    ].map(
+      (file) =>
+        new PooledSound(`sfx_${file}`, `${baseUrl}/${file}.mp3`, scene, 3, {
+          volume: 0.4,
+          spatial: true,
+        }),
     );
     this.explosion = new PooledSound(
       "sfx_explosion",
@@ -455,9 +469,13 @@ export class SoundSystem {
         break;
     }
   }
-  /** Play the hit cue at a world position (attenuates with distance). */
+  /**
+   * Play the hit cue at a world position (attenuates with distance). Picks a
+   * random bullet-impact clip from the pool each call so repeated hits vary.
+   */
   playHit(position: Vector3): void {
-    this.hit.playAt(position);
+    const i = (Math.random() * this.hitImpacts.length) | 0;
+    this.hitImpacts[i].playAt(position);
   }
   /** Play the explosion cue at a world position (attenuates with distance). */
   playExplosion(position: Vector3): void {
