@@ -24,6 +24,8 @@ export class ExplosionSystem {
   private readonly debrisMat: StandardMaterial;
   /** Hot-orange flash for turret muzzle pops (spawnMuzzleFlash). */
   private readonly muzzleFlashMat: StandardMaterial;
+  /** Hot white-gold glint for impact sparks (spawnSpark). */
+  private readonly sparkMat: StandardMaterial;
 
   constructor(
     private readonly scene: Scene,
@@ -50,6 +52,84 @@ export class ExplosionSystem {
     this.muzzleFlashMat.specularColor = new Color3(0, 0, 0);
     this.muzzleFlashMat.emissiveColor = new Color3(mf.r, mf.g, mf.b);
     this.muzzleFlashMat.disableLighting = true;
+
+    // Spark: hot white-gold, brighter than debris so each sliver punches
+    // through bloom as a glint rather than reading as a tiny ember.
+    this.sparkMat = new StandardMaterial("impact_spark_mat", scene);
+    this.sparkMat.diffuseColor = new Color3(0, 0, 0);
+    this.sparkMat.specularColor = new Color3(0, 0, 0);
+    this.sparkMat.emissiveColor = new Color3(3.0, 2.6, 1.6);
+    this.sparkMat.disableLighting = true;
+  }
+
+  /**
+   * A small, subtle spark burst at a laser bolt's point of impact — a tiny
+   * flash plus a handful of fast slivers that fly out and shrink. Wired off
+   * every laserHit so an impact reads on the hull surface, not just via the
+   * ship's damage flash. Reuses the Explosion entity (same tween + dispose)
+   * at a fraction of a kill's scale.
+   */
+  spawnSpark(position: Vector3): void {
+    const cfg = GameConfig.impactSpark;
+
+    // Roll the burst's shape so no two impacts look stamped from one mold:
+    // count, flash punch, and lifetime all vary per hit.
+    const count =
+      cfg.countMin +
+      Math.floor(Math.random() * (cfg.countMax - cfg.countMin + 1));
+    const flashPeak =
+      cfg.flashPeakMin +
+      Math.random() * (cfg.flashPeakMax - cfg.flashPeakMin);
+    const duration =
+      cfg.durationMs * (1 + (Math.random() * 2 - 1) * cfg.durationJitter);
+
+    const flash = MeshBuilder.CreateSphere(
+      "impact_spark_flash",
+      { diameter: cfg.flashRadius * 2, segments: 6 },
+      this.scene,
+    );
+    flash.position.copyFrom(position);
+    flash.material = this.sparkMat;
+    flash.isPickable = false;
+    this.glowLayer.addIncludedOnlyMesh(flash);
+
+    // Give the slivers a random base bearing so the spray isn't anchored to a
+    // fixed axis, then scatter each one freely around the disc from there.
+    const baseAngle = Math.random() * Math.PI * 2;
+    const debris: Debris[] = [];
+    for (let i = 0; i < count; i++) {
+      // Per-sliver size: a burst mixes fine glints with chunkier flecks.
+      const sliverSize =
+        cfg.size *
+        (cfg.sizeVarMin + Math.random() * (cfg.sizeVarMax - cfg.sizeVarMin));
+      const mesh = MeshBuilder.CreateBox(
+        `impact_spark_${i}`,
+        { size: sliverSize },
+        this.scene,
+      );
+      mesh.position.copyFrom(position);
+      mesh.material = this.sparkMat;
+      mesh.isPickable = false;
+      this.glowLayer.addIncludedOnlyMesh(mesh);
+
+      // Slivers spray outward in the X/Z plane with a small vertical kick.
+      const angle = baseAngle + Math.random() * Math.PI * 2;
+      const speed =
+        cfg.speedMin + Math.random() * (cfg.speedMax - cfg.speedMin);
+      const velocity = new Vector3(
+        Math.cos(angle) * speed,
+        (Math.random() - 0.3) * 6,
+        Math.sin(angle) * speed,
+      );
+      const rotationVel = new Vector3(
+        (Math.random() - 0.5) * 12,
+        (Math.random() - 0.5) * 12,
+        (Math.random() - 0.5) * 12,
+      );
+      debris.push({ mesh, velocity, rotationVel });
+    }
+
+    this.active.push(new Explosion(flash, debris, duration, flashPeak));
   }
 
   /**

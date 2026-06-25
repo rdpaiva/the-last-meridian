@@ -27,8 +27,8 @@ import type { Mothership } from "./Mothership";
  * Phase 2 network boundary is where these become ids/serialized positions.
  */
 export interface SimEventMap {
-  /** A laser bolt struck a live target. */
-  laserHit: { target: DamageTarget; shooter: Ship | null };
+  /** A laser bolt struck a live target. `position` = the bolt's impact point. */
+  laserHit: { target: DamageTarget; shooter: Ship | null; position: Vector3 };
   /** A missile detonated (struck = null when it spent itself on an asteroid). */
   missileHit: {
     position: Vector3;

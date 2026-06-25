@@ -33,9 +33,15 @@ export type LaserSystemOptions = {
    * player's own ship is hit, light cue when the mothership is chipped); the
    * shooter drives kill attribution and lets the caller gate the "you landed
    * a hit" jolt to the LOCAL pilot's own shots by comparing ships — a
-   * comparison that stays correct with any number of human pilots.
+   * comparison that stays correct with any number of human pilots. `position`
+   * is the bolt's impact point, so the caller can place an impact effect where
+   * the hit landed rather than at the target's center.
    */
-  onHit?: (target: DamageTarget, shooter: Ship | null) => void;
+  onHit?: (
+    target: DamageTarget,
+    shooter: Ship | null,
+    position: Vector3,
+  ) => void;
   /**
    * Live obstacles (asteroids) that block bolts as line-of-sight cover. Checked
    * BEFORE the target loop each frame, so a bolt entering a rock is consumed
@@ -65,7 +71,7 @@ export class LaserSystem {
   private readonly lasers: Laser[] = [];
   private readonly damage: number;
   private readonly onHit:
-    | ((target: DamageTarget, shooter: Ship | null) => void)
+    | ((target: DamageTarget, shooter: Ship | null, position: Vector3) => void)
     | null;
   /** Asteroid cover bolts are blocked by (held by reference; may be empty). */
   private readonly obstacles: DamageTarget[];
@@ -265,7 +271,7 @@ export class LaserSystem {
         }
         target.takeDamage(laser.damage, nowMs);
         laser.kill();
-        this.onHit?.(target, laser.shooter);
+        this.onHit?.(target, laser.shooter, laser.position);
         break;
       }
     }
