@@ -293,7 +293,7 @@ export const TUNING_SCHEMA: ReadonlyArray<TuningGroup> = [
       num("sensors.mothershipRange", "Carrier radar range", 100, 1000, 10,
         "How far a mothership's big radar sees — long-range early warning for its whole team."),
       num("sensors.visualRange", "Eyeball range", 10, 150, 5,
-        "Point-blank detection: even a ship hiding in a nebula is spotted this close up. You can't be invisible in a knife fight."),
+        "Point-blank detection: a ship hiding in a nebula is still spotted (and shot at with guns) this close up — but it still can't be missile-locked while in the cloud. You can't be invisible in a knife fight."),
       num("sensors.memorySec", "Ghost memory (sec)", 0, 30, 0.5,
         "After a contact disappears (e.g. into a nebula), its last-known position stays on radar as a fading ghost — and AI pilots keep hunting it — for this many seconds."),
       num("sensors.nebulaSensorFactor", "Nebula sensor factor", 0, 1, 0.05,

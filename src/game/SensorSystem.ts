@@ -24,6 +24,12 @@ export class SensorContact {
   lastSeenMs = -Infinity;
   /** True while the ship is currently detected (a live track). */
   fresh = false;
+  /**
+   * True while a FRESH track is eyeball-only because the target sits in a
+   * nebula: the enemy can see and gun the ship at close range, but a missile
+   * seeker gets no return, so no NEW lock may form on it. Set during the sweep.
+   */
+  concealed = false;
   /** Maintained by SensorSystem: fresh OR lost less than memorySec ago. */
   trackable = false;
 
@@ -49,11 +55,16 @@ export class SensorContact {
  * decays into a last-known-position ghost for `sensors.memorySec`, then
  * expires.
  *
- * Concealment (combat nebulas): a ship inside a `ConcealmentZone` is
- * invisible to RADAR entirely — fighters only pick it up inside the short
- * unconditional `visualRange` (you can't be invisible in a knife fight), and
- * the carrier's sweep never sees it. A fighter sitting in a cloud also has
- * its OWN radar degraded by `nebulaSensorFactor` — hiding costs awareness.
+ * Concealment (combat nebulas): a ship inside a `ConcealmentZone` is invisible
+ * to RADAR entirely — the carrier's sweep and distant fighters lose it. It's
+ * still picked up by EYEBALL inside the short `visualRange` (you can't be
+ * invisible in a knife fight), so a close enemy keeps strafing it with guns.
+ * What the cloud DOES deny is a missile lock: an eyeball-only contact is
+ * flagged `concealed`, and neither the AI (findMissileShot) nor the player
+ * (computeLockTarget) may form a NEW lock on it at any range. A lock taken
+ * before the target reached the cloud keeps homing on its true position. A
+ * fighter sitting in a cloud also has its OWN radar degraded by
+ * `nebulaSensorFactor` — hiding costs awareness.
  *
  * Detection SWEEPS run on a throttle (`sweepIntervalSec`); fresh contacts'
  * positions are re-copied every frame so an AI's aim point doesn't lag a
@@ -139,6 +150,8 @@ export class SensorSystem {
         if (this.detect(faction, friendlies, target)) {
           contact.fresh = true;
           contact.lastSeenMs = nowMs;
+          // Eyeball-only while the target is in a nebula → guns yes, lock no.
+          contact.concealed = this.isConcealed(target.position);
         } else {
           contact.fresh = false;
         }
@@ -183,7 +196,7 @@ export class SensorSystem {
     const tx = target.position.x;
     const tz = target.position.z;
 
-    // The carrier's long-range sweep — blind to concealed ships (radar only).
+    // The carrier's long-range sweep — radar, so blind to concealed ships.
     const home = this.motherships[faction];
     if (!concealed && home.isAlive) {
       const dx = tx - home.position.x;
@@ -195,8 +208,11 @@ export class SensorSystem {
 
     for (const f of friendlies) {
       if (!f.isAlive) continue;
-      // A fighter parked in a cloud has degraded radar of its own; eyeballs
-      // (visualRange) always work. A concealed TARGET only shows to eyeballs.
+      // A fighter parked in a cloud has its OWN radar degraded; eyeballs
+      // (visualRange) always work. A concealed TARGET shows only to eyeballs —
+      // close enough that the enemy still strafes you with GUNS, but a missile
+      // can't LOCK a concealed contact (it's flagged below; see
+      // AIController.findMissileShot and Game.computeLockTarget).
       const radarRange = this.isConcealed(f.position)
         ? cfg.shipRange * cfg.nebulaSensorFactor
         : cfg.shipRange;

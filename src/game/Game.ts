@@ -1292,15 +1292,11 @@ export class Game {
       const dz = enemy.position.z - pz;
       const dist = Math.hypot(dx, dz);
       if (dist > cfg.lockRange || dist >= bestDist) continue;
-      // A nebula denies the seeker head its sensor return: concealed ships
-      // can't be locked from outside eyeball range. (Symmetric with the AI's
-      // radar — hiding breaks missile locks too.)
-      if (
-        this.sensors.isConcealed(enemy.position) &&
-        dist > GameConfig.sensors.visualRange
-      ) {
-        continue;
-      }
+      // A nebula denies the seeker head its sensor return: a ship inside a
+      // combat nebula can't be locked at all, even at point-blank. (Symmetric
+      // with the AI's radar — hiding breaks new missile locks too. An existing
+      // lock is unaffected: the missile keeps homing on its true position.)
+      if (this.sensors.isConcealed(enemy.position)) continue;
       const angleToEnemy = Math.atan2(dx, dz);
       if (Math.abs(wrapAngle(angleToEnemy - this.playerShip.rotationY)) > cfg.lockConeAngle) {
         continue;

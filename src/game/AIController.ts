@@ -543,6 +543,9 @@ export class AIController implements ShipController {
     let bestDist = Infinity;
     for (const o of world.opponents) {
       if (!o.isAlive || !o.fresh) continue;
+      // Eyeball-only contact (target in a nebula): we still gun it, but the
+      // seeker head gets no return — no new missile lock.
+      if (o.concealed) continue;
       const dx = o.position.x - self.position.x;
       const dz = o.position.z - self.position.z;
       const dist = Math.hypot(dx, dz);
