@@ -156,11 +156,12 @@ const shipTypes = {
     /** Lightest hull in the game — speed IS the Wraith's armor. */
     maxHp: 70,
     laserDamage: 20,
-    /** No rack — guns and agility are the whole kit. */
-    missileAmmo: 0,
+    /** A light rack — guns and agility are still the core, with a few missiles to fall back on. */
+    missileAmmo: 5,
     /**
      * Smaller drum than the Spitfire — a pure knife-fighter rewards burst
-     * discipline (~18s at its hot 100ms cycle). No missiles to fall back on.
+     * discipline (~18s at its hot 100ms cycle). Only a slim missile rack to
+     * fall back on.
      */
     cannonAmmo: 180,
     /** Slim airframe, hardest target in the catalog to hit. */
