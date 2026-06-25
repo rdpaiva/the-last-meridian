@@ -1129,8 +1129,10 @@ export const GameConfig = {
      */
     mothershipRange: 450,
     /**
-     * Unconditional EYEBALL range: even a concealed ship is detected this
-     * close to a live enemy fighter. You can't be invisible in a knife fight.
+     * EYEBALL range: a concealed (nebula) ship is still spotted this close to a
+     * live enemy fighter — close enough to be gunned, but NOT missile-locked
+     * (concealment denies the lock at any range). You can't be invisible in a
+     * knife fight, but the cloud still spoils the seeker.
      */
     visualRange: 40,
     /**
