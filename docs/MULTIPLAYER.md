@@ -273,19 +273,25 @@ timing).
       human as leader, via `setOrder()`), re-distributing on human
       join/leave/death. Replaces the static per-wingman standing orders
       in multiplayer rooms.
-- [ ] **Dumb client rendering**: client builds `ShipView`s from room
-      state and snaps to raw server values. Laggy-feeling is expected
-      and fine at this phase — it proves the pipe.
+- [x] **Dumb client rendering**: `client/game/NetworkGame.ts` runs no sim —
+      reuses the single-player view stack, builds a `ShipView` per replicated
+      ship and snaps it to the raw server pose each frame (local ship found via
+      the `owner` schema field), and sends `InputState` at 30Hz. Carrier HP
+      bars + victory/defeat banner from state. Steppy/laggy as expected
+      (interpolation + prediction are Phase 2). Fighters are procedural meshes
+      for now (per-type GLBs = later polish); transient FX await Phase 2.
 - [~] **Protocol version gate**: DONE server-side — `PROTOCOL_VERSION` in
       `shared/protocol.ts`, sent in join options; the room rejects a mismatch
-      with a typed `ServerError(PROTOCOL_MISMATCH)` (tested). REMAINING: the
-      client renders it as "new version — refresh" (with the join flow).
-- [ ] **Join flow**: splash menu gains PLAY SOLO / PLAY ONLINE; online
-      splits into QUICK MATCH (`joinOrCreate` with the chosen loadout as
-      join options — reuse `LoadoutMenu` unchanged) and WITH FRIENDS
-      (create room → show `#join=<roomId>` invite URL; arriving via the
-      URL auto-joins). No server browser (see Decisions). PLAY SOLO
-      stays fully offline.
+      with a typed `ServerError(PROTOCOL_MISMATCH)` (tested). Client surfaces a
+      failed join (mismatch/server-down) as a readable splash message.
+      REMAINING: a dedicated "new version — refresh" string keyed off the
+      mismatch code specifically (currently a generic "server unavailable").
+- [~] **Join flow**: QUICK MATCH works — `?online` (or `#online`) routes the
+      existing splash/loadout flow into `joinOrCreate` with the loadout as join
+      options (`LoadoutMenu` reused unchanged); no flag = fully-offline PLAY
+      SOLO. REMAINING: promote it to explicit splash PLAY SOLO / PLAY ONLINE
+      buttons, and WITH FRIENDS (create room → `#join=<roomId>` invite URL +
+      auto-join). No server browser (by design).
 - [~] **Node integration tests**: DONE — `@colyseus/testing` boots the
       BattleRoom in-process and asserts replication (AI-backfilled battle to
       the client), server-side sim advance (launch→playing, ships move), input
@@ -297,7 +303,8 @@ timing).
       on localhost, two browser tabs in the same room: both ships
       visible and moving, inputs land, AI fills the rest, match plays
       to victory/defeat. This is the phase's real definition of done;
-      the Node integration tests get you to the doorstep.
+      the Node integration tests get you to the doorstep. **Checklist +
+      run instructions: `docs/PHASE1_TWOTAB_CHECKLIST.md`.**
 
 ## Phase 2 — Netcode feel
 
