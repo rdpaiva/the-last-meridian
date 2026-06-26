@@ -1,0 +1,21 @@
+{
+  "name": "@space-duel/client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@space-duel/shared": "*",
+    "@babylonjs/core": "^7.50.0",
+    "@babylonjs/loaders": "^7.50.0"
+  },
+  "devDependencies": {
+    "@babylonjs/inspector": "^7.54.3",
+    "vite": "^5.4.0"
+  }
+}

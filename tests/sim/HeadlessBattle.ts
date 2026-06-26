@@ -58,27 +58,27 @@ import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
 import { Scene } from "@babylonjs/core/scene";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 
-import { GameConfig } from "../../src/game/GameConfig";
-import { opposing, type Faction } from "../../src/game/Faction";
-import { Ship, type ShipTypeConfig } from "../../src/game/sim/Ship";
+import { GameConfig } from "../../shared/src/GameConfig";
+import { opposing, type Faction } from "../../shared/src/Faction";
+import { Ship, type ShipTypeConfig } from "../../shared/src/sim/Ship";
 import type {
   ShipController,
   ControllerWorld,
   AvoidObstacle,
-} from "../../src/game/ShipController";
-import { AIController, type AIOrder } from "../../src/game/AIController";
-import { FleetCommander, type CommandedPilot } from "../../src/game/FleetCommander";
-import { SensorSystem } from "../../src/game/SensorSystem";
-import { Mothership } from "../../src/game/sim/Mothership";
-import { LaserSystem } from "../../src/game/sim/LaserSystem";
-import { MissileSystem } from "../../src/game/sim/MissileSystem";
-import { AsteroidField } from "../../src/game/AsteroidField";
-import { Hulk } from "../../src/game/sim/Hulk";
-import { MothershipSection } from "../../src/game/sim/MothershipSection";
-import type { DamageTarget } from "../../src/game/types";
-import { LaunchSequence } from "../../src/game/LaunchSequence";
-import { seedSimRng } from "../../src/game/sim/SimRng";
-import { computeConcealmentZones } from "../../src/game/sim/CombatNebulaZones";
+} from "../../shared/src/ShipController";
+import { AIController, type AIOrder } from "../../shared/src/AIController";
+import { FleetCommander, type CommandedPilot } from "../../shared/src/FleetCommander";
+import { SensorSystem } from "../../shared/src/SensorSystem";
+import { Mothership } from "../../shared/src/sim/Mothership";
+import { LaserSystem } from "../../shared/src/sim/LaserSystem";
+import { MissileSystem } from "../../shared/src/sim/MissileSystem";
+import { AsteroidField } from "../../client/src/game/AsteroidField";
+import { Hulk } from "../../shared/src/sim/Hulk";
+import { MothershipSection } from "../../shared/src/sim/MothershipSection";
+import type { DamageTarget } from "../../shared/src/types";
+import { LaunchSequence } from "../../shared/src/LaunchSequence";
+import { seedSimRng } from "../../shared/src/sim/SimRng";
+import { computeConcealmentZones } from "../../shared/src/sim/CombatNebulaZones";
 
 type ShipTypeId = keyof typeof GameConfig.shipTypes;
 

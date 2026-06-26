@@ -1,0 +1,20 @@
+{
+  "name": "@space-duel/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@space-duel/shared": "*",
+    "@babylonjs/core": "^7.50.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "esbuild": "^0.24.0"
+  }
+}
