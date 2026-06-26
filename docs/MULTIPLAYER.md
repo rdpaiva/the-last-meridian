@@ -234,13 +234,15 @@ timing).
 
 ## Phase 1 — Colyseus skeleton
 
-- [ ] **Restructure into workspaces** (first task of this phase): npm
+- [x] **Restructure into workspaces** (first task of this phase): npm
       workspaces with `shared/` + `client/` + `server/` per the layout
-      in Decisions. `git mv src/game/sim → shared/src` etc. in a commit
-      with NO content changes (preserves history); add root
-      `tsconfig.base.json` the three packages extend; `shared`'s
-      `"exports"` → `./src/index.ts` (source, no build step); root
-      `npm run dev` / `npm run typecheck` keep working.
+      in Decisions. `git mv src/game/sim → shared/src` etc. (history
+      preserved; only content change is client imports rewritten to
+      `@space-duel/shared`); added root `tsconfig.base.json` the three
+      packages extend; `shared`'s `"exports"` → `./src/index.ts` (source,
+      no build step, barrel public surface); root `npm run dev` (→ client)
+      / `npm run typecheck` (→ all workspaces + root tests) / `npm test`
+      keep working. Smoke baseline intact, typecheck + build green.
 - [ ] **Server app**: Colyseus + a `BattleRoom` running `advanceSim` on
       `setSimulationInterval` (30Hz to start), delta clamp kept.
 - [ ] **State schema** (`@colyseus/schema`): ships (pose, hp, faction,
