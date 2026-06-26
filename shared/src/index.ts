@@ -34,6 +34,7 @@ export * from "./sim/Hulk";
 export * from "./sim/HulkSection";
 export * from "./sim/AsteroidSim";
 export * from "./sim/AsteroidFieldSim";
+export * from "./sim/BattleSim";
 export * from "./sim/Turret";
 export * from "./sim/SimEvents";
 export * from "./sim/SimRng";
