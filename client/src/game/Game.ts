@@ -34,7 +34,7 @@ import { Starfield } from "./Starfield";
 import { EngineGlow } from "./EngineGlow";
 import { SecondaryThrusters } from "./SecondaryThrusters";
 import { CapitalShips } from "./CapitalShips";
-import { AsteroidField } from "./AsteroidField";
+import { AsteroidFieldView } from "./view/AsteroidFieldView";
 import { Nebulas } from "./Nebulas";
 import { CombatNebulas } from "./CombatNebulas";
 import { Backdrop } from "./Backdrop";
@@ -123,7 +123,7 @@ export class Game {
   private readonly glowLayer: GlowLayer;
   private readonly input: InputManager;
   private readonly arena: Arena;
-  private readonly asteroids: AsteroidField;
+  private readonly asteroids: AsteroidFieldView;
   /** Placed derelict wrecks (map hazards) — indestructible, slowly-rotating
    *  cover. Empty unless the active map configures hazards. Their circles wire
    *  into the weapon-obstacle list (LOS cover), the keep-out bump, and AI
@@ -393,7 +393,7 @@ export class Game {
     // Drifting destructible asteroid field — the arena terrain. Rocks keep
     // clear of both carriers at spawn so nobody launches into one. Its obstacle
     // list is handed to the weapon systems below for line-of-sight cover.
-    this.asteroids = new AsteroidField(
+    this.asteroids = new AsteroidFieldView(
       this.scene,
       this.arena.halfWidth,
       this.arena.halfDepth,

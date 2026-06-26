@@ -2,10 +2,11 @@
  * Headless battle fixture — Phase 0's smoke-harness backbone
  * (docs/MULTIPLAYER.md → Verification).
  *
- * Constructs the FULL gameplay sim with two AI fleets under a Babylon
- * NullEngine (no canvas, no render, no DOM — the precedent is
- * scripts/measure-carrier-footprint.mjs) and steps it with a FIXED dt and a
- * SIMULATED clock. With the sim RNG seeded (src/game/sim/SimRng.ts), a run is
+ * Constructs the FULL gameplay sim with two AI fleets — now entirely scene-free
+ * (no Engine, no Scene, no canvas/DOM): every piece is a shared/sim/* module,
+ * including the asteroid field (AsteroidFieldSim) since the asteroid sim/view
+ * split. Steps it with a FIXED dt and a SIMULATED clock. With the sim RNG
+ * seeded (shared/src/sim/SimRng.ts), a run is
  * fully deterministic: the same seed always plays the same battle, which is
  * what lets the smoke test diff a refactor against a committed baseline
  * trace ("the split changed nothing" becomes a mechanical check).
@@ -54,8 +55,6 @@
  *     takeDamage's nowMs parameter since the Ship/ShipView split).
  */
 
-import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
-import { Scene } from "@babylonjs/core/scene";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 
 import { GameConfig } from "../../shared/src/GameConfig";
@@ -72,7 +71,7 @@ import { SensorSystem } from "../../shared/src/SensorSystem";
 import { Mothership } from "../../shared/src/sim/Mothership";
 import { LaserSystem } from "../../shared/src/sim/LaserSystem";
 import { MissileSystem } from "../../shared/src/sim/MissileSystem";
-import { AsteroidField } from "../../client/src/game/AsteroidField";
+import { AsteroidFieldSim } from "../../shared/src/sim/AsteroidFieldSim";
 import { Hulk } from "../../shared/src/sim/Hulk";
 import { MothershipSection } from "../../shared/src/sim/MothershipSection";
 import type { DamageTarget } from "../../shared/src/types";
@@ -140,11 +139,8 @@ export class HeadlessBattle {
   readonly playerFaction: Faction;
   readonly enemyFaction: Faction;
 
-  private readonly engine: NullEngine;
-  private readonly scene: Scene;
-
   private readonly motherships: Record<Faction, Mothership>;
-  private readonly asteroids: AsteroidField;
+  private readonly asteroids: AsteroidFieldSim;
   /** Placed wrecks (map hazards) — empty unless the run's config has hazards
    *  (stock does not, so this stays empty and the baseline is unaffected). */
   private readonly hulks: Hulk[] = [];
@@ -187,9 +183,6 @@ export class HeadlessBattle {
     // (asteroid layout, AI timers) must come out of the seeded stream.
     seedSimRng(opts.seed);
 
-    this.engine = new NullEngine();
-    this.scene = new Scene(this.engine);
-
     this.playerFaction = GameConfig.player.faction;
     this.enemyFaction = opposing(this.playerFaction);
 
@@ -206,8 +199,9 @@ export class HeadlessBattle {
     };
 
     // --- Asteroid field (sim RNG draws begin here) ---
-    this.asteroids = new AsteroidField(
-      this.scene,
+    // Scene-free sim half (AsteroidFieldSim); the mesh-coupled view lives in
+    // the client. This is what lets the harness run with no Engine/Scene at all.
+    this.asteroids = new AsteroidFieldSim(
       GameConfig.arena.halfWidth,
       GameConfig.arena.halfDepth,
       [
@@ -401,11 +395,11 @@ export class HeadlessBattle {
     this.assignInitialLaunches();
   }
 
-  /** Tear down the NullEngine scene. Call when done with the fixture. */
-  dispose(): void {
-    this.scene.dispose();
-    this.engine.dispose();
-  }
+  /**
+   * No-op: the harness is now fully scene-free (the sim halves hold no Babylon
+   * Engine/Scene). Kept so callers' teardown (smoke test afterEach) is stable.
+   */
+  dispose(): void {}
 
   /** Sim-state digest for trace sampling (positions/HP per combatant). */
   sample(): TraceSample {

@@ -1,64 +1,56 @@
-import type { Scene } from "@babylonjs/core/scene";
-import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 
-import { GameConfig } from "@space-duel/shared";
+import { GameConfig } from "../GameConfig";
 // Field layout/drift/shatter randomness draws from the seeded SIM RNG: rocks
 // are collision hazards + line-of-sight cover, so their placement and motion
-// shape the battle. See src/game/sim/SimRng.ts for the rule.
-import { simRandom } from "@space-duel/shared";
-import { Asteroid } from "./Asteroid";
-import type { DamageTarget } from "@space-duel/shared";
+// shape the battle. See sim/SimRng.ts for the rule.
+import { simRandom } from "./SimRng";
+import { AsteroidSim } from "./AsteroidSim";
+import type { DamageTarget } from "../types";
 
 /** Where rocks must NOT spawn (the motherships), with a keep-clear radius. */
-type KeepClear = { x: number; z: number; radius: number };
+export type KeepClear = { x: number; z: number; radius: number };
 
 /**
- * The arena's drifting asteroid field. Owns every rock, ticks their drift +
- * tumble, wraps them around the arena bounds so the field stays populated, and
- * handles destruction: a rock killed by weapon fire pops an explosion and (if
- * big enough) shatters into smaller drifting chunks.
+ * The arena's drifting asteroid field — the SIM half (Ship/ShipView pattern).
+ * Scene-free: owns every rock's sim, ticks drift + tumble, wraps them around the
+ * arena bounds so the field stays populated, and handles destruction — a rock
+ * killed by weapon fire fires `onShatter` (the view pops an explosion) and (if
+ * big enough) shatters into smaller drifting chunks. The client AsteroidFieldView
+ * mirrors `asteroids` to meshes; the server/headless sim uses this directly.
  *
  * The `obstacles` array is the live list the weapon systems hold BY REFERENCE
  * for line-of-sight cover — when a rock shatters, its child chunks are pushed
  * into the same array, so the weapon systems see them with no extra wiring.
  * Dead rocks are removed from it during the field's update sweep.
- *
- * One shared rock material is reused across the whole field (the CapitalShips
- * pattern), so N rocks cost a fixed material budget regardless of count.
  */
-export class AsteroidField {
+export class AsteroidFieldSim {
   /**
-   * Live rocks, exposed for the weapon systems (as DamageTarget obstacles) and
-   * Game's ship-collision pass. Mutated in place (shatter children pushed, dead
-   * rocks spliced) so external holders of the reference stay current.
+   * Live rocks, exposed for the weapon systems (as DamageTarget obstacles), the
+   * ship-collision pass, and the view. Mutated in place (shatter children
+   * pushed, dead rocks spliced) so external holders of the reference stay
+   * current.
    */
-  readonly asteroids: Asteroid[] = [];
-
-  private readonly material: StandardMaterial;
+  readonly asteroids: AsteroidSim[] = [];
 
   /**
    * Fired when a rock shatters, with the world position + visual radius of the
-   * destroyed rock, so Game can pop a size-scaled explosion + sound + trauma.
+   * destroyed rock, so the view can pop a size-scaled explosion + sound + trauma.
    */
   onShatter: ((position: Vector3, visualRadius: number) => void) | null = null;
 
   constructor(
-    private readonly scene: Scene,
     private readonly halfWidth: number,
     private readonly halfDepth: number,
     keepClear: KeepClear[],
   ) {
-    this.material = this.buildMaterial(scene);
-
     const cfg = GameConfig.asteroids;
     for (let i = 0; i < cfg.count; i++) {
       const pos = this.findSpawn(keepClear);
       if (!pos) continue; // arena too crowded with keep-clear zones — skip.
       const radius = cfg.radiusMin + simRandom() * (cfg.radiusMax - cfg.radiusMin);
       this.asteroids.push(
-        new Asteroid(scene, this.material, {
+        new AsteroidSim({
           position: pos,
           drift: this.randomDrift(),
           visualRadius: radius,
@@ -74,8 +66,8 @@ export class AsteroidField {
 
   /**
    * Tick drift + tumble for every live rock, wrap strays back into the arena,
-   * process any rock killed since the last sweep (explosion + shatter), and
-   * drop dead rocks from the list.
+   * process any rock killed since the last sweep (shatter event + chunks), and
+   * drop dead rocks from the list (the view disposes their meshes on its sync).
    */
   update(deltaSeconds: number): void {
     for (const a of this.asteroids) {
@@ -97,18 +89,14 @@ export class AsteroidField {
 
     // Remove dead rocks (now fully processed) so they stop being tested.
     for (let i = this.asteroids.length - 1; i >= 0; i--) {
-      const a = this.asteroids[i];
-      if (!a.isAlive) {
-        a.dispose();
-        this.asteroids.splice(i, 1);
-      }
+      if (!this.asteroids[i].isAlive) this.asteroids.splice(i, 1);
     }
   }
 
   // ---------- Destruction ----------
 
   /** Spawn smaller drifting chunks from a destroyed rock, if it's big enough. */
-  private shatterInto(parent: Asteroid): void {
+  private shatterInto(parent: AsteroidSim): void {
     const cfg = GameConfig.asteroids;
     if (parent.visualRadius <= cfg.minSplitRadius) return;
 
@@ -149,12 +137,12 @@ export class AsteroidField {
       );
       // Violent blast tumble — far faster than ambient field spin.
       const spin = new Vector3(
-        AsteroidField.signedRange(cfg.chunkSpinRateMin, cfg.chunkSpinRateMax),
-        AsteroidField.signedRange(cfg.chunkSpinRateMin, cfg.chunkSpinRateMax),
-        AsteroidField.signedRange(cfg.chunkSpinRateMin, cfg.chunkSpinRateMax),
+        AsteroidFieldSim.signedRange(cfg.chunkSpinRateMin, cfg.chunkSpinRateMax),
+        AsteroidFieldSim.signedRange(cfg.chunkSpinRateMin, cfg.chunkSpinRateMax),
+        AsteroidFieldSim.signedRange(cfg.chunkSpinRateMin, cfg.chunkSpinRateMax),
       );
       this.asteroids.push(
-        new Asteroid(this.scene, this.material, {
+        new AsteroidSim({
           position: pos,
           drift,
           visualRadius: childRadius,
@@ -249,24 +237,12 @@ export class AsteroidField {
    * stays populated in the (unbounded) arena. The visual radius is added to the
    * bound so the rock fully exits the frame before reappearing — no pop.
    */
-  private wrap(a: Asteroid): void {
+  private wrap(a: AsteroidSim): void {
     const mx = this.halfWidth + a.visualRadius;
     const mz = this.halfDepth + a.visualRadius;
     if (a.position.x > mx) a.position.x = -mx;
     else if (a.position.x < -mx) a.position.x = mx;
     if (a.position.z > mz) a.position.z = -mz;
     else if (a.position.z < -mz) a.position.z = mz;
-  }
-
-  // ---------- Material ----------
-
-  private buildMaterial(scene: Scene): StandardMaterial {
-    // Lit rocky grey — deliberately NOT emissive and NOT added to the GlowLayer,
-    // so rocks read as solid matter against the glowing ships/lasers/nebulas.
-    const mat = new StandardMaterial("asteroid_mat", scene);
-    mat.diffuseColor = new Color3(0.32, 0.29, 0.26);
-    // Fully matte — any specular highlight makes a big rock read as plastic.
-    mat.specularColor = Color3.Black();
-    return mat;
   }
 }

@@ -1,6 +1,6 @@
 import type { Ship } from "@space-duel/shared";
 import type { Mothership } from "@space-duel/shared";
-import type { Asteroid } from "./Asteroid";
+import type { AsteroidSim } from "@space-duel/shared";
 import type { Missile } from "@space-duel/shared";
 import { opposing, type Faction } from "@space-duel/shared";
 import { GameConfig } from "@space-duel/shared";
@@ -80,7 +80,7 @@ export class Radar {
     contacts: SensorContact[],
     missileThreats: ReadonlyArray<Missile>,
     motherships: Record<Faction, Mothership>,
-    asteroids: Asteroid[],
+    asteroids: AsteroidSim[],
     nebulaZones: ReadonlyArray<ConcealmentZone>,
     nowMs: number,
   ): void {
@@ -284,7 +284,7 @@ export class Radar {
   }
 
   /** Neutral grey dot for a rock, sized from its radius. In-range only. */
-  private plotRock(rock: Asteroid, player: Ship): void {
+  private plotRock(rock: AsteroidSim, player: Ship): void {
     const { x, y, offEdge } = this.project(
       rock.position.x - player.position.x,
       rock.position.z - player.position.z,
