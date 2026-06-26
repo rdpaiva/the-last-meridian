@@ -100,6 +100,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     seat.combatant.controller = seat.net; // input arrives via the MSG.input handler
     seat.net.setInput(NEUTRAL_INPUT); // start from a clean frame until the first message
     seat.schema.isAI = false;
+    seat.schema.owner = client.sessionId; // lets that client find its own ship
     this.seatBySession.set(client.sessionId, seat);
   }
 
@@ -111,6 +112,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     seat.occupant = null;
     seat.combatant.controller = seat.ai;
     seat.schema.isAI = true;
+    seat.schema.owner = "";
   }
 
   // ─── Sim loop ─────────────────────────────────────────────────────────────
@@ -205,6 +207,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     // undefined, which would replicate as undefined until the first syncState.
     const ship = new ShipSchema();
     ship.id = id;
+    ship.owner = "";
     ship.faction = faction;
     ship.shipType = typeId;
     ship.x = 0;

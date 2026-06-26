@@ -10,9 +10,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@space-duel/shared": "*",
     "@babylonjs/core": "^7.50.0",
-    "@babylonjs/loaders": "^7.50.0"
+    "@babylonjs/loaders": "^7.50.0",
+    "@colyseus/sdk": "^0.17.43",
+    "@space-duel/shared": "*"
   },
   "devDependencies": {
     "@babylonjs/inspector": "^7.54.3",

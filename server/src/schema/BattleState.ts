@@ -11,6 +11,8 @@ import { schema, type SchemaType } from "@colyseus/schema";
 export const ShipSchema = schema(
   {
     id: "string",
+    /** Owning client sessionId while a human flies this seat, else "". */
+    owner: "string",
     faction: "string",
     shipType: "string",
     x: "float32",

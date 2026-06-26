@@ -1,4 +1,6 @@
 import { Game, RESTART_FLAG } from "./game/Game";
+import { NetworkGame } from "./game/NetworkGame";
+import { NetClient } from "./net/NetClient";
 import { LoadoutMenu, SHIP_INFO } from "./game/LoadoutMenu";
 import { ShipPreview } from "./game/ShipPreview";
 import { SettingsMenu } from "./game/SettingsMenu";
@@ -127,8 +129,20 @@ function unlockAudio(): void {
 // The Game is constructed at launch time (not page load) so it can take the
 // loadout — which side and ship the pilot chose on the splash menu.
 let game: Game | null = null;
+let netGame: NetworkGame | null = null;
 let menu: LoadoutMenu | null = null;
 let preview: ShipPreview | null = null;
+
+/**
+ * PLAY ONLINE toggle (Phase 1). Opening the page with `?online` (or `#online`)
+ * routes the chosen loadout into a server quick-match instead of the offline
+ * Game. The polished PLAY SOLO / PLAY ONLINE menu split is a later refinement;
+ * this keeps the splash + loadout flow untouched. PLAY SOLO is simply the
+ * default (no flag) — fully offline, no server needed.
+ */
+const ONLINE =
+  new URLSearchParams(location.search).has("online") ||
+  location.hash.toLowerCase().includes("online");
 
 /**
  * Arena map (docs/ARENA-MAPS.md). Applied at LAUNCH, not page load: the picker
@@ -154,18 +168,42 @@ function applyActiveDifficulty(): void {
 }
 
 function startGame(): void {
-  if (game) return;
+  if (game || netGame) return;
   // commit() persists the choice and releases the menu's arrow keys back to
   // the ship; quick play (no menu constructed) launches the saved loadout.
   const loadout = menu ? menu.commit() : loadSavedLoadout();
-  applyActiveMap();
-  applyActiveDifficulty();
   stopSplashMusic();
   preview?.dispose();
   preview = null;
+
+  if (ONLINE) {
+    void startOnline(loadout);
+    return;
+  }
+
+  applyActiveMap();
+  applyActiveDifficulty();
   splash!.classList.add("hidden");
   game = new Game(canvas!, hudRoot!, loadout);
   void game.start();
+}
+
+/**
+ * Connect to the server and hand off to the networked renderer. On failure
+ * (server down, protocol mismatch) the splash stays up with a readable reason —
+ * PLAY SOLO is always available without a server.
+ */
+async function startOnline(loadout: ReturnType<typeof loadSavedLoadout>): Promise<void> {
+  primaryBtn!.textContent = "CONNECTING…";
+  try {
+    const net = await NetClient.quickMatch(loadout);
+    splash!.classList.add("hidden");
+    netGame = new NetworkGame(canvas!, hudRoot!, net, loadout.faction);
+    netGame.start();
+  } catch (err) {
+    console.error("[online] failed to join:", err);
+    primaryBtn!.textContent = "SERVER UNAVAILABLE — try again (or remove ?online for solo)";
+  }
 }
 
 // ── Splash state machine ───────────────────────────────────────────────────
@@ -310,7 +348,7 @@ if (sessionStorage.getItem(RESTART_FLAG)) {
   // remains keyboard-walkable (landing → intro → [Enter skips] → select →
   // launch; quick play is a single Enter).
   window.addEventListener("keydown", (e) => {
-    if (game) return;
+    if (game || netGame) return;
     if (state === "settings") {
       // Enter must NOT launch the game while the user is editing inputs;
       // Esc mirrors the BACK button.
@@ -337,5 +375,6 @@ if (sessionStorage.getItem(RESTART_FLAG)) {
 
 window.addEventListener("resize", () => {
   game?.handleResize();
+  netGame?.handleResize();
   preview?.resize();
 });
