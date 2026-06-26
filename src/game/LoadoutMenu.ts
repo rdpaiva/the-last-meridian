@@ -48,9 +48,15 @@ import type { ShipPreview } from "./ShipPreview";
  * Resolved against BASE_URL (like the splash poster) so it loads under the
  * GitHub Pages sub-path too.
  */
-const FACTION_PORTRAIT: Record<Faction, string> = {
-  humans: "images/Human-Pilot.jpg",
-  machines: "images/Novari.jpg",
+const FACTION_PORTRAIT: Record<Faction, string | null> = {
+  humans: null,
+  machines: null,
+};
+
+/** Video (no extension) played once on faction select (null = use still portrait). */
+const FACTION_VIDEO: Record<Faction, string | null> = {
+  humans: "videos/human-pilot-selection",
+  machines: "videos/novari-pilot",
 };
 
 /** One-word flavor tag shown above each faction's name on its card. */
@@ -382,10 +388,17 @@ export class LoadoutMenu {
       .map((f) => {
         const t = FACTION_THEME[f];
         const sel = f === this.faction ? " selected" : "";
-        const portrait = `${import.meta.env.BASE_URL}${FACTION_PORTRAIT[f]}`;
+        const videoBase = FACTION_VIDEO[f];
+        const portrait = FACTION_PORTRAIT[f];
+        const portraitEl = videoBase
+          ? `<video class="faction-portrait faction-portrait-video" muted playsinline data-faction-video="${f}">
+               <source src="${import.meta.env.BASE_URL}${videoBase}.webm" type="video/webm">
+               <source src="${import.meta.env.BASE_URL}${videoBase}.mp4" type="video/mp4">
+             </video>`
+          : `<div class="faction-portrait" style="background-image: url('${import.meta.env.BASE_URL}${portrait}')"></div>`;
         return `
           <div class="loadout-card faction-card ${f}${sel}" data-faction="${f}">
-            <div class="faction-portrait" style="background-image: url('${portrait}')"></div>
+            ${portraitEl}
             <div class="faction-scrim"></div>
             <div class="faction-check">▶ SELECTED</div>
             <div class="faction-body">
@@ -470,6 +483,15 @@ export class LoadoutMenu {
     this.root
       .querySelector<HTMLButtonElement>("#loadout-play")
       ?.addEventListener("click", () => this.onPlay());
+
+    // Play the portrait video for the selected faction from the start.
+    // Non-selected faction videos stay paused on frame 0.
+    for (const vid of this.root.querySelectorAll<HTMLVideoElement>(".faction-portrait-video")) {
+      if (vid.dataset.factionVideo === this.faction) {
+        vid.currentTime = 0;
+        void vid.play();
+      }
+    }
 
     // Re-adopt the live preview canvas (one shared element across renders) and
     // point it at the current selection. The hangar only exists on page 1.
