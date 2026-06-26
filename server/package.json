@@ -15,6 +15,7 @@
     "colyseus": "^0.17.10"
   },
   "devDependencies": {
+    "@colyseus/testing": "^0.17.11",
     "tsx": "^4.22.4"
   }
 }

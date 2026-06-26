@@ -316,7 +316,12 @@ export class BattleSim {
         if (ship.isAlive) {
           c.launch.update(dtSeconds, ship);
           if (c.launch.isComplete) {
-            if (c === this.primaryLaunch && this._state === "launching") {
+            // Flip to "playing" when the cinematic seat clears the tube; with no
+            // cinematic seat (MP rooms), the first seat to clear flips it.
+            if (
+              this._state === "launching" &&
+              (this.primaryLaunch === null || c === this.primaryLaunch)
+            ) {
               this._state = "playing";
             }
             c.launch = null;
@@ -614,9 +619,10 @@ export class BattleSim {
   }
 
   /** Catapult each faction's fleet out of its carrier; the cinematic seat leads
-   *  its fleet so its hold is the intro/countdown. */
+   *  its fleet so its hold is the intro/countdown. With no cinematic seat (MP
+   *  rooms), the base hold is 0 — ships launch immediately, staggered by bay. */
   private assignInitialLaunches(): void {
-    const base = LaunchSequence.cinematicHoldSec();
+    const base = this.primaryLaunch ? LaunchSequence.cinematicHoldSec() : 0;
     for (const f of ["humans", "machines"] as Faction[]) {
       const queue = this.combatants.filter((c) => c.ship.faction === f);
       // Cinematic seat first so it leads the stagger (its hold is the countdown).

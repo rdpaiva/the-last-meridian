@@ -64,9 +64,13 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     this.buildFleet("machines");
     this.sim.start();
 
-    // Carrier slots.
+    // Carrier slots + initial match fields (the schema() factory leaves
+    // primitives undefined; tick must start at 0 or `tick++` yields NaN).
     this.initMothershipSchema(this.state.humansMothership, "humans");
     this.initMothershipSchema(this.state.machinesMothership, "machines");
+    this.state.phase = "launching";
+    this.state.winner = "";
+    this.state.tick = 0;
 
     this.maxClients = this.seats.length;
 
@@ -197,12 +201,20 @@ export class BattleRoom extends Room<{ state: BattleState }> {
   // ─── Schema helpers ─────────────────────────────────────────────────────────
 
   private makeShipSchema(faction: Faction, typeId: ShipTypeId, id: string): ShipSchema {
+    // Initialize EVERY field — the schema() factory leaves unset primitives
+    // undefined, which would replicate as undefined until the first syncState.
     const ship = new ShipSchema();
     ship.id = id;
     ship.faction = faction;
     ship.shipType = typeId;
+    ship.x = 0;
+    ship.z = 0;
+    ship.rotationY = 0;
+    ship.bankAngle = 0;
     ship.maxHp = GameConfig.shipTypes[typeId].maxHp;
     ship.hp = ship.maxHp;
+    ship.alive = true;
+    ship.launching = true;
     ship.isAI = true;
     return ship;
   }
