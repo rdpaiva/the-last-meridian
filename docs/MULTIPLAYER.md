@@ -243,11 +243,16 @@ timing).
       no build step, barrel public surface); root `npm run dev` (→ client)
       / `npm run typecheck` (→ all workspaces + root tests) / `npm test`
       keep working. Smoke baseline intact, typecheck + build green.
-- [ ] **Server app**: Colyseus + a `BattleRoom` running `advanceSim` on
-      `setSimulationInterval` (30Hz to start), delta clamp kept.
-- [ ] **State schema** (`@colyseus/schema`): ships (pose, hp, faction,
-      shipType, ammo), motherships (hp), match state. Patch rate
-      ~15Hz to start.
+- [x] **Server app**: Colyseus `Server` + `WebSocketTransport` + a
+      `BattleRoom` running `BattleSim.advance` on `setSimulationInterval`
+      (30Hz), GameConfig delta clamp kept. (Note: also did the Phase 0
+      collapse first — extracted the scene-free `shared/sim/BattleSim`
+      coordinator the room/harness/client all share, proven baseline-
+      identical, plus the asteroid sim/view split it required.)
+- [x] **State schema** (`@colyseus/schema`, decorator-free `defineTypes`):
+      ships MapSchema (pose, hp, faction, shipType, alive, launching,
+      isAI), two motherships (hp/alive), phase/winner/tick. Patch rate
+      15Hz.
 - [ ] **Input messages**: client samples `LocalInputController` and
       sends `InputState` per tick; server replays it into that player's
       `Ship` (the `NetworkController` seam).
