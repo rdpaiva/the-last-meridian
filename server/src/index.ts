@@ -1,16 +1,30 @@
 /**
- * @space-duel/server — Colyseus authoritative game server.
- *
- * Phase 1 skeleton. The BattleRoom (running the shared `advanceSim`) lands in
- * the next task; this entry just proves the workspace + shared import wire up
- * and the server typechecks against the sim package.
+ * @space-duel/server — Colyseus authoritative game server (docs/MULTIPLAYER.md
+ * Phase 1). Registers the BattleRoom and listens for clients. Dev: `npm run
+ * server` (tsx watch). Prod bundling (esbuild) + systemd/Caddy are Phase 3.
  */
-import { GameConfig } from "@space-duel/shared";
+import { Server, WebSocketTransport } from "colyseus";
 
-const PORT = Number(process.env.PORT ?? 2567);
+import { BATTLE_ROOM, PROTOCOL_VERSION } from "@space-duel/shared";
+import { BattleRoom } from "./rooms/BattleRoom";
 
-// Smoke check that the shared sim resolves server-side (Babylon math only).
-console.log(
-  `[space-duel server] shared sim loaded (arena ${GameConfig.arena.halfWidth}x${GameConfig.arena.halfDepth}); ` +
-    `listening target :${PORT} once Colyseus lands.`,
-);
+const port = Number(process.env.PORT ?? 2567);
+
+const gameServer = new Server({
+  transport: new WebSocketTransport(),
+});
+
+gameServer.define(BATTLE_ROOM, BattleRoom);
+
+gameServer
+  .listen(port)
+  .then(() => {
+    console.log(
+      `[space-duel server] protocol v${PROTOCOL_VERSION} listening on :${port} ` +
+        `(room "${BATTLE_ROOM}")`,
+    );
+  })
+  .catch((err) => {
+    console.error("[space-duel server] failed to start:", err);
+    process.exit(1);
+  });

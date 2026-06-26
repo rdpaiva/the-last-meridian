@@ -20,7 +20,9 @@ export * from "./AIController";
 export * from "./FleetCommander";
 export * from "./SensorSystem";
 export * from "./ShipController";
+export * from "./NetworkController";
 export * from "./LaunchSequence";
+export * from "./protocol";
 
 // Sim entities + systems
 export * from "./sim/Ship";
