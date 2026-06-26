@@ -253,17 +253,20 @@ timing).
       ships MapSchema (pose, hp, faction, shipType, alive, launching,
       isAI), two motherships (hp/alive), phase/winner/tick. Patch rate
       15Hz.
-- [ ] **Input messages**: client samples `LocalInputController` and
-      sends `InputState` per tick; server replays it into that player's
-      `Ship` (the `NetworkController` seam).
-- [ ] **AI fills empty seats**: room spawns `AIController` ships for
-      unfilled slots — solo join = today's single-player, server-side.
-      Backfill is a room option (`aiBackfill`), on for quick match.
-      Fleet size comes from the room-config formula
-      (`baseFleet + wingPerHuman × humans`, capped by `maxFleet`;
-      defaults extend `GameConfig.fleets` — see Decisions). Replicate an
-      `isAI` flag per ship; HUD shows human/AI counts and radar tags
-      bots (the honesty rule from Decisions).
+- [x] **Input messages**: client samples input and sends `InputState`
+      (`MSG.input`); the server replays it into that player's `Ship` via the
+      `NetworkController` seam (`shared/NetworkController.ts`). Proven by the
+      integration + unit tests (held `rotateRight` over the wire turns the
+      seat; `jumpPressed` is a one-shot edge). Client-side SAMPLING/sending
+      lands with the dumb-client-rendering task.
+- [~] **AI fills empty seats**: DONE server-side — every seat starts
+      AI-flown (solo join plays the full battle), humans claim a free seat on
+      their faction (AI→`NetworkController`), `onLeave` hands it back; the
+      `isAI` flag is replicated (tested). Launch config is fixed-fleet
+      (`GameConfig.fleets` per side); the `baseFleet + wingPerHuman × humans`
+      formula knob is a later refinement (single preset at launch — see
+      Decisions). REMAINING: HUD human/AI counts + radar bot tags (client,
+      with the rendering task).
 - [ ] **Friendly-side `FleetCommander`**: the player faction gets a
       commander (enemy side already has one) whose doctrine assigns the
       team's AI ships to human players as escort wings (`cover` w/ that
@@ -273,16 +276,23 @@ timing).
 - [ ] **Dumb client rendering**: client builds `ShipView`s from room
       state and snaps to raw server values. Laggy-feeling is expected
       and fine at this phase — it proves the pipe.
-- [ ] **Protocol version gate**: a `protocolVersion` const in `shared`,
-      sent in join options; server rejects mismatches with a typed
-      error the client renders as "new version — refresh". Bump
-      manually on any breaking protocol/GameConfig change.
+- [~] **Protocol version gate**: DONE server-side — `PROTOCOL_VERSION` in
+      `shared/protocol.ts`, sent in join options; the room rejects a mismatch
+      with a typed `ServerError(PROTOCOL_MISMATCH)` (tested). REMAINING: the
+      client renders it as "new version — refresh" (with the join flow).
 - [ ] **Join flow**: splash menu gains PLAY SOLO / PLAY ONLINE; online
       splits into QUICK MATCH (`joinOrCreate` with the chosen loadout as
       join options — reuse `LoadoutMenu` unchanged) and WITH FRIENDS
       (create room → show `#join=<roomId>` invite URL; arriving via the
       URL auto-joins). No server browser (see Decisions). PLAY SOLO
       stays fully offline.
+- [~] **Node integration tests**: DONE — `@colyseus/testing` boots the
+      BattleRoom in-process and asserts replication (AI-backfilled battle to
+      the client), server-side sim advance (launch→playing, ships move), input
+      replay over the wire, and protocol-mismatch rejection
+      (`tests/server/battleRoom.test.ts`); plus the `NetworkController→Ship`
+      unit test. Full suite green (9 tests). REMAINING: the `[human]`
+      checklist below.
 - [ ] `[human]` **Local two-tab acceptance test** — run server + client
       on localhost, two browser tabs in the same room: both ships
       visible and moving, inputs land, AI fills the rest, match plays
