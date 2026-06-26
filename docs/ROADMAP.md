@@ -301,6 +301,17 @@ and explicitly skipped. Update this when you finish or start work.
   the enemy carrier's hull. Novari rounds fly green exhausts; AI launches are
   spatialized. Taking a missile = heaviest non-death trauma/hitstop
   (`traumaPlayerMissileHit`/`playerMissileHitMs`).
+- **Shootable / interceptable missiles (2026-06-14)** — lasers can swat an
+  in-flight missile before it lands. `Missile implements Interceptable`
+  (`intercept()`, `isAlive`, an `interceptRadius` bubble); each
+  `MissileSystem` exposes its live pool as `interceptables`, and each faction's
+  `LaserSystem` runs a swept-segment test against the OPPOSING faction's
+  missiles BEFORE its ship-target loop (`LaserSystem.ts` → `missile.intercept()`
+  + `onIntercept`). Cross-faction wiring in `Game.ts` (humans lasers ↔ machines
+  missiles and vice versa) makes friendly-fire detonation structurally
+  impossible, same as the two-LaserSystem ownership design. A shot-down round
+  pops a small FX via the `missileIntercepted` SimEvent — sim/view-split clean.
+  Both sides launch AND intercept.
 - **Incoming-missile warning (2026-06-12)** — the player's RWR
   (`MissileWarning.ts`), closing the loop on the AI doctrine above: the
   counterplay (out-turn it, drag it into a rock, break the track in a
@@ -545,13 +556,6 @@ implemented yet. Roughly ordered by gameplay value.
   the respawn moment isn't a free kill.
 - **Tighter player feel pass** — bump thrust, reduce rotation latency,
   sharpen laser fire response.
-- **Shootable missiles (interceptable, both sides)** — lasers can destroy an
-  in-flight missile before it lands. Make `Missile` damageable (implement
-  `DamageTarget` or a lighter "interceptable" hook) and register live missiles
-  as laser targets; a shot-down missile pops a small explosion and deals no
-  damage. Both sides launch missiles now (AI doctrine landed 2026-06-12), so
-  each side could launch AND intercept the other's. Watch friendly
-  fire: a faction's lasers shouldn't detonate its own missiles.
 - **Multiple enemy types** — strafer, charger, dropper. Different AI
   states + meshes; share the `DamageTarget` interface.
 - **Power-ups** — drop from killed enemies. Temporary muzzle config swaps
