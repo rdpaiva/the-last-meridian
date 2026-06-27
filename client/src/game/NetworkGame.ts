@@ -6,13 +6,16 @@ import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
 import { EquiRectangularCubeTexture } from "@babylonjs/core/Materials/Textures/equiRectangularCubeTexture";
-import type { TransformNode } from "@babylonjs/core/Meshes/transformNode";
+import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 
 import {
   GameConfig,
   Mothership,
+  exponentialDecay,
+  wrapAngle,
   type Faction,
   type ShipPose,
+  type ShipTypeId,
   MSG,
 } from "@space-duel/shared";
 import { Arena } from "./Arena";
@@ -23,6 +26,7 @@ import { Starfield } from "./Starfield";
 import { CameraRig } from "./CameraRig";
 import { Hud } from "./Hud";
 import { InputManager } from "./InputManager";
+import { AssetLoader } from "./AssetLoader";
 import { buildFighterMesh } from "./FighterMesh";
 import { ShipView } from "./view/ShipView";
 import { MothershipView } from "./view/MothershipView";
@@ -33,7 +37,7 @@ interface NetShip {
   id: string;
   owner: string;
   faction: Faction;
-  shipType: string;
+  shipType: ShipTypeId;
   x: number;
   z: number;
   rotationY: number;
@@ -45,26 +49,40 @@ interface NetShip {
   isAI: boolean;
 }
 
-/** One rendered remote/local ship: its scene node + a reusable pose object. */
+/**
+ * One rendered ship: its scene node + the latest server target + a SMOOTHED
+ * render pose. We lerp render→target each frame so positions move continuously
+ * instead of snapping at the patch rate (which otherwise jitters the ship and,
+ * because the camera follows it, shakes the whole screen). A poor-man's
+ * interpolation until Phase 2's proper snapshot buffer + client prediction.
+ */
 interface ShipEntry {
   view: ShipView;
+  tx: number;
+  tz: number;
+  trot: number;
+  tbank: number;
+  alive: boolean;
   pose: {
     position: Vector3;
     rotationY: number;
     bankAngle: number;
     isAlive: boolean;
   };
+  fresh: boolean; // first frame: snap instead of lerp
 }
+
+/** Position/heading smoothing rate (per second). Higher = snappier/jitterier. */
+const SMOOTH_RATE = 14;
 
 /**
  * The networked client renderer (docs/MULTIPLAYER.md Phase 1 — "dumb client
- * rendering"). It runs NO sim: it builds the scenery + a ShipView per server
- * ship and snaps each to the latest replicated pose every frame, while sampling
- * the local keyboard and shipping InputState to the server. Server-authoritative,
- * so motion looks a touch steppy at low patch rates — interpolation +
- * prediction are Phase 2. Reuses the single-player view stack wholesale; the
- * only thing missing here is transient FX (lasers/explosions), which arrive with
- * Phase 2 event replication.
+ * rendering"). Runs NO sim: builds the scenery + a ShipView per server ship and
+ * smooths each toward the latest replicated pose every frame, while sampling the
+ * local keyboard and shipping InputState to the server. Server-authoritative;
+ * interpolation here is a simple exponential smooth (Phase 2 brings a real
+ * snapshot buffer + local prediction, plus transient FX — lasers/explosions —
+ * and sound, none of which exist at this phase).
  */
 export class NetworkGame {
   private readonly engine: Engine;
@@ -75,19 +93,20 @@ export class NetworkGame {
   private readonly starfield: Starfield;
   private readonly hud: Hud;
   private readonly input: InputManager;
+  private readonly loader: AssetLoader;
+  /** Per-ship-type GLB template (null = procedural fallback), cloned per ship. */
+  private readonly templates = new Map<ShipTypeId, TransformNode | null>();
 
   private readonly ships = new Map<string, ShipEntry>();
   private readonly playerFaction: Faction;
 
-  /** Scratch for camera follow (avoid per-frame allocation). */
   private readonly camPos = new Vector3();
   private readonly camVel = new Vector3();
-  private lastPlayerPos = new Vector3();
+  private readonly lastPlayerPos = new Vector3();
   private cameraSnapped = false;
   private ended = false;
   private connectionLost = false;
 
-  /** Input send cadence — match the server sim tick (30Hz). */
   private static readonly SEND_INTERVAL_MS = 1000 / 30;
   private lastSendMs = 0;
 
@@ -145,14 +164,24 @@ export class NetworkGame {
     new Nebulas(this.scene, this.arena.halfWidth, this.arena.halfDepth);
     new CapitalShips(this.scene, this.arena.halfWidth, this.arena.halfDepth, this.glowLayer);
 
-    // --- Carriers (static depiction; live HP comes from the server). The
-    // views attach their meshes to the scene, so they need no kept reference;
-    // turret animation (syncTurrets) is skipped until turrets are replicated.
+    // --- Carriers (static depiction; live HP comes from the server). The views
+    // attach their meshes to the scene, so they need no kept reference; turret
+    // animation (syncTurrets) is skipped until turrets are replicated. ---
     const ms = GameConfig.mothership;
     const humansCarrier = new Mothership(new Vector3(0, ms.yLevel, ms.playerZ), 0, "humans");
     const machinesCarrier = new Mothership(new Vector3(0, ms.yLevel, ms.enemyZ), Math.PI, "machines");
-    new MothershipView(this.scene, this.glowLayer, humansCarrier);
-    new MothershipView(this.scene, this.glowLayer, machinesCarrier);
+    const carrierViews: Record<Faction, MothershipView> = {
+      humans: new MothershipView(this.scene, this.glowLayer, humansCarrier),
+      machines: new MothershipView(this.scene, this.glowLayer, machinesCarrier),
+    };
+    // Swap in the carrier GLBs + turret models once they load (procedural box
+    // shown until then). Fire-and-forget — purely cosmetic.
+    for (const f of ["humans", "machines"] as Faction[]) {
+      const file = GameConfig.mothership.model.file[f];
+      if (file) {
+        void carrierViews[f].applyModel(file).then(() => carrierViews[f].applyTurretModel());
+      }
+    }
 
     this.cameraRig = new CameraRig(this.scene);
     this.starfield = new Starfield(this.scene, this.cameraRig.camera);
@@ -161,8 +190,8 @@ export class NetworkGame {
 
     this.input = new InputManager();
     this.input.attach();
+    this.loader = new AssetLoader(this.scene);
 
-    // Surface a dropped connection as an overlay (no auto-reconnect in Phase 1).
     this.net.room.onLeave(() => {
       this.connectionLost = true;
     });
@@ -171,15 +200,28 @@ export class NetworkGame {
     });
   }
 
-  start(): void {
+  /** Preload the ship GLBs, then start the render loop. */
+  async start(): Promise<void> {
+    await this.preloadTemplates();
     this.engine.runRenderLoop(this.tick);
+  }
+
+  /** Load one GLB template per ship type that has a model (procedural fallback
+   *  recorded as null), so addShip clones the right hull synchronously. */
+  private async preloadTemplates(): Promise<void> {
+    const types = Object.keys(GameConfig.shipTypes) as ShipTypeId[];
+    await Promise.all(
+      types.map(async (id) => {
+        const file = GameConfig.shipTypes[id].model;
+        this.templates.set(id, file ? await this.loader.loadModelTemplate(file) : null);
+      }),
+    );
   }
 
   private readonly tick = (): void => {
     const dt = Math.min(this.engine.getDeltaTime() / 1000, GameConfig.scene.maxDeltaSeconds);
 
-    // 1. Sample + send local input, throttled to the server tick rate (sending
-    //    every render frame would flood a 144Hz display; the server runs 30Hz).
+    // 1. Sample + send local input, throttled to the server tick rate.
     this.input.update();
     const nowMs = performance.now();
     if (
@@ -191,7 +233,6 @@ export class NetworkGame {
       this.net.send(MSG.input, { ...this.input.state });
     }
 
-    // 2. Reconcile rendered ships against the replicated state and snap poses.
     const state = this.net.room.state as unknown as
       | {
           ships?: { forEach: (cb: (s: NetShip, key: string) => void) => void };
@@ -210,20 +251,23 @@ export class NetworkGame {
       return;
     }
 
-    let playerPos: Vector3 | null = null;
+    // 2. Pull the latest server targets; create views for new ships.
+    let playerEntry: ShipEntry | null = null;
     const seen = new Set<string>();
+    const smooth = exponentialDecay(SMOOTH_RATE, dt);
     state.ships.forEach((s, key) => {
       seen.add(key);
       let entry = this.ships.get(key);
-      if (!entry) entry = this.addShip(key, s.faction);
-      entry.pose.position.set(s.x, 0, s.z);
-      entry.pose.rotationY = s.rotationY;
-      entry.pose.bankAngle = s.bankAngle;
-      entry.pose.isAlive = s.alive;
+      if (!entry) entry = this.addShip(key, s.faction, s.shipType);
+      entry.tx = s.x;
+      entry.tz = s.z;
+      entry.trot = s.rotationY;
+      entry.tbank = s.bankAngle;
+      entry.alive = s.alive;
+      this.smoothShip(entry, smooth);
       entry.view.update(entry.pose as ShipPose);
-      if (s.owner === this.net.sessionId) playerPos = entry.pose.position;
+      if (s.owner === this.net.sessionId) playerEntry = entry;
     });
-    // Drop views for ships that left the state (rare in Phase 1's fixed roster).
     for (const [key, entry] of this.ships) {
       if (!seen.has(key)) {
         entry.view.dispose();
@@ -231,9 +275,10 @@ export class NetworkGame {
       }
     }
 
-    // 3. Camera follows our ship (velocity estimated from its motion).
-    if (playerPos) {
-      this.camPos.copyFrom(playerPos);
+    // 3. Camera follows our (smoothed) ship — smooth pose ⇒ smooth velocity.
+    if (playerEntry) {
+      const p = (playerEntry as ShipEntry).pose.position;
+      this.camPos.copyFrom(p);
       if (!this.cameraSnapped) {
         this.cameraRig.snapTo(this.camPos);
         this.lastPlayerPos.copyFrom(this.camPos);
@@ -250,7 +295,7 @@ export class NetworkGame {
     this.cameraRig.update(dt, this.camPos, this.camVel, zoomInput);
     this.starfield.update();
 
-    // 4. HUD: carrier bars, phase overlay, end banner.
+    // 4. HUD.
     this.hud.setMothershipHp(
       this.fraction(state.humansMothership),
       this.fraction(state.machinesMothership),
@@ -260,14 +305,47 @@ export class NetworkGame {
     this.scene.render();
   };
 
-  private addShip(id: string, faction: Faction): ShipEntry {
-    const root: TransformNode = buildFighterMesh(this.scene, this.glowLayer, faction);
+  /** Ease the render pose toward the server target (snap on the first frame). */
+  private smoothShip(e: ShipEntry, f: number): void {
+    if (e.fresh) {
+      e.pose.position.set(e.tx, 0, e.tz);
+      e.pose.rotationY = e.trot;
+      e.pose.bankAngle = e.tbank;
+      e.fresh = false;
+    } else {
+      e.pose.position.x += (e.tx - e.pose.position.x) * f;
+      e.pose.position.z += (e.tz - e.pose.position.z) * f;
+      e.pose.rotationY += wrapAngle(e.trot - e.pose.rotationY) * f;
+      e.pose.bankAngle += (e.tbank - e.pose.bankAngle) * f;
+    }
+    e.pose.isAlive = e.alive;
+  }
+
+  private addShip(id: string, faction: Faction, shipType: ShipTypeId): ShipEntry {
+    const root = this.buildRoot(faction, shipType);
     const entry: ShipEntry = {
       view: new ShipView(root),
+      tx: 0,
+      tz: 0,
+      trot: 0,
+      tbank: 0,
+      alive: true,
       pose: { position: new Vector3(), rotationY: 0, bankAngle: 0, isAlive: true },
+      fresh: true,
     };
     this.ships.set(id, entry);
     return entry;
+  }
+
+  /** Clone the type's GLB template (two-tier root), else procedural fallback. */
+  private buildRoot(faction: Faction, shipType: ShipTypeId): TransformNode {
+    const template = this.templates.get(shipType) ?? null;
+    if (!template) return buildFighterMesh(this.scene, this.glowLayer, faction);
+    const root = new TransformNode(`net_${faction}_${shipType}`, this.scene);
+    template.instantiateHierarchy(root, { doNotInstantiate: true });
+    root.setEnabled(true);
+    for (const n of root.getDescendants()) n.setEnabled(true);
+    return root;
   }
 
   private fraction(ms: { hp: number; maxHp: number }): number {
