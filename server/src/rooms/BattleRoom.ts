@@ -34,7 +34,7 @@ interface Seat {
 }
 
 const SIM_HZ = 30;
-const PATCH_HZ = 15;
+const PATCH_HZ = 20;
 
 /**
  * Server-authoritative battle room (docs/MULTIPLAYER.md Phase 1). Runs the
