@@ -234,6 +234,13 @@ timing).
 
 ## Phase 1 — Colyseus skeleton
 
+> **Status (2026-06-26): server pipe DONE + tested; online client PLAYABLE but
+> has open issues.** Branch `feat/phase1-multiplayer` (not yet merged). Full
+> test suite 9/9 green. The server is verified correct; the remaining blockers
+> are client-side (jitter — not yet root-caused; no visible launch in MP) and
+> the expected Phase 2 gaps (no weapon FX/sound, no local-ship prediction).
+> **Handoff details + suggested resume order: `docs/PHASE1_OPEN_ISSUES.md`.**
+
 - [x] **Restructure into workspaces** (first task of this phase): npm
       workspaces with `shared/` + `client/` + `server/` per the layout
       in Decisions. `git mv src/game/sim → shared/src` etc. (history
