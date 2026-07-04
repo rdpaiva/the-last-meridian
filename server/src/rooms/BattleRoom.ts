@@ -90,6 +90,12 @@ export class BattleRoom extends Room<{ state: BattleState }> {
   /** Victim ship id → shooter ship id of the last hit it took. Consumed on
    *  shipDied to attribute the kill on the wire (client kill/score HUD). */
   private readonly lastHitBy = new Map<string, string>();
+  /** Each faction's AI-fleet default formation leader (the first striker) —
+   *  restored when the last human on that side leaves. */
+  private readonly defaultLeader: Record<Faction, Ship | null> = {
+    humans: null,
+    machines: null,
+  };
 
   override onCreate(): void {
     this.setState(new BattleState());
@@ -169,6 +175,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     seat.schema.isAI = false;
     seat.schema.owner = client.sessionId; // lets that client find its own ship
     this.seatBySession.set(client.sessionId, seat);
+    this.retaskLeader(seat.faction);
   }
 
   override onLeave(client: Client): void {
@@ -180,6 +187,26 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     seat.combatant.controller = seat.ai;
     seat.schema.isAI = true;
     seat.schema.owner = "";
+    this.retaskLeader(seat.faction);
+  }
+
+  /**
+   * Point a faction's formation leadership at its senior HUMAN pilot — the
+   * friendly-escort feature: the fleet's `cover` wing (the FleetCommander
+   * re-asserts those orders every think) and loitering hunters station-keep
+   * on ControllerWorld.leader, so re-seating the leader is all it takes for
+   * the AI wing to fly cover on the player. No humans on the side = the
+   * default AI leader (first striker) takes the wing back.
+   */
+  private retaskLeader(faction: Faction): void {
+    let human: Ship | null = null;
+    for (const seat of this.seatBySession.values()) {
+      if (seat.faction === faction) {
+        human = seat.combatant.ship; // insertion order ⇒ earliest-joined wins
+        break;
+      }
+    }
+    this.sim.setLeader(faction, human ?? this.defaultLeader[faction]);
   }
 
   /** Restage the parked fleets with the real (short) pre-launch hold. */
@@ -459,7 +486,10 @@ export class BattleRoom extends Room<{ state: BattleState }> {
         pilots.push({ ship, ai });
       }
     }
-    if (pilots.length > 0) this.sim.setLeader(faction, pilots[0].ship);
+    if (pilots.length > 0) {
+      this.defaultLeader[faction] = pilots[0].ship;
+      this.sim.setLeader(faction, pilots[0].ship);
+    }
     this.sim.addCommander(
       new FleetCommander(pilots, fleet.strikeCount, this.sim.worldByFaction[faction]),
     );

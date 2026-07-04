@@ -20,8 +20,7 @@ that doc's Architecture notes + the anchors below are accurate.
 picture, RWR, kills/score, lock/sig cues, pilot counts, homing missile
 depiction). PROTOCOL_VERSION 8. Typecheck + 10/10 tests green.
 
-**My playtest of the HUD slice**: [PASTE FINDINGS HERE — or "not done yet,
-start on item 2"]
+**My playtest of the HUD slice**: For the most part everything seems okay except for a slight choppy behaviour when I'm thrusting forward at full speed. There seems to be a bit of a jitter, unlike the single player mode. I'm not saying the jitter is a huge problem like we had before but it's definitely noticable. 
 
 **Work order**:
 

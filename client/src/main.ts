@@ -1,7 +1,7 @@
 import { Game, RESTART_FLAG } from "./game/Game";
 import { NetworkGame } from "./game/NetworkGame";
-import { NetClient } from "./net/NetClient";
-import { LoadoutMenu, SHIP_INFO } from "./game/LoadoutMenu";
+import { NetClient, inviteRoomId } from "./net/NetClient";
+import { LoadoutMenu, SHIP_INFO, type LaunchMode } from "./game/LoadoutMenu";
 import { ShipPreview } from "./game/ShipPreview";
 import { SettingsMenu } from "./game/SettingsMenu";
 import { FACTION_THEME, PROTOCOL_MISMATCH } from "@space-duel/shared";
@@ -40,6 +40,7 @@ const splash = document.getElementById("splash") as HTMLDivElement | null;
 const splashPoster = document.getElementById("splash-poster") as HTMLImageElement | null;
 const story = document.getElementById("splash-story") as HTMLDivElement | null;
 const primaryBtn = document.getElementById("splash-primary") as HTMLButtonElement | null;
+const onlineBtn = document.getElementById("splash-online") as HTMLButtonElement | null;
 const skipBtn = document.getElementById("splash-skip") as HTMLButtonElement | null;
 const changeBtn = document.getElementById("splash-change") as HTMLButtonElement | null;
 const replayBtn = document.getElementById("splash-replay") as HTMLButtonElement | null;
@@ -54,6 +55,7 @@ if (!splash) throw new Error("#splash not found in DOM");
 if (!splashPoster) throw new Error("#splash-poster not found in DOM");
 if (!story) throw new Error("#splash-story not found in DOM");
 if (!primaryBtn) throw new Error("#splash-primary not found in DOM");
+if (!onlineBtn) throw new Error("#splash-online not found in DOM");
 if (!skipBtn) throw new Error("#splash-skip not found in DOM");
 if (!changeBtn) throw new Error("#splash-change not found in DOM");
 if (!replayBtn) throw new Error("#splash-replay not found in DOM");
@@ -134,15 +136,15 @@ let menu: LoadoutMenu | null = null;
 let preview: ShipPreview | null = null;
 
 /**
- * PLAY ONLINE toggle (Phase 1). Opening the page with `?online` (or `#online`)
- * routes the chosen loadout into a server quick-match instead of the offline
- * Game. The polished PLAY SOLO / PLAY ONLINE menu split is a later refinement;
- * this keeps the splash + loadout flow untouched. PLAY SOLO is simply the
- * default (no flag) — fully offline, no server needed.
+ * Launch modes (Phase 1 entry polish — replaces the old `?online` flag):
+ * PLAY SOLO runs the offline Game (no server); PLAY ONLINE quick-matches into
+ * a server battle. WITH FRIENDS rides the URL hash: joining a match writes
+ * `#join=<roomId>` into the address bar (the invite link — share the URL),
+ * and a page opened WITH that hash joins the friend's room by id instead of
+ * quick-matching (falling back to a fresh match if it's gone).
  */
-const ONLINE =
-  new URLSearchParams(location.search).has("online") ||
-  location.hash.toLowerCase().includes("online");
+/** True while an online join is in flight — blocks double-launch clicks. */
+let connecting = false;
 
 /**
  * Arena map (docs/ARENA-MAPS.md). Applied at LAUNCH, not page load: the picker
@@ -167,20 +169,20 @@ function applyActiveDifficulty(): void {
   applyDifficulty(loadSavedDifficulty());
 }
 
-function startGame(): void {
-  if (game || netGame) return;
+function startGame(mode: LaunchMode): void {
+  if (game || netGame || connecting) return;
   // commit() persists the choice and releases the menu's arrow keys back to
   // the ship; quick play (no menu constructed) launches the saved loadout.
   const loadout = menu ? menu.commit() : loadSavedLoadout();
-  stopSplashMusic();
-  preview?.dispose();
-  preview = null;
 
-  if (ONLINE) {
+  if (mode === "online") {
     void startOnline(loadout);
     return;
   }
 
+  stopSplashMusic();
+  preview?.dispose();
+  preview = null;
   applyActiveMap();
   applyActiveDifficulty();
   splash!.classList.add("hidden");
@@ -189,25 +191,57 @@ function startGame(): void {
 }
 
 /**
- * Connect to the server and hand off to the networked renderer. On failure
- * (server down, protocol mismatch) the splash stays up with a readable reason —
- * PLAY SOLO is always available without a server.
+ * Connect to the server and hand off to the networked renderer: join the
+ * friend's room when the URL carries `#join=<roomId>` (falling back to a
+ * quick match if that room is gone), else quick-match. Success writes the
+ * joined roomId back into the hash — the address bar IS the invite link.
+ * On failure (server down, protocol mismatch) the splash stays up with a
+ * readable reason on the button that was pressed — PLAY SOLO always works.
  */
 async function startOnline(loadout: ReturnType<typeof loadSavedLoadout>): Promise<void> {
-  primaryBtn!.textContent = "CONNECTING…";
+  // Status lands where the player is looking: the loadout's online CTA when
+  // the menu is up, else the quick-play primary button.
+  const setStatus = (text: string | null): void => {
+    if (state === "factionSelect") menu?.setOnlineStatus(text);
+    else if (text) primaryBtn!.textContent = text;
+  };
+  connecting = true;
+  setStatus("CONNECTING…");
   try {
-    const net = await NetClient.quickMatch(loadout);
+    const invite = inviteRoomId();
+    let net: NetClient;
+    if (invite) {
+      try {
+        net = await NetClient.joinById(invite, loadout);
+      } catch (err) {
+        // Protocol mismatch would fail a fresh match the same way — surface
+        // it. Anything else (room disposed/full) degrades to a quick match.
+        if ((err as { code?: number }).code === PROTOCOL_MISMATCH) throw err;
+        console.warn("[online] invite room unavailable — quick-matching:", err);
+        net = await NetClient.quickMatch(loadout);
+      }
+    } else {
+      net = await NetClient.quickMatch(loadout);
+    }
+    // Shareable WITH FRIENDS link (replaceState: no scroll/history spam).
+    history.replaceState(null, "", `#join=${net.roomId}`);
+    stopSplashMusic();
+    preview?.dispose();
+    preview = null;
     splash!.classList.add("hidden");
     netGame = new NetworkGame(canvas!, hudRoot!, net, loadout.faction);
-    netGame.start();
+    void netGame.start();
   } catch (err) {
     console.error("[online] failed to join:", err);
     // A protocol mismatch is a stale build, not an outage — say so. The code
     // rides the Colyseus ServerError through to the client error object.
-    primaryBtn!.textContent =
+    setStatus(
       (err as { code?: number }).code === PROTOCOL_MISMATCH
-        ? "NEW VERSION — refresh the page to update (⌘⇧R)"
-        : "SERVER UNAVAILABLE — try again (or remove ?online for solo)";
+        ? "NEW VERSION — refresh to update (⌘⇧R)"
+        : "SERVER UNAVAILABLE — try again, or play solo",
+    );
+  } finally {
+    connecting = false;
   }
 }
 
@@ -249,7 +283,11 @@ function setState(next: SplashState): void {
       continueLoadout!.textContent =
         `${FACTION_THEME[saved.faction].fullName.replace(/^The /, "")}` +
         ` · ${info.name} ${info.role}`;
-      primaryBtn!.textContent = "PLAY";
+      // An invite link means the player came to JOIN — the big button obliges
+      // and solo steps aside (the same swap quickPlayModes gives the clicks).
+      const invited = inviteRoomId() !== null;
+      primaryBtn!.textContent = invited ? "JOIN FRIENDS' MATCH" : "PLAY";
+      onlineBtn!.textContent = invited ? "PLAY SOLO" : "PLAY ONLINE";
       break;
     }
     case "factionSelect":
@@ -296,12 +334,16 @@ function skipIntro(): void {
   setState("factionSelect");
 }
 
-if (sessionStorage.getItem(RESTART_FLAG)) {
-  // This load is the end-of-match restart (Enter on the result banner) —
-  // the player already sat through the splash, so skip it and relaunch the
-  // saved loadout directly. Audio resumes on their first keypress (a
-  // reloaded page has no user gesture yet, so it can't resume here).
-  sessionStorage.removeItem(RESTART_FLAG);
+// End-of-match restart (Enter on the result banner): the flag's VALUE is the
+// mode to relaunch — "online" rejoins a match, anything else relaunches solo.
+const restartMode = sessionStorage.getItem(RESTART_FLAG);
+if (restartMode) sessionStorage.removeItem(RESTART_FLAG);
+
+if (restartMode && restartMode !== "online") {
+  // Solo restart — the player already sat through the splash, so skip it and
+  // relaunch the saved loadout directly. Audio resumes on their first
+  // keypress (a reloaded page has no user gesture yet, so it can't resume
+  // here).
   applyActiveMap();
   applyActiveDifficulty();
   splash.classList.add("hidden");
@@ -313,12 +355,23 @@ if (sessionStorage.getItem(RESTART_FLAG)) {
   // always offers both ENTER THE MERIDIAN and Skip Intro.
   setState(hasSeenIntro() && hasSavedLoadout() ? "quickPlay" : "landing");
 
+  // Quick play's two launch buttons swap roles when the URL carries an
+  // invite link (#join): the big button joins the friend, solo steps aside.
+  const quickPlayModes = (): { primary: LaunchMode; secondary: LaunchMode } =>
+    inviteRoomId() ? { primary: "online", secondary: "solo" } : { primary: "solo", secondary: "online" };
+
   primaryBtn.addEventListener("click", () => {
     if (state === "landing") enterMeridian();
     else if (state === "quickPlay") {
       unlockAudio();
-      startGame();
+      startGame(quickPlayModes().primary);
     }
+  });
+
+  onlineBtn.addEventListener("click", () => {
+    if (state !== "quickPlay") return;
+    unlockAudio();
+    startGame(quickPlayModes().secondary);
   });
 
   skipBtn.addEventListener("click", skipIntro);
@@ -370,12 +423,19 @@ if (sessionStorage.getItem(RESTART_FLAG)) {
         skipIntro();
         break;
       case "quickPlay":
-        startGame();
+        startGame(quickPlayModes().primary);
         break;
       // factionSelect's Enter is owned by LoadoutMenu (page 1 → NEXT, page 2 →
       // PLAY), so it's intentionally not handled here.
     }
   });
+
+  // Online restart (Enter on the end banner of a networked match): the full
+  // splash wiring above stays live, so a failed rejoin leaves working buttons
+  // — the reconnect just fires immediately on top of the quick-play screen.
+  if (restartMode === "online") {
+    void startOnline(loadSavedLoadout());
+  }
 }
 
 window.addEventListener("resize", () => {

@@ -521,7 +521,8 @@ export class NetworkGame {
       this.hud.setMuted(this.sound.isMuted);
     }
     if (e.code === "Enter" && this.ended) {
-      sessionStorage.setItem(RESTART_FLAG, "1");
+      // The flag's value is the relaunch MODE (main.ts): rejoin a match.
+      sessionStorage.setItem(RESTART_FLAG, "online");
       window.location.reload();
     }
     if (e.code === "Escape") {

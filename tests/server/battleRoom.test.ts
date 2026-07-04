@@ -220,6 +220,34 @@ describe("BattleRoom integration", () => {
   );
 
   it(
+    "makes a joining human the faction's formation leader (escort wing), and hands it back on leave",
+    async () => {
+      const room = await colyseus.createRoom(BATTLE_ROOM, {});
+      const inner = room as unknown as {
+        sim: { worldByFaction: Record<string, { leader: { position: unknown } | null }> };
+        seatBySession: Map<string, { combatant: { ship: unknown } }>;
+      };
+      const aiLeader = inner.sim.worldByFaction.humans.leader;
+      expect(aiLeader).not.toBeNull();
+
+      const client = await colyseus.connectTo(room, joinOpts());
+      // The human's ship now leads the wing — the commander's cover escorts
+      // (and loitering hunters) station-keep on ControllerWorld.leader.
+      const seat = inner.seatBySession.get(client.sessionId)!;
+      expect(inner.sim.worldByFaction.humans.leader).toBe(seat.combatant.ship);
+      // The other faction keeps its own AI leader.
+      expect(inner.sim.worldByFaction.machines.leader).not.toBeNull();
+
+      await client.leave();
+      expect(
+        await waitUntil(() => inner.sim.worldByFaction.humans.leader === aiLeader),
+        "leadership never returned to the AI default after the human left",
+      ).toBe(true);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
     "rejects a protocol-version mismatch",
     async () => {
       const room = await colyseus.createRoom(BATTLE_ROOM, {});

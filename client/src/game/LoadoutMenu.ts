@@ -16,6 +16,10 @@ import {
   type DifficultyId,
 } from "./Difficulty";
 import type { ShipPreview } from "./ShipPreview";
+import { inviteRoomId } from "../net/NetClient";
+
+/** How a launch leaves the splash: offline solo, or a server match. */
+export type LaunchMode = "solo" | "online";
 
 /**
  * The faction-select stage of the splash flow: pick a side, pick a ship,
@@ -252,11 +256,13 @@ export class LoadoutMenu {
   /** Which row ←/→ act on; ↑/↓ move between them. */
   private activeRow: Row = "faction";
   private detached = false;
+  /** Live label override for the online CTA ("CONNECTING…", errors). */
+  private onlineStatus: string | null = null;
 
   constructor(
     private readonly root: HTMLElement,
     private readonly preview: ShipPreview,
-    private readonly onPlay: () => void,
+    private readonly onPlay: (mode: LaunchMode) => void,
   ) {
     const saved = loadSavedLoadout();
     this.faction = saved.faction;
@@ -286,6 +292,20 @@ export class LoadoutMenu {
     return this.loadout;
   }
 
+  /**
+   * Live label for the online CTA — "CONNECTING…" then an error line when a
+   * join fails (null restores PLAY ONLINE / JOIN FRIENDS). A failed connect
+   * hands control back to the menu, so the keyboard re-attaches too.
+   */
+  setOnlineStatus(text: string | null): void {
+    this.onlineStatus = text;
+    if (this.detached) {
+      this.detached = false;
+      window.addEventListener("keydown", this.onKeyDown);
+    }
+    this.render();
+  }
+
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     // Only act while the loadout is the active splash page — never behind the
     // match-settings overlay (whose Enter would otherwise launch the game), nor
@@ -300,10 +320,11 @@ export class LoadoutMenu {
       case "Enter":
         // Page 1 advances to the mission setup; page 2 launches (the same
         // path the NEXT/PLAY buttons take). main.ts no longer launches on
-        // Enter in factionSelect — this owns it.
+        // Enter in factionSelect — this owns it. With an invite link in the
+        // URL the player came to JOIN a friend, so Enter launches online.
         e.preventDefault();
         if (this.step === 1) this.goStep(2);
-        else this.onPlay();
+        else this.onPlay(inviteRoomId() ? "online" : "solo");
         break;
       case "Escape":
       case "Backspace":
@@ -441,7 +462,10 @@ export class LoadoutMenu {
       <div class="loadout-step">STEP 2 OF 2</div>
       <div class="loadout-actions">
         <button id="loadout-back" class="loadout-back">◂ BACK</button>
-        <button id="loadout-play" class="loadout-cta ${this.faction}">PLAY</button>
+        <button id="loadout-play" class="loadout-cta ${this.faction}">PLAY SOLO</button>
+        <button id="loadout-online" class="loadout-cta ${this.faction}">${
+          this.onlineStatus ?? (inviteRoomId() ? "JOIN FRIENDS" : "PLAY ONLINE")
+        }</button>
       </div>
       <div class="loadout-hint">←/→ SELECT · ↑/↓ ROW · ESC BACK · ENTER LAUNCH</div>`;
 
@@ -482,7 +506,10 @@ export class LoadoutMenu {
       ?.addEventListener("click", () => this.goStep(1));
     this.root
       .querySelector<HTMLButtonElement>("#loadout-play")
-      ?.addEventListener("click", () => this.onPlay());
+      ?.addEventListener("click", () => this.onPlay("solo"));
+    this.root
+      .querySelector<HTMLButtonElement>("#loadout-online")
+      ?.addEventListener("click", () => this.onPlay("online"));
 
     // Play the portrait video for the selected faction from the start.
     // Non-selected faction videos stay paused on frame 0.
