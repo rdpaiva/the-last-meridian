@@ -2,8 +2,8 @@
 
 Snapshot for resuming the multiplayer work. Branch: **`feat/phase1-multiplayer`**
 (not yet merged to `main`). Everything builds + typechecks; the full test suite
-is **10/10 green** (`npm test`). PROTOCOL_VERSION is **8** — stale tabs get a
-clean join rejection (now rendered as "NEW VERSION — refresh"), so always
+is **14/14 green** (`npm test`). PROTOCOL_VERSION is **9** — stale tabs get a
+clean join rejection (rendered as "NEW VERSION — refresh"), so always
 reload after pulling.
 
 ## How to run / reproduce
@@ -12,10 +12,44 @@ reload after pulling.
 npm run server     # Colyseus on :2567 (tsx watch — restarts on code change)
 npm run dev        # Vite client on :5173
 ```
-Open `http://localhost:5173/?online`, pick side + ship, PLAY. No `?online` =
-the normal offline single-player game (works fine).
+Open `http://localhost:5173/` and press **PLAY ONLINE** (quick-play screen,
+or the loadout's mission page next to PLAY SOLO). The old `?online` flag is
+GONE — entry is buttons now. Joining writes `#join=<roomId>` into the address
+bar; that URL is the WITH FRIENDS invite link.
 
-See `docs/PHASE1_TWOTAB_CHECKLIST.md` for the full acceptance checklist.
+See `docs/PHASE1_TWOTAB_CHECKLIST.md` for the full acceptance checklist
+(rewritten 2026-07-04 for this build).
+
+## STATE AS OF 2026-07-04 (second session — jitter fix + entry polish)
+
+Two more slices landed on top of the HUD slice (commits `2729878`, `13cee3f`),
+both awaiting owner playtest:
+
+- **Full-thrust judder FIXED (root-caused).** Owner playtest reported a
+  slight jitter at full forward thrust, own ship only. Two speed-proportional
+  causes: (1) the server held the LATEST input, applied it per tick with a
+  MEASURED delta, and acked seqs on arrival — while the client replays one
+  fixed 1/30s step per unacked input, so message-arrival vs tick-boundary
+  phase made reconciliation see ±speed×33ms errors every patch. Now
+  `NetworkController` QUEUES input frames and consumes exactly one per tick
+  (jitter backlog `GameConfig.net.inputBacklogMax`, oldest-discarded beyond
+  it, jump edges carried), `BattleRoom.step` runs a fixed-dt accumulator
+  (TICK_MS exactly, ≤3 catch-up ticks), acks ride the consumed seq, and the
+  client's send pacing is drift-free. (2) the camera lead finite-differenced
+  the rendered pose (predicted + decaying correction) — every ripple was
+  amplified by `camera.velocityLead`; it now reads the predicted SIM velocity
+  (offline parity). PROTOCOL_VERSION 8 → 9.
+- **Online entry polish DONE** (work-order item 2, all three parts):
+  PLAY SOLO / PLAY ONLINE buttons (quick-play + loadout page 2 —
+  `LoadoutMenu.onPlay(mode)`, status/errors land on the pressed button);
+  WITH FRIENDS invite links (`NetClient.quickMatch`/`joinById` split,
+  `#join=<roomId>` written to the address bar on join, hash-joins take the
+  primary action, stale rooms fall back to quick match + self-heal the
+  hash); Enter-restart after an online match rejoins ONLINE
+  (`RESTART_FLAG` value = mode); and a joining human becomes their
+  faction's formation leader (`BattleRoom.retaskLeader`) so the commander's
+  cover escorts + loitering hunters fly the wing on the PLAYER, restored to
+  the AI default on leave (new integration test proves the handoff).
 
 ## STATE AS OF 2026-07-04 (end of the owner-playtest session)
 
@@ -136,22 +170,16 @@ server-side sensor-filtered replication stays a pre-deploy Phase 2 item.
 
 ## NEXT SESSION — suggested order
 
-1. **Owner playtest of the HUD slice** (`?online`, solo): radar picture sane
-   (ghosts age out, nebula hides hostiles, human halo = just you), RWR beeps
-   when a missile chases you and NOT when it chases a wingman, kills/score
-   tally, lock cue lights inside range/cone, pilots row reads 1 human.
+1. **`[human]` acceptance pass** (`docs/PHASE1_TWOTAB_CHECKLIST.md`, rewritten
+   for this build): solo-online first — specifically confirm the full-thrust
+   judder is gone, the HUD slice behaves (radar/RWR/kills/lock/sig), the
+   escorts form on YOU — then the two-tab half (invite link → same room,
+   both see each other move/fire + white halos, leave hands the seat back).
    Known non-bugs: **no hitstop online** (deliberate); remote engine glow
    rides a speed proxy, not real thrust input. Feel knobs in
    `GameConfig.net`; `window.__netGame` is the live debug handle.
-2. **Phase 1 polish for real multiplayer entry**: splash **PLAY SOLO /
-   PLAY ONLINE** buttons (currently the `?online` flag) + **WITH FRIENDS**
-   invite link (`#join=<roomId>`); **friendly-side FleetCommander** escort
-   wings on the human player (`setOrder` cover).
-3. **`[human]` two-tab acceptance pass** (`docs/PHASE1_TWOTAB_CHECKLIST.md`)
-   — second joiner takes a seat, both see each other move/fire (and each
-   other's white radar halo), leave hands the seat back to AI. Then
-   **merge `feat/phase1-multiplayer`**.
-4. Later (Phase 2 tail, pre-deploy): **sensor-filtered replication**
+2. **Merge `feat/phase1-multiplayer` → `main`** once the pass is clean.
+3. Later (Phase 2 tail, pre-deploy): **sensor-filtered replication**
    (decided: client-side picture for now — see above; the server filter
    makes stealth anti-wallhack before any public deploy), clock-sync
    **debug overlay**, **network-condition simulator**, then Phase 3 (room
@@ -173,6 +201,13 @@ server-side sensor-filtered replication stays a pre-deploy Phase 2 item.
   (cadence is real-time state); collisions vs replicated rocks + carrier
   hull sections use the SAME exported helpers the server runs
   (`collideShipWithAsteroid` / `bumpShipOutOfSection` in BattleSim.ts).
+- **Input timing invariant (the judder fix — don't regress it)**: one acked
+  input frame == one fixed 1/SIM_HZ server tick. `NetworkController` queues
+  frames and consumes one per tick; `BattleRoom.step` is a fixed-dt
+  accumulator; the ack is the CONSUMED seq (launch tube: hold-latest +
+  ack-on-arrival, nothing predicts there); the client sends drift-free at
+  the sim rate. Camera lead reads the predicted SIM velocity, never a
+  finite difference of the rendered pose.
 - **Asteroids replicate by spawn state only** (constant drift/spin ⇒ the
   client integrates exactly); life/death = map add/remove; local copies are
   made unkillable so cosmetic bolt damage can't desync them.

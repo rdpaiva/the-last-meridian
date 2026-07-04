@@ -3,6 +3,8 @@
 This is the real definition of done for Phase 1 (docs/MULTIPLAYER.md). The
 Node integration tests already prove the pipe headlessly
 (`tests/server/battleRoom.test.ts`); this is the eyeball pass in a browser.
+Updated 2026-07-04 for the entry-polish build (PLAY ONLINE buttons, invite
+links, HUD parity, prediction + FX replication all in).
 
 ## Run it
 
@@ -16,50 +18,52 @@ npm run server
 npm run dev
 ```
 
-Then open the client in **online** mode by adding `?online`:
-
-```
-http://localhost:5173/?online
-```
-
-Pick a side + ship on the splash and PLAY. (Without `?online` the page is the
-normal fully-offline single-player game — PLAY SOLO needs no server.)
+Open `http://localhost:5173/` — no flag needed anymore. **PLAY ONLINE** lives
+on the quick-play screen and on the loadout's mission page (next to PLAY
+SOLO). PLAY SOLO stays fully offline, no server needed.
 
 To point at a non-local server, build/run the client with
 `VITE_SERVER_URL=wss://your.host` set.
 
-## What "playable" means at this phase (read first)
+## What "playable" means now
 
-Phase 1 is the **dumb client**: the server owns the sim, the client renders
-what it's told and sends your input. So expect:
-
-- **No laser bolts or explosions yet.** Transient FX are replicated in Phase 2
-  (the event channel). Ships fly, ram, die, respawn; carriers lose HP and a
-  side wins — you just don't see the tracers. This is expected, not a bug.
-- **Slightly steppy motion** on other ships (server patch rate is 15Hz; client
-  interpolation is Phase 2). Your own ship is also un-predicted, so it'll feel
-  a touch laggy. Also expected at this phase.
+Solo-online should feel close to single-player: predicted own ship, muzzle-
+true predicted fire, interpolated remotes, full FX/sound, full HUD (radar on
+a client sensor picture, RWR, kills/score, lock/sig cues, pilot counts).
+Deliberate differences (not bugs): **no hitstop online**; remote engine glow
+rides a speed proxy, not thrust input.
 
 ## Checklist
 
-Single tab (vs AI backfill):
+Entry + solo online (vs AI backfill):
 
-- [ ] `?online` loads, splash works, PLAY connects (no "SERVER UNAVAILABLE").
-- [ ] You spawn and can fly: W/S thrust, A/D turn, Q/E strafe, +/- zoom.
-- [ ] Camera follows your ship; the arena, carriers, nebulas, starfield render.
-- [ ] ~14 ships are present and moving (both fleets, AI-flown).
-- [ ] The match leaves "STAND BY" and plays out; carrier HP bars drop over time.
-- [ ] A carrier eventually falls → VICTORY or DEFEAT banner shows.
+- [ ] PLAY ONLINE connects (button shows CONNECTING…, then the match); the
+      address bar gains `#join=<roomId>`.
+- [ ] With the server stopped, PLAY ONLINE fails readably ("SERVER
+      UNAVAILABLE — try again, or play solo") and the buttons still work;
+      PLAY SOLO still launches offline.
+- [ ] You spawn via the carrier launch, fly (W/S/A/D, Q/E strafe, +/- zoom),
+      fire (predicted, muzzle-true at speed), and full-thrust motion is
+      SMOOTH — no judder (this build's fix; watch for it specifically).
+- [ ] Both fleets fly and fight with bolts/missiles/explosions/sound; the
+      radar picture behaves (ghost rings age out, nebula hides hostiles),
+      RWR beeps only when a missile chases YOU, kills/score tally.
+- [ ] Your AI wing covers you: friendly escorts form up on YOUR ship and
+      break to engage threats near you (the human is the formation leader).
+- [ ] A carrier eventually falls → VICTORY/DEFEAT banner with the stats
+      line; ENTER rejoins a fresh online match, ESC returns to the menu.
 
-Two tabs (vs another human):
+Two tabs (vs/with another human):
 
-- [ ] Open a second tab at `http://localhost:5173/?online` and PLAY (same or
-      opposite faction).
-- [ ] Each tab controls ITS OWN ship only; the other player's ship is visible
-      and moves in both tabs.
-- [ ] Inputs land: turning/thrusting in one tab is mirrored in the other.
-- [ ] Closing a tab hands that ship back to the AI (it keeps flying); the match
-      stays balanced and plays to a result.
+- [ ] Copy the `#join=<roomId>` URL into a second tab: its primary button
+      reads JOIN FRIENDS' MATCH and lands in the SAME room (pilots row reads
+      `2 human`; each sees the other's white radar halo).
+- [ ] Each tab controls ITS OWN ship only; the other player's ship moves
+      smoothly and fires visibly in both tabs.
+- [ ] Closing a tab hands that ship back to the AI (isAI honesty: the halo
+      drops, pilot count drops to 1) and escort leadership returns/moves.
+- [ ] A stale invite link (room gone — restart the server) falls back to a
+      fresh quick match and the hash self-heals to the new room.
 
 Resilience:
 
@@ -68,8 +72,8 @@ Resilience:
 
 ## Known gaps (tracked, not bugs)
 
-- No weapon/explosion FX, no radar, no sound, no detailed cockpit HUD — Phase 2.
-- Procedural fighter meshes (faction-colored), not the per-type GLBs — a later
-  client polish pass.
-- No friend-invite link / server browser — quick match only (by design).
+- Nebula stealth is honest UI but not anti-wallhack (full state still
+  replicates) — server-side sensor-filtered replication is a pre-deploy
+  Phase 2 item.
 - Reconnect-after-drop is Phase 3 (`allowReconnection`).
+- No server browser — quick match + invite links only (by design).

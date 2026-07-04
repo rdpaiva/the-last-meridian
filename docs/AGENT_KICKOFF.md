@@ -13,36 +13,37 @@ editing instead of searching.
 Continue the multiplayer work on branch `feat/phase1-multiplayer`.
 
 **Read `docs/PHASE1_OPEN_ISSUES.md` first and trust it** — current as of
-commit `75544be` (2026-07-04, MP HUD slice). Do NOT re-survey the codebase;
-that doc's Architecture notes + the anchors below are accurate.
+commit `13cee3f` (2026-07-04, jitter fix + entry polish). Do NOT re-survey
+the codebase; that doc's Architecture notes + the anchors below are accurate.
 
-**State**: solo-online has full HUD parity (radar on a client-side sensor
-picture, RWR, kills/score, lock/sig cues, pilot counts, homing missile
-depiction). PROTOCOL_VERSION 8. Typecheck + 10/10 tests green.
+**State**: full-thrust judder root-caused and fixed (tick-aligned input
+queue + fixed-dt server steps + sim-velocity camera lead); online entry is
+buttons now — PLAY SOLO / PLAY ONLINE (quick-play screen + loadout page 2),
+`#join=<roomId>` invite links (the address bar IS the link), online
+Enter-restart, and AI escorts fly cover on joining humans (faction-leader
+retask). PROTOCOL_VERSION 9. Typecheck + 14/14 tests green.
+`?online` is GONE — don't reintroduce it.
 
-**My playtest of the HUD slice**: For the most part everything seems okay except for a slight choppy behaviour when I'm thrusting forward at full speed. There seems to be a bit of a jitter, unlike the single player mode. I'm not saying the jitter is a huge problem like we had before but it's definitely noticable. 
+**My playtest findings**: <fill in after running the checklist>
 
 **Work order**:
 
-1. Fix my playtest findings. Feel knobs: `GameConfig.net`; live debug
-   handle: `window.__netGame`. Known non-bugs: no hitstop online
-   (deliberate); remote engine glow rides a speed proxy, not thrust input.
-2. Online entry polish:
-   - **PLAY SOLO / PLAY ONLINE splash buttons** replacing the `?online`
-     flag. Entry seam: `client/src/main.ts` — the `ONLINE` const (~line
-     143), `startGame()` → `startOnline(loadout)`, splash state machine +
-     `primaryBtn` all in that file; the menu UI itself is `LoadoutMenu.ts`
-     (owns Enter/arrows during factionSelect).
-   - **WITH FRIENDS invite link** (`#join=<roomId>`):
-     `client/src/net/NetClient.quickMatch` currently does `joinOrCreate` —
-     needs a create/joinById split and the roomId surfaced for the link.
-   - **Friendly-side FleetCommander escorts**: both factions ALREADY get a
-     commander (`BattleRoom.buildFleet`) — the remaining work is assigning
-     AI escorts to human players: `cover` orders with the human's ship as
-     leader via `AIController.setOrder()`, re-tasked on join/leave
-     (`BattleRoom.onJoin/onLeave` already swap the seat's controller).
-3. Two-tab acceptance pass (`docs/PHASE1_TWOTAB_CHECKLIST.md`), then merge
-   to `main`.
+1. Fix my playtest findings. Feel knobs: `GameConfig.net` (incl. the new
+   `inputBacklogMax`); live debug handle: `window.__netGame`. Known
+   non-bugs: no hitstop online (deliberate); remote engine glow rides a
+   speed proxy, not thrust input. The input-timing invariant (one acked
+   frame == one fixed tick) is documented in PHASE1_OPEN_ISSUES.md →
+   Architecture notes — don't regress it. Anchors:
+   `shared/src/NetworkController.ts` (queue/ack), `BattleRoom.step`
+   (fixed-dt accumulator), `NetworkGame.reconcile`/`updatePrediction`
+   (client replay), `NetworkGame` tick step 3 (camera velocity).
+2. If the pass is clean: **merge `feat/phase1-multiplayer` → `main`**.
+3. Then the Phase 2 tail (pre-deploy): sensor-filtered replication
+   (anti-wallhack stealth — seam: `BattleRoom.syncState` currently
+   replicates every ship to everyone; the client radar already runs on its
+   own SensorSystem so filtering is server-only), clock-sync debug overlay,
+   network-condition simulator. Then Phase 3 (room lifecycle, reconnection,
+   hosting) per `docs/MULTIPLAYER.md`.
 
 **Rules of the road** (already true in code — don't relearn them):
 
@@ -53,5 +54,6 @@ depiction). PROTOCOL_VERSION 8. Typecheck + 10/10 tests green.
 - Never timestamp anything by arrival — everything rides `state.timeMs`.
 - Weapon cooldowns are exempt from prediction rewind/replay; keep it that
   way.
+- One acked input == one fixed 1/SIM_HZ tick (the judder fix invariant).
 - Verify with `npm run typecheck` + `npm test` only — I run the dev server
   and playtest myself. Commit each landed change like previous sessions.
