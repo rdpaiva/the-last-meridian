@@ -913,8 +913,13 @@ export class NetworkGame {
     while (this.pendingInputs.length > 0 && this.pendingInputs[0].seq <= s.seq) {
       this.pendingInputs.shift();
     }
+    // Replay re-runs MOVEMENT only — preserve the weapon cooldowns across it,
+    // or every reconciliation drains extra (replayed) time from the fire
+    // timers and the held-fire cadence wobbles with the pending-input count.
+    const timers = ship.saveWeaponTimers();
     const dt = NetworkGame.SEND_INTERVAL_MS / 1000;
     for (const p of this.pendingInputs) ship.update(dt, p.input);
+    ship.restoreWeaponTimers(timers);
     const ex = ship.position.x - prevX;
     const ez = ship.position.z - prevZ;
     const er = wrapAngle(ship.rotationY - prevRot);

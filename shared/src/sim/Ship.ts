@@ -196,6 +196,27 @@ export class Ship implements DamageTarget, ShipPose {
   bankAngle = 0;
 
   private fireCooldownRemainingMs = 0;
+
+  /**
+   * Snapshot/restore the weapon cooldown timers, for prediction
+   * rewind/replay (NetworkGame.reconcile): the replay re-runs MOVEMENT
+   * through update(), but update() also drains these timers, so without
+   * restoring them every reconciliation double-drains the fire cadence —
+   * the local fire rate audibly speeds up and down with the pending-input
+   * count. Cadence is real-time state, not rewindable motion state.
+   */
+  saveWeaponTimers(): { fireMs: number; missileMs: number } {
+    return {
+      fireMs: this.fireCooldownRemainingMs,
+      missileMs: this.missileCooldownRemainingMs,
+    };
+  }
+
+  restoreWeaponTimers(t: { fireMs: number; missileMs: number }): void {
+    this.fireCooldownRemainingMs = t.fireMs;
+    this.missileCooldownRemainingMs = t.missileMs;
+  }
+
   private readonly forwardScratch = new Vector3();
   private readonly rightScratch = new Vector3();
 
