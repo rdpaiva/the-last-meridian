@@ -2317,9 +2317,9 @@ export const GameConfig = {
   },
 
   /**
-   * Netcode feel (docs/MULTIPLAYER.md Phase 2). CLIENT-side knobs — the
-   * server never reads these, so tuning them is not a both-sides deploy.
-   * Phase 2's rule: every feel parameter is a tunable, not a constant.
+   * Netcode feel (docs/MULTIPLAYER.md Phase 2). Client-side knobs except
+   * `inputBacklogMax` (server input queue) — each entry says which side reads
+   * it. Phase 2's rule: every feel parameter is a tunable, not a constant.
    */
   net: {
     /**
@@ -2350,6 +2350,15 @@ export const GameConfig = {
     correctionRate: 12,
     /** Cap on remembered unacked input samples (~4s at the 30Hz send rate). */
     maxPendingInputs: 120,
+    /**
+     * SERVER input-queue jitter allowance: how many queued input frames may
+     * remain after each sim tick consumes one (NetworkController). Client
+     * frames arrive at the sim rate but clump under network jitter; the
+     * backlog absorbs the clumps (each queued frame ≈ 33ms of extra input
+     * latency, hidden by prediction). Beyond it, oldest frames are discarded
+     * — one reconciliation blip instead of creeping input lag.
+     */
+    inputBacklogMax: 2,
   },
 
   /** Dev/test only — not part of normal play. */

@@ -47,6 +47,11 @@ interface Seat {
 
 const SIM_HZ = 30;
 const PATCH_HZ = 20;
+/** One fixed sim step (ms) — every advance uses exactly this (see step()). */
+const TICK_MS = 1000 / SIM_HZ;
+/** Hitch cap: at most this many catch-up ticks per callback; the rest of the
+ *  accumulated delta is dropped (the fixed-dt mirror of Game.tick's clamp). */
+const MAX_CATCHUP_TICKS = 3;
 /** Pre-ready launch hold: effectively "park in the tubes until released". */
 const HOLD_FOR_READY_SEC = 3600;
 /** Release the launch anyway this long after creation (a client that never
@@ -70,6 +75,8 @@ export class BattleRoom extends Room<{ state: BattleState }> {
   private readonly seatBySession = new Map<string, Seat>();
   /** Accumulated (clamped) sim time, replicated as the interpolation clock. */
   private simTimeMs = 0;
+  /** Fixed-dt accumulator: wall delta not yet consumed by whole sim ticks. */
+  private tickAccMs = 0;
   /** FX facts collected from the sim bus during the current tick (Phase 2
    *  event replication); step() broadcasts + clears them after syncState. */
   private readonly pendingEvents: NetEvent[] = [];
@@ -115,19 +122,32 @@ export class BattleRoom extends Room<{ state: BattleState }> {
 
     // Client → server input (sequenced — the seq is acked back through
     // ShipSchema.lastInputSeq so the sender's prediction can reconcile).
+    // Frames are QUEUED, one consumed per sim tick, so each acked seq maps to
+    // exactly one fixed step — the invariant the client replay assumes (see
+    // NetworkController). While the catapult suppresses the controller the
+    // queue would only hoard stale frames, so hold-latest + ack-on-arrival
+    // there (the client doesn't predict in the tube; nothing replays).
     this.onMessage(MSG.input, (client: Client, msg: InputMessage) => {
       if (!msg?.input) return;
       const seat = this.seatBySession.get(client.sessionId);
       if (!seat) return;
-      seat.net.setInput(msg.input);
-      seat.lastInputSeq = msg.seq;
+      if (seat.combatant.launch !== null) {
+        seat.net.setInput(msg.input);
+        seat.lastInputSeq = msg.seq;
+      } else {
+        seat.net.pushInput(msg.seq, msg.input);
+      }
     });
 
     // First loaded-and-rendering client releases the opening launch.
     this.onMessage(MSG.ready, () => this.releaseLaunch());
 
-    // Fixed-tick sim; clamp the delta exactly like Game.tick so a hitch can't
-    // teleport ships (the server never freezes — no hitstop here).
+    // Fixed-dt sim (accumulator): every tick advances EXACTLY 1/SIM_HZ, so a
+    // consumed input frame equals the 1/SIM_HZ step the client's prediction
+    // replays for it — measured-delta ticks made the two drift apart, which
+    // reconciliation rendered as speed-proportional judder. The catch-up cap
+    // plays the role of Game.tick's delta clamp: a hitch drops sim time
+    // instead of teleporting ships (clients re-sync their clock offset).
     this.setSimulationInterval((deltaMs) => this.step(deltaMs), 1000 / SIM_HZ);
     this.setPatchRate(1000 / PATCH_HZ);
   }
@@ -172,9 +192,22 @@ export class BattleRoom extends Room<{ state: BattleState }> {
   // ─── Sim loop ─────────────────────────────────────────────────────────────
 
   private step(deltaMs: number): void {
-    const dt = Math.min(deltaMs / 1000, GameConfig.scene.maxDeltaSeconds);
-    this.simTimeMs += dt * 1000;
-    this.sim.advance(dt);
+    // Fixed-dt accumulator (see onCreate): run whole 1/SIM_HZ ticks, carry the
+    // remainder. Capped at a few ticks so a hitch can't burst-advance the sim.
+    this.tickAccMs = Math.min(this.tickAccMs + deltaMs, TICK_MS * MAX_CATCHUP_TICKS);
+    let ticked = false;
+    while (this.tickAccMs >= TICK_MS) {
+      this.tickAccMs -= TICK_MS;
+      this.simTimeMs += TICK_MS;
+      this.sim.advance(TICK_MS / 1000);
+      ticked = true;
+    }
+    if (!ticked) return; // nothing advanced — keep the last synced state
+    // Ack the input frames the tick(s) actually consumed (never regress: the
+    // launch-tube path acks on arrival, ahead of the controller's counter).
+    for (const seat of this.seats) {
+      seat.lastInputSeq = Math.max(seat.lastInputSeq, seat.net.lastConsumedSeq);
+    }
     this.syncState();
     if (this.pendingEvents.length > 0) {
       const msg: EventsMessage = { t: this.simTimeMs, events: [...this.pendingEvents] };

@@ -659,7 +659,13 @@ export class NetworkGame {
       !this.connectionLost &&
       nowMs - this.lastSendMs >= NetworkGame.SEND_INTERVAL_MS
     ) {
-      this.lastSendMs = nowMs;
+      // Drift-free pacing: advance the send clock by the interval, not to
+      // `now` — sends are quantized to render frames, and rounding up every
+      // time would ship inputs slower than the server consumes them (e.g.
+      // ~28.8Hz at 144fps), starving its input queue once a second. Resync
+      // only when a hitch leaves the clock more than one interval behind.
+      this.lastSendMs += NetworkGame.SEND_INTERVAL_MS;
+      if (nowMs - this.lastSendMs >= NetworkGame.SEND_INTERVAL_MS) this.lastSendMs = nowMs;
       const input = { ...this.input.state };
       const seq = ++this.inputSeq;
       this.net.send(MSG.input, { seq, input });
@@ -730,18 +736,26 @@ export class NetworkGame {
       }
     }
 
-    // 3. Camera follows our interpolated ship (smooth pose ⇒ smooth velocity).
+    // 3. Camera follows our ship. Velocity feeds the lead offset — when the
+    // prediction flies, pass the SIM velocity like offline Game.tick does:
+    // finite-differencing the rendered pose (predicted + decaying correction)
+    // turns every reconciliation ripple into velocity-lead wobble, which the
+    // lead factor amplifies into visible judder at full thrust.
     if (havePlayer) {
       if (!this.cameraSnapped) {
         this.cameraRig.snapTo(this.camPos);
         this.lastPlayerPos.copyFrom(this.camPos);
         this.cameraSnapped = true;
       }
-      this.camVel.set(
-        dt > 0 ? (this.camPos.x - this.lastPlayerPos.x) / dt : 0,
-        0,
-        dt > 0 ? (this.camPos.z - this.lastPlayerPos.z) / dt : 0,
-      );
+      if (this.predictionActive && this.predicted) {
+        this.camVel.set(this.predicted.velocity.x, 0, this.predicted.velocity.z);
+      } else {
+        this.camVel.set(
+          dt > 0 ? (this.camPos.x - this.lastPlayerPos.x) / dt : 0,
+          0,
+          dt > 0 ? (this.camPos.z - this.lastPlayerPos.z) / dt : 0,
+        );
+      }
       this.lastPlayerPos.copyFrom(this.camPos);
     }
     const zoomInput = this.input.state.zoomIn ? 1 : this.input.state.zoomOut ? -1 : 0;

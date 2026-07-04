@@ -58,4 +58,38 @@ describe("NetworkController → Ship", () => {
     expect(net.update().jumpPressed).toBe(true); // first read sees the edge
     expect(net.update().jumpPressed).toBe(false); // cleared thereafter
   });
+
+  it("consumes exactly one queued frame per tick and acks its seq", () => {
+    const net = new NetworkController();
+    net.pushInput(1, { ...NEUTRAL_INPUT, thrust: true });
+    net.pushInput(2, { ...NEUTRAL_INPUT, rotateLeft: true });
+    expect(net.update().thrust).toBe(true); // frame 1, one tick
+    expect(net.lastConsumedSeq).toBe(1);
+    expect(net.update().rotateLeft).toBe(true); // frame 2, next tick
+    expect(net.lastConsumedSeq).toBe(2);
+    // Starved: the last applied controls repeat, the ack holds.
+    expect(net.update().rotateLeft).toBe(true);
+    expect(net.lastConsumedSeq).toBe(2);
+  });
+
+  it("discards backlog beyond the jitter allowance, carrying jump edges", () => {
+    const net = new NetworkController();
+    const burst = GameConfig.net.inputBacklogMax + 4;
+    for (let seq = 1; seq <= burst; seq++) {
+      net.pushInput(seq, { ...NEUTRAL_INPUT, jumpPressed: seq === 1 });
+    }
+    // The tick burns the clump down to the allowance + applies one frame; the
+    // discarded frames are acked and frame 1's jump edge rides the applied one.
+    const applied = net.update();
+    expect(applied.jumpPressed).toBe(true);
+    expect(net.lastConsumedSeq).toBe(burst - GameConfig.net.inputBacklogMax);
+  });
+
+  it("setInput clears any queued frames (seat handover / launch tube)", () => {
+    const net = new NetworkController();
+    net.pushInput(1, { ...NEUTRAL_INPUT, fire: true });
+    net.pushInput(2, { ...NEUTRAL_INPUT, fire: true });
+    net.setInput(NEUTRAL_INPUT);
+    expect(net.update().fire).toBe(false); // stale frames must not replay
+  });
 });
