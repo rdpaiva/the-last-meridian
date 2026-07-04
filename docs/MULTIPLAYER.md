@@ -234,12 +234,15 @@ timing).
 
 ## Phase 1 — Colyseus skeleton
 
-> **Status (2026-06-26): server pipe DONE + tested; online client PLAYABLE but
-> has open issues.** Branch `feat/phase1-multiplayer` (not yet merged). Full
-> test suite 9/9 green. The server is verified correct; the remaining blockers
-> are client-side (jitter — not yet root-caused; no visible launch in MP) and
-> the expected Phase 2 gaps (no weapon FX/sound, no local-ship prediction).
-> **Handoff details + suggested resume order: `docs/PHASE1_OPEN_ISSUES.md`.**
+> **Status (2026-07-04): server pipe DONE + tested; online client PLAYABLE
+> with smooth motion, visible launches, full combat FX/sound, and local-ship
+> prediction.** Branch `feat/phase1-multiplayer` (not yet merged). Full test
+> suite 10/10 green. The Phase 1 jitter was root-caused (sim/patch rate
+> aliasing + arrival-time interpolation) and fixed by interpolating on the
+> replicated sim clock; the core Phase 2 netcode-feel items (event
+> replication, prediction) are in. Remaining before merge: the Phase 1
+> polish list (PLAY ONLINE buttons, friendly commander, HUD bot tags) and
+> the `[human]` feel-tuning loop. **History: `docs/PHASE1_OPEN_ISSUES.md`.**
 
 - [x] **Restructure into workspaces** (first task of this phase): npm
       workspaces with `shared/` + `client/` + `server/` per the layout
@@ -321,15 +324,28 @@ implementation. Every feel parameter (interpolation delay, smoothing
 rates, correction snap thresholds) must be a tunable, not a constant,
 so tuning passes don't need code changes.
 
-- [ ] **Interpolation buffer** for remote ships/missiles: render
+- [x] **Interpolation buffer** for remote ships/missiles: render
       ~100–150ms behind server time, lerp between snapshots (this is
       the `ShipPose` feeder that replaces the local sim for remotes).
-- [ ] **Client prediction + reconciliation** for the local ship: run the
+      DONE 2026-07-04 — on the SERVER SIM CLOCK (`state.timeMs`), not
+      arrival time: sim 30Hz vs patch 20Hz alias, so arrival-time
+      interpolation judders (the Phase 1 jitter bug). Teleports (jump/
+      respawn) pop across the discontinuity instead of streaking.
+- [x] **Client prediction + reconciliation** for the local ship: run the
       shared `Ship` sim locally on pending inputs, rewind/replay on
-      server correction. The fiddly part — budget real time.
-- [ ] **Event replication for FX**: laser fired / hit / explosion /
+      server correction. DONE 2026-07-04 — sequenced inputs acked via
+      `ShipSchema.lastInputSeq` (+ replicated vx/vz to rewind); residual
+      error absorbed into a decaying correction offset, hard snap past a
+      threshold; gated off during launch/death/respawn. Feel knobs in
+      `GameConfig.net` (awaiting the `[human]` tuning loop).
+- [x] **Event replication for FX**: laser fired / hit / explosion /
       missile launch events → client SFX, shake, hitstop, flashes
-      (reusing the Phase 0 event channel).
+      (reusing the Phase 0 event channel). DONE 2026-07-04 — BattleSim
+      owns a SimEventBus; BattleRoom broadcasts batched, sim-timestamped
+      NetEvents; NetworkGame plays each at its sim time on the render
+      clock (cosmetic projectile pools, explosions, jump FX, full
+      SoundSystem, distance-scaled trauma). No hitstop in MP (a frozen
+      render clock would desync interpolation); kills/score TBD.
 - [ ] **Sensor-filtered replication**: server only replicates contacts
       the player's faction `SensorSystem` can see (nebula stealth
       becomes anti-wallhack, not just UI). Friendlies always replicate.

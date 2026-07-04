@@ -45,14 +45,12 @@ Duplicate-sim-time patches are dropped. `PROTOCOL_VERSION` bumped to 2.
 `window.__netGame` is now exposed for live netcode debugging. Confirmed
 smooth in-browser by the owner.
 
-## OPEN ISSUE 2 — no visible launch in MP (minor, understood)
+## RESOLVED — no visible launch in MP (fixed 2026-07-04)
 
-In multiplayer there's no cinematic launch: `BattleSim.assignInitialLaunches`
-uses base hold = 0 when there's no cinematic seat (which MP rooms don't have),
-so ships shoot out of the bay in the first ~2s, before the player is watching.
-Single-player uses the slow `cinematicHoldSec` countdown. Fix direction: give MP
-a short non-zero launch hold / a brief countdown so the launch reads, or mark
-the local human's seat cinematic. Code: `shared/src/sim/BattleSim.ts`.
+MP rooms started simulating at creation, before clients finished joining and
+loading, so the whole fleet launched unseen (base hold was 0 with no cinematic
+seat). Fixed: `GameConfig.launch.mpHoldSec` (4s) holds both fleets in their
+tubes long enough for the first client to load and watch the catapults fire.
 
 ## NON-ISSUE — "background doesn't move, only stars"
 
@@ -61,18 +59,28 @@ offline play — see CLAUDE.md gotcha #9); only the in-world nebulas / capital
 ships parallax and the starfield scrolls. Likely a misread, not a bug. Confirm
 after the jitter fix.
 
-## KNOWN GAPS — genuinely Phase 2 (expected, not bugs)
+## RESOLVED — the Phase 2 core gaps (both done 2026-07-04)
 
-- **No weapons fire / explosions visible, no sound.** The client isn't told
-  when shots fire. Needs the server→client **event replication** (Phase 2's
-  first task): have `BattleRoom` subscribe to the sim's `SimEventBus` and relay
-  `shipFiredLaser` / `laserHit` / `missileFired` / `shipDied` / explosion events
-  as Colyseus messages; client plays SFX + spawns FX reusing
-  `LaserSystemView` / `ExplosionSystem` / `SoundSystem`. **This is the biggest
-  single step toward it feeling like a real game.**
-- **Your own ship lags input ~110ms** (interpolation delay, no prediction).
-  Phase 2 client-prediction + reconciliation hides it. Until then the local
-  ship feels floaty — acceptable only as a stopgap.
+- **FX + sound event replication: DONE.** `BattleSim` owns a `SimEventBus`;
+  `BattleRoom` broadcasts batched, sim-timestamped `NetEvent`s; `NetworkGame`
+  plays each when the render clock reaches its sim time (cosmetic laser/
+  missile pools, explosions, sparks, jump flash/ripple, full SoundSystem,
+  distance-scaled camera trauma). Deliberate MP differences: no hitstop, no
+  kill/score bookkeeping yet.
+- **Local-ship prediction + reconciliation: DONE.** Sequenced inputs acked
+  via `ShipSchema.lastInputSeq` (+ replicated `vx`/`vz`); shared `Ship` math
+  runs locally each frame; rewind + replay on every patch with a decaying
+  visual correction offset. Feel knobs live in `GameConfig.net` — the
+  `[human]` feel-tuning loop (docs/MULTIPLAYER.md Phase 2) is still ahead.
+
+## KNOWN GAPS — remaining (expected, not bugs)
+
+- **Asteroids don't render online** (and their ram/shatter events aren't
+  relayed): ships can visibly bump off invisible rocks on maps with dense
+  fields. Needs asteroid replication.
+- **Cosmetic missiles fly ballistic** (the lock target isn't on the wire);
+  the detonation still lands at the server's true impact point.
+- **No MP kills/score, radar, missile warning, HUD ship-HP cue.**
 
 ## REMAINING Phase 1 polish (deferred, low risk)
 
@@ -89,6 +97,6 @@ after the jitter fix.
 ## Suggested order to resume
 
 1. ~~Jitter~~ — RESOLVED (see above).
-2. Phase 2 **FX + sound event replication** — makes combat visible/audible.
-3. Local-ship **prediction** — makes your own flying feel immediate.
+2. ~~Phase 2 FX + sound event replication~~ — DONE 2026-07-04.
+3. ~~Local-ship prediction~~ — DONE 2026-07-04.
 4. Then the Phase 1 polish list above, and merge `feat/phase1-multiplayer`.
