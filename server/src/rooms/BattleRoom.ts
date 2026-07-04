@@ -80,6 +80,9 @@ export class BattleRoom extends Room<{ state: BattleState }> {
   /** Live sim rock → its replicated id (diffed each tick in syncAsteroids). */
   private readonly rockIds = new Map<AsteroidSim, string>();
   private nextRockId = 0;
+  /** Victim ship id → shooter ship id of the last hit it took. Consumed on
+   *  shipDied to attribute the kill on the wire (client kill/score HUD). */
+  private readonly lastHitBy = new Map<string, string>();
 
   override onCreate(): void {
     this.setState(new BattleState());
@@ -201,29 +204,41 @@ export class BattleRoom extends Room<{ state: BattleState }> {
         mz: muzzles.map((m) => m.z),
       }),
     );
-    ev.on("missileFired", ({ ship }) =>
-      this.pendingEvents.push({ k: "missileFired", ship: id(ship) }),
+    ev.on("missileFired", ({ ship, target }) =>
+      this.pendingEvents.push({ k: "missileFired", ship: id(ship), target: id(target) }),
     );
-    ev.on("laserHit", ({ target, shooter, position }) =>
+    // Kill attribution: remember the last shooter to land a hit on each ship;
+    // shipDied consumes it. Ships only (both ids non-empty) — carrier and
+    // turret damage doesn't feed the fighter kill board.
+    const recordHit = (target: string, shooter: string): void => {
+      if (target !== "" && shooter !== "") this.lastHitBy.set(target, shooter);
+    };
+    ev.on("laserHit", ({ target, shooter, position }) => {
+      const t = targetId(target);
+      const s = id(shooter);
+      recordHit(t, s);
       this.pendingEvents.push({
         k: "laserHit",
         x: position.x,
         y: position.y,
         z: position.z,
-        target: targetId(target),
-        shooter: id(shooter),
-      }),
-    );
-    ev.on("missileHit", ({ position, struck, shooter }) =>
+        target: t,
+        shooter: s,
+      });
+    });
+    ev.on("missileHit", ({ position, struck, shooter }) => {
+      const t = targetId(struck);
+      const s = id(shooter);
+      recordHit(t, s);
       this.pendingEvents.push({
         k: "missileHit",
         x: position.x,
         y: position.y,
         z: position.z,
-        target: targetId(struck),
-        shooter: id(shooter),
-      }),
-    );
+        target: t,
+        shooter: s,
+      });
+    });
     ev.on("missileIntercepted", ({ position }) =>
       this.pendingEvents.push({
         k: "missileIntercepted",
@@ -235,14 +250,17 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     ev.on("shipLaunched", ({ ship }) =>
       this.pendingEvents.push({ k: "shipLaunched", ship: id(ship) }),
     );
-    ev.on("shipDied", ({ ship }) =>
+    ev.on("shipDied", ({ ship }) => {
+      const victim = id(ship);
       this.pendingEvents.push({
         k: "shipDied",
-        ship: id(ship),
+        ship: victim,
         x: ship.position.x,
         z: ship.position.z,
-      }),
-    );
+        by: this.lastHitBy.get(victim) ?? "",
+      });
+      this.lastHitBy.delete(victim); // a respawned ship starts a fresh ledger
+    });
     ev.on("mothershipDied", ({ mothership }) =>
       this.pendingEvents.push({ k: "mothershipDied", faction: mothership.faction }),
     );

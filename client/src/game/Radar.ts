@@ -83,6 +83,12 @@ export class Radar {
     asteroids: AsteroidSim[],
     nebulaZones: ReadonlyArray<ConcealmentZone>,
     nowMs: number,
+    /**
+     * Ships flown by a HUMAN pilot right now (multiplayer honesty rule:
+     * humans are tagged, bots are plain). Their blips get a white halo ring,
+     * friend or foe. Omitted offline — everyone but you is a bot.
+     */
+    humanPiloted?: ReadonlySet<Ship>,
   ): void {
     const ctx = this.ctx;
     const c = this.center;
@@ -128,6 +134,7 @@ export class Radar {
         player.faction,
         1,
         false,
+        humanPiloted?.has(ship) ?? false,
       );
     }
 
@@ -144,6 +151,7 @@ export class Radar {
           enemyFaction,
           1,
           false,
+          humanPiloted?.has(contact.ship) ?? false,
         );
         // A detected hostile charging its jump drive gets a filling ring —
         // "how close is he to gone?" — the "kill the runner" telegraph
@@ -247,6 +255,7 @@ export class Radar {
     faction: Faction,
     alpha: number,
     ghost: boolean,
+    human = false,
   ): void {
     const { x, y, offEdge } = this.project(dx, dz);
     const ctx = this.ctx;
@@ -261,6 +270,15 @@ export class Radar {
     } else {
       ctx.fillStyle = Radar.BLIP[faction];
       ctx.fill();
+    }
+    // Human-pilot halo (honesty rule): a white ring around the blip, friend
+    // or foe — bots stay plain dots.
+    if (human) {
+      ctx.beginPath();
+      ctx.arc(x, y, GameConfig.radar.fighterBlip + 2.5, 0, Math.PI * 2);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+      ctx.stroke();
     }
     ctx.globalAlpha = 1;
   }

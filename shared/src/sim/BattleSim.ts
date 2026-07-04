@@ -1,6 +1,7 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 
 import { GameConfig } from "../GameConfig";
+import { wrapAngle } from "../math";
 import { opposing, type Faction } from "../Faction";
 import { Ship, type ShipTypeConfig } from "./Ship";
 import { AIController } from "../AIController";
@@ -392,17 +393,21 @@ export class BattleSim {
       if (ship.isAlive && input.fireMissile) {
         const missilePos = ship.tryFireMissile();
         if (missilePos) {
+          // AI pilots home on the contact their controller chose; a HUMAN
+          // seat (NetworkController) gets the same lock rule the offline
+          // player's HUD applies (Game.computeLockTarget) — without this,
+          // every networked player missile launched ballistic.
           const homing =
             c.controller instanceof AIController
               ? c.controller.missileTarget
-              : null;
+              : this.computeLockFor(ship);
           this.factionMissiles[ship.faction].spawn(
             missilePos,
             ship.rotationY,
             homing,
             ship,
           );
-          this.events.emit("missileFired", { ship });
+          this.events.emit("missileFired", { ship, target: homing });
         }
       }
 
@@ -495,6 +500,37 @@ export class BattleSim {
   }
 
   // ─── Tick helpers ───────────────────────────────────────────────────────────
+
+  /**
+   * The enemy a HUMAN-driven seat's missile locks at launch — the sim-side
+   * mirror of Game.computeLockTarget (offline computes it per frame for the
+   * HUD; here it's needed only at the moment of fire): nearest live enemy
+   * within lockRange, inside the lock cone, and NOT concealed in a nebula
+   * (a cloud denies the seeker head its return, symmetric with the AI's
+   * findMissileShot rule).
+   */
+  private computeLockFor(shooter: Ship): Ship | null {
+    const cfg = GameConfig.missile;
+    const px = shooter.position.x;
+    const pz = shooter.position.z;
+    let best: Ship | null = null;
+    let bestDist = Infinity;
+    for (const enemy of this.shipsByFaction[opposing(shooter.faction)]) {
+      if (!enemy.isAlive) continue;
+      const dx = enemy.position.x - px;
+      const dz = enemy.position.z - pz;
+      const dist = Math.hypot(dx, dz);
+      if (dist > cfg.lockRange || dist >= bestDist) continue;
+      if (this.sensors.isConcealed(enemy.position)) continue;
+      const angleToEnemy = Math.atan2(dx, dz);
+      if (Math.abs(wrapAngle(angleToEnemy - shooter.rotationY)) > cfg.lockConeAngle) {
+        continue;
+      }
+      best = enemy;
+      bestDist = dist;
+    }
+    return best;
+  }
 
   private refreshRosters(): void {
     this.shipsByFaction.humans.length = 0;

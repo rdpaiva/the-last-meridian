@@ -4,7 +4,7 @@ import { NetClient } from "./net/NetClient";
 import { LoadoutMenu, SHIP_INFO } from "./game/LoadoutMenu";
 import { ShipPreview } from "./game/ShipPreview";
 import { SettingsMenu } from "./game/SettingsMenu";
-import { FACTION_THEME } from "@space-duel/shared";
+import { FACTION_THEME, PROTOCOL_MISMATCH } from "@space-duel/shared";
 import { applyStoredOverrides, overrideCount } from "./game/ConfigOverrides";
 import { applyMap, resolveMapId, loadSavedMapSelection } from "./game/Maps";
 import { applyDifficulty, loadSavedDifficulty } from "./game/Difficulty";
@@ -202,7 +202,12 @@ async function startOnline(loadout: ReturnType<typeof loadSavedLoadout>): Promis
     netGame.start();
   } catch (err) {
     console.error("[online] failed to join:", err);
-    primaryBtn!.textContent = "SERVER UNAVAILABLE — try again (or remove ?online for solo)";
+    // A protocol mismatch is a stale build, not an outage — say so. The code
+    // rides the Colyseus ServerError through to the client error object.
+    primaryBtn!.textContent =
+      (err as { code?: number }).code === PROTOCOL_MISMATCH
+        ? "NEW VERSION — refresh the page to update (⌘⇧R)"
+        : "SERVER UNAVAILABLE — try again (or remove ?online for solo)";
   }
 }
 

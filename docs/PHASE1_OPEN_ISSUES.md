@@ -2,8 +2,9 @@
 
 Snapshot for resuming the multiplayer work. Branch: **`feat/phase1-multiplayer`**
 (not yet merged to `main`). Everything builds + typechecks; the full test suite
-is **10/10 green** (`npm test`). PROTOCOL_VERSION is **7** — stale tabs get a
-clean join rejection, so always reload after pulling.
+is **10/10 green** (`npm test`). PROTOCOL_VERSION is **8** — stale tabs get a
+clean join rejection (now rendered as "NEW VERSION — refresh"), so always
+reload after pulling.
 
 ## How to run / reproduce
 
@@ -38,6 +39,9 @@ owner playtest this session, in order fixed:
 - **Asteroid field replicated** (spawn-state-only; client integrates
   deterministically) + local collision prediction vs rocks AND carrier hulls
   — the "invisible wall" rubber-banding is gone.
+- **MP HUD slice DONE** (same session, after the playtest — NOT yet
+  owner-verified in browser): full HUD parity online. See "RESOLVED — MP HUD
+  slice" below for what shipped and how.
 
 **Offline single-player remains unaffected** (smoke baseline recaptured once,
 intentionally, for the bay re-fit; the collision-helper extraction was proven
@@ -95,37 +99,63 @@ after the jitter fix.
   visual correction offset. Feel knobs live in `GameConfig.net` — the
   `[human]` feel-tuning loop (docs/MULTIPLAYER.md Phase 2) is still ahead.
 
+## RESOLVED — MP HUD slice (built 2026-07-04, awaiting owner playtest)
+
+Everything the offline HUD shows now works online:
+
+- **Kills/score/best**: the server keeps a last-hit-by ledger per ship
+  (`BattleRoom.lastHitBy`, fed by the hit relays) and stamps `shipDied.by`;
+  the client tallies own kills (score = victim maxHp, shared
+  `space-duel-best-score` localStorage best) vs wing kills. End banner
+  carries the stats line, and ENTER-restart / ESC-menu / M-mute now work
+  online (NetworkGame.onKeyDown).
+- **Radar + stealth + sig cue + lock cue via a CLIENT-SIDE sensor picture**:
+  `ShadowShip` stubs mirror each replicated ship's rendered pose into a
+  shared `SensorSystem` (concealment zones are pure config math, so the
+  picture matches the server's AI). Radar = offline behavior (friendly
+  truth, hostile fresh dots/ghost rings, nebula discs, rocks, spool rings)
+  + white halo rings on human-piloted blips; HUD gets DETECTED/HIDDEN and
+  the lock cue (client mirror of the lock rule). CombatNebulas visuals now
+  render online too.
+- **Missiles are honest**: `missileFired` carries the lock target id, so
+  cosmetic rounds HOME on the target's interpolated pose (ballistic-remote
+  gap closed) and the RWR (MissileWarning: beep ramp + border pulse + radar
+  threat blips) hears seekers on YOU. Server-side fix included: human seats
+  now get a real launch lock (`BattleSim.computeLockFor`, the sim mirror of
+  `Game.computeLockTarget`) — previously every networked player missile
+  launched ballistic.
+- **Pilot counts**: HUD `pilots` row (`N human · M ai`), hidden offline,
+  re-derived every patch (join/leave swaps seats live).
+- **Protocol mismatch** now renders "NEW VERSION — refresh the page" (keyed
+  to PROTOCOL_MISMATCH); other failures keep "server unavailable".
+
+**Sensor-filtering decision (the one flagged last session): the MP radar
+runs on a client-side sensor picture** — full state still replicates, so
+nebula stealth is honest UI but NOT anti-wallhack. Fine for co-op vs AI;
+server-side sensor-filtered replication stays a pre-deploy Phase 2 item.
+
 ## NEXT SESSION — suggested order
 
-1. **Keep the owner-playtest nitpick loop going** (this session's rhythm
-   worked: every report so far was a real netcode bug). Feel knobs live in
-   `GameConfig.net` (interp delay, correction rate/snap); `window.__netGame`
-   is the live debug handle. Known depiction gaps to not chase as bugs:
-   - **Cosmetic REMOTE missiles fly ballistic** (the lock target isn't on the
-     wire; detonations still land at the server's true impact point). Fix:
-     put the homing target's ship id in the `missileFired` event and steer
-     the cosmetic round at the target's interpolated pose.
-   - **No hitstop online** (deliberate — a frozen render clock would desync
-     interpolation).
-   - Remote engine glow rides a speed proxy, not real thrust input.
-2. **MP HUD slice** — all reads of already-replicated state: kills/score
-   (server would relay kill attribution), own-ship HP + ammo (replicated),
-   **Radar** (friendlies truth; hostiles… see sensor note below), missile
-   warning RWR, HUD human/AI counts + radar bot tags (honesty rule; `isAI`
-   is replicated). Client "new version — refresh" string keyed to the
-   PROTOCOL_MISMATCH error code.
-3. **Phase 1 polish for real multiplayer entry**: splash **PLAY SOLO /
+1. **Owner playtest of the HUD slice** (`?online`, solo): radar picture sane
+   (ghosts age out, nebula hides hostiles, human halo = just you), RWR beeps
+   when a missile chases you and NOT when it chases a wingman, kills/score
+   tally, lock cue lights inside range/cone, pilots row reads 1 human.
+   Known non-bugs: **no hitstop online** (deliberate); remote engine glow
+   rides a speed proxy, not real thrust input. Feel knobs in
+   `GameConfig.net`; `window.__netGame` is the live debug handle.
+2. **Phase 1 polish for real multiplayer entry**: splash **PLAY SOLO /
    PLAY ONLINE** buttons (currently the `?online` flag) + **WITH FRIENDS**
    invite link (`#join=<roomId>`); **friendly-side FleetCommander** escort
    wings on the human player (`setOrder` cover).
-4. **`[human]` two-tab acceptance pass** (`docs/PHASE1_TWOTAB_CHECKLIST.md`)
-   — second joiner takes a seat, both see each other move/fire, leave hands
-   the seat back to AI. Then **merge `feat/phase1-multiplayer`**.
-5. Later (Phase 2 tail, pre-deploy): **sensor-filtered replication** (today
-   the client receives ALL ships — nebula stealth is not yet anti-wallhack;
-   an MP radar built from full state would wallhack, so decide this before
-   or with the radar), clock-sync **debug overlay**, **network-condition
-   simulator**, then Phase 3 (room lifecycle, reconnection, hosting).
+3. **`[human]` two-tab acceptance pass** (`docs/PHASE1_TWOTAB_CHECKLIST.md`)
+   — second joiner takes a seat, both see each other move/fire (and each
+   other's white radar halo), leave hands the seat back to AI. Then
+   **merge `feat/phase1-multiplayer`**.
+4. Later (Phase 2 tail, pre-deploy): **sensor-filtered replication**
+   (decided: client-side picture for now — see above; the server filter
+   makes stealth anti-wallhack before any public deploy), clock-sync
+   **debug overlay**, **network-condition simulator**, then Phase 3 (room
+   lifecycle, reconnection, hosting).
 
 ## Architecture notes for whoever picks this up
 
@@ -149,3 +179,10 @@ after the jitter fix.
 - **Carrier GLB re-export checklist grew**: re-run the measure script and
   re-fit BOTH `hullRects` AND `mothership.measuredLaunch`, and expect a
   smoke-baseline recapture if bays move.
+- **Shadow roster pattern (MP HUD)**: `NetworkGame.shadows` holds one
+  `ShadowShip` per replicated ship, fed the RENDERED pose each frame; every
+  offline system that wants a `Ship` (SensorSystem, Radar, MissileWarning,
+  cosmetic missile homing) reads the stubs `as Ship` — they carry exactly
+  the fields those consumers touch (pose/life/jump-spool getters off the
+  replicated spool events). New HUD feature? Extend the stub, don't fork
+  the system.

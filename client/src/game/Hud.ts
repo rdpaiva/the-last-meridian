@@ -25,6 +25,8 @@ export class Hud {
   private readonly warnEl: HTMLElement | null;
   private readonly killsEl: HTMLElement | null;
   private readonly scoreEl: HTMLElement | null;
+  private readonly pilotsRowEl: HTMLElement | null;
+  private readonly pilotsEl: HTMLElement | null;
   private readonly zoomEl: Element | null;
   private readonly sfxEl: HTMLElement | null;
   private readonly launchOverlayEl: HTMLElement | null;
@@ -59,6 +61,7 @@ export class Hud {
       <div><span class="label">warn</span><span id="hud-warn">---</span></div>
       <div><span class="label">kills</span><span id="hud-kills">0</span></div>
       <div><span class="label">score</span><span id="hud-score">0</span></div>
+      <div id="hud-pilots-row" style="display:none"><span class="label">pilots</span><span id="hud-pilots">---</span></div>
       <div><span class="label">zoom</span><span id="hud-zoom">1.00</span></div>
       <div><span class="label">sfx</span><span id="hud-sfx">on</span></div>
     `;
@@ -74,6 +77,8 @@ export class Hud {
     if (this.warnEl) this.warnEl.style.color = "#6c7086"; // dim until a threat
     this.killsEl = root.querySelector<HTMLElement>("#hud-kills");
     this.scoreEl = root.querySelector<HTMLElement>("#hud-score");
+    this.pilotsRowEl = root.querySelector<HTMLElement>("#hud-pilots-row");
+    this.pilotsEl = root.querySelector<HTMLElement>("#hud-pilots");
     this.zoomEl = root.querySelector("#hud-zoom");
     this.sfxEl = root.querySelector<HTMLElement>("#hud-sfx");
 
@@ -239,6 +244,22 @@ export class Hud {
     if (this.jumpRingTextEl) {
       this.jumpRingTextEl.textContent = (tenths / 10).toFixed(1);
     }
+  }
+
+  /** Last pilot counts written (write-on-change; MP calls this per snapshot). */
+  private lastPilots = "";
+
+  /**
+   * The honesty rule (docs/MULTIPLAYER.md): the HUD must say how many seats
+   * are humans vs. bots. Multiplayer-only — the row stays hidden until the
+   * first call, so the offline HUD is unchanged.
+   */
+  setPilotCounts(humans: number, bots: number): void {
+    const text = `${humans} human · ${bots} ai`;
+    if (text === this.lastPilots) return;
+    this.lastPilots = text;
+    if (this.pilotsRowEl) this.pilotsRowEl.style.display = "";
+    if (this.pilotsEl) this.pilotsEl.textContent = text;
   }
 
   setMuted(muted: boolean): void {

@@ -42,8 +42,12 @@ export interface SimEventMap {
    *  ships these so a networked client can spawn cosmetic bolts exactly
    *  where the server did. */
   shipFiredLaser: { ship: Ship; muzzles: readonly Vector3[] };
-  /** A ship launched a missile this frame. */
-  missileFired: { ship: Ship };
+  /** A ship launched a missile this frame. `target` = the ship the round is
+   *  homing on (null = ballistic). Rides the payload so the Phase 2 relay can
+   *  ship the lock and a networked client can steer its cosmetic round —
+   *  without it remote missiles depict as ballistic and the RWR can't hear
+   *  the seeker. */
+  missileFired: { ship: Ship; target: Ship | null };
   /** A ship's catapult just flung it out of its carrier bow. */
   shipLaunched: { ship: Ship };
   /** A ship rammed an asteroid and took bump damage. */

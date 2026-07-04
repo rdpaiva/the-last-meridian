@@ -71,7 +71,8 @@ type GameState = "launching" | "playing" | "victory" | "defeat";
 export const RESTART_FLAG = "space-duel-restart";
 
 /** localStorage key for the all-time best score (survives reloads/sessions). */
-const BEST_SCORE_KEY = "space-duel-best-score";
+// Exported: NetworkGame shares the same all-time best (same scoring rule).
+export const BEST_SCORE_KEY = "space-duel-best-score";
 
 /** A ship plus whatever drives it (keyboard / AI / future network). */
 interface Combatant {
@@ -1710,7 +1711,7 @@ export class Game {
             homing,
             ship,
           );
-          this.events.emit("missileFired", { ship });
+          this.events.emit("missileFired", { ship, target: homing });
         }
       }
 

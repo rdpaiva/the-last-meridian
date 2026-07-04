@@ -14,9 +14,11 @@ import {
   Mothership,
   lerp,
   wrapAngle,
+  opposing,
   FACTION_THEME,
   LaserSystem,
   MissileSystem,
+  SensorSystem,
   Ship,
   AsteroidSim,
   collideShipWithAsteroid,
@@ -32,6 +34,10 @@ import {
 } from "@space-duel/shared";
 import { Arena } from "./Arena";
 import { Backdrop } from "./Backdrop";
+import { CombatNebulas } from "./CombatNebulas";
+import { Radar } from "./Radar";
+import { MissileWarning } from "./MissileWarning";
+import { BEST_SCORE_KEY, RESTART_FLAG } from "./Game";
 import { Nebulas } from "./Nebulas";
 import { CapitalShips } from "./CapitalShips";
 import { Starfield } from "./Starfield";
@@ -64,11 +70,44 @@ interface NetShip {
   vz: number;
   rotationY: number;
   bankAngle: number;
+  hp: number;
   alive: boolean;
   launching: boolean;
+  isAI: boolean;
   cannonAmmo: number;
   missileAmmo: number;
   lastInputSeq: number;
+}
+
+/**
+ * A shadow of one replicated ship, holding its RENDERED pose each frame —
+ * the client-side stand-in the offline systems (SensorSystem, Radar,
+ * MissileWarning, cosmetic missile homing) read where they'd read a sim
+ * `Ship`. It carries exactly the fields those consumers touch (position /
+ * rotation / life / jump-spool state) and is handed to them `as Ship`; the
+ * jump-spool getters ride the replicated spool events + the config spool
+ * time, since drive state isn't in the schema. This is the "client-side
+ * sensor picture" decision (docs/PHASE1_OPEN_ISSUES.md): the radar plays by
+ * the same stealth rules as offline, while true sensor-FILTERED replication
+ * (anti-wallhack) stays a pre-deploy Phase 2 item.
+ */
+class ShadowShip {
+  readonly position = new Vector3();
+  rotationY = 0;
+  isAlive = false;
+  /** Wall-clock ms the drive started spooling, or null when idle. */
+  spoolStartMs: number | null = null;
+
+  constructor(readonly faction: Faction) {}
+
+  get isSpoolingJump(): boolean {
+    return this.spoolStartMs !== null;
+  }
+
+  get jumpSpoolProgress(): number {
+    if (this.spoolStartMs === null) return 0;
+    return Math.min(1, (performance.now() - this.spoolStartMs) / GameConfig.jump.spoolMs);
+  }
 }
 
 /** Mutable pose scratch (structurally satisfies the read-only ShipPose). */
@@ -124,9 +163,15 @@ interface Snap {
  * applyFxEvent depicts each one when the render clock reaches its sim time,
  * so muzzle flashes, bolts, explosions and SFX line up with the interpolated
  * poses. Weapon projectiles here are COSMETIC pools — no damage, no
- * collision; hits arrive as events. Still missing (Phase 2): local-ship
- * prediction; hitstop is deliberately absent (freezing the render clock
- * would desync the interpolation timeline).
+ * collision; hits arrive as events (cosmetic missiles DO home, on the target
+ * shadow the missileFired event names). Hitstop is deliberately absent
+ * (freezing the render clock would desync the interpolation timeline).
+ *
+ * MP HUD slice: a per-ship shadow roster (ShadowShip) mirrors the rendered
+ * poses into a client-side SensorSystem, which drives the Radar (ghost
+ * tracks, nebula stealth, human-pilot halos), the DETECTED/HIDDEN cue, the
+ * lock cue, and the RWR — the same stealth rules as offline, computed
+ * locally. Kills/score ride the shipDied event's `by` attribution.
  */
 export class NetworkGame {
   private readonly engine: Engine;
@@ -142,6 +187,30 @@ export class NetworkGame {
   private readonly templates = new Map<ShipTypeId, TransformNode | null>();
 
   private readonly playerFaction: Faction;
+  private readonly enemyFaction: Faction;
+
+  // ─── MP HUD slice: sensor picture + radar + RWR + kills/score ───
+  /** Client-side sensor picture over the shadow roster (see ShadowShip doc). */
+  private readonly sensors: SensorSystem;
+  /** Gameplay stealth clouds — visuals + the concealment zone truth. */
+  private readonly combatNebulas: CombatNebulas;
+  private readonly radar: Radar;
+  private readonly missileWarning: MissileWarning;
+  /** Per-ship shadow stubs, keyed like `snaps`; rosters share the same refs. */
+  private readonly shadows = new Map<string, ShadowShip>();
+  private readonly shadowStubs: Record<Faction, ShadowShip[]> = {
+    humans: [],
+    machines: [],
+  };
+  /** Shadow ships currently flown by a HUMAN (radar honesty halos). */
+  private readonly humanPiloted = new Set<Ship>();
+  /** The enemy shadow a missile fired NOW would lock (HUD cue + predicted
+   *  round's homing target) — the client mirror of BattleSim.computeLockFor. */
+  private lockStub: ShadowShip | null = null;
+  private playerKills = 0;
+  private wingKills = 0;
+  private score = 0;
+  private bestScore = 0;
 
   // Interpolation state, keyed by ship id.
   private readonly snaps = new Map<string, Snap[]>();
@@ -262,6 +331,7 @@ export class NetworkGame {
     playerFaction: Faction,
   ) {
     this.playerFaction = playerFaction;
+    this.enemyFaction = opposing(playerFaction);
 
     this.engine = new Engine(
       canvas,
@@ -393,6 +463,25 @@ export class NetworkGame {
       }),
     };
 
+    // --- MP HUD slice: stealth clouds + client sensor picture + radar + RWR.
+    // The zones are pure config math (computeConcealmentZones), so this
+    // picture matches the one the server's AI flies on; carrier sims double
+    // as the sensors' AWACS sources (hp synced from the schema each frame).
+    this.combatNebulas = new CombatNebulas(
+      this.scene,
+      this.arena.halfWidth,
+      this.arena.halfDepth,
+    );
+    this.sensors = new SensorSystem(this.carrierSims);
+    this.sensors.concealmentZones = this.combatNebulas.zones;
+    this.radar = new Radar();
+    this.missileWarning = new MissileWarning(this.sound, this.hud);
+    try {
+      this.bestScore = Number(localStorage.getItem(BEST_SCORE_KEY)) || 0;
+    } catch {
+      this.bestScore = 0; // storage unavailable — best just won't persist
+    }
+
     // Queue server FX facts; the tick plays each at its sim time. EXCEPT our
     // own weapon fire: that is depicted PREDICTIVELY at the keypress
     // (updatePrediction) — the server echo would double-render it, and even
@@ -418,7 +507,27 @@ export class NetworkGame {
     this.net.room.onError(() => {
       this.connectionLost = true;
     });
+
+    // End-screen + mute keys (mirrors Game.onKeyDown — the end banner's
+    // "Press Enter to restart · Esc for menu" promise has to hold online too;
+    // the reload keeps ?online, so restart rejoins a match).
+    window.addEventListener("keydown", this.onKeyDown);
   }
+
+  private readonly onKeyDown = (e: KeyboardEvent): void => {
+    this.sound.unlock();
+    if (e.code === "KeyM") {
+      this.sound.toggleMute();
+      this.hud.setMuted(this.sound.isMuted);
+    }
+    if (e.code === "Enter" && this.ended) {
+      sessionStorage.setItem(RESTART_FLAG, "1");
+      window.location.reload();
+    }
+    if (e.code === "Escape") {
+      window.location.reload();
+    }
+  };
 
   /** Preload the ship GLBs, then start the render loop. */
   async start(): Promise<void> {
@@ -460,9 +569,23 @@ export class NetworkGame {
       this.clockOffsetMs += (offsetSample - this.clockOffsetMs) * 0.05;
     }
 
+    let pilotHumans = 0;
+    let pilotBots = 0;
     s.ships.forEach((ship, key) => {
       if (!this.meta.has(key)) {
         this.meta.set(key, { faction: ship.faction, shipType: ship.shipType });
+        const stub = new ShadowShip(ship.faction);
+        this.shadows.set(key, stub);
+        this.shadowStubs[ship.faction].push(stub);
+      }
+      // Honesty bookkeeping: seats swap human↔AI at runtime (join/leave), so
+      // the halo set and the pilot counts re-derive from every patch.
+      if (ship.isAI) {
+        pilotBots++;
+        this.humanPiloted.delete(this.shadows.get(key)! as unknown as Ship);
+      } else {
+        pilotHumans++;
+        this.humanPiloted.add(this.shadows.get(key)! as unknown as Ship);
       }
       if (ship.owner === this.net.sessionId) this.myKey = key;
       if (key === this.myKey) {
@@ -480,6 +603,20 @@ export class NetworkGame {
         this.myServer.valid = true;
         this.myAlive = ship.alive;
         this.myLaunching = ship.launching;
+        if (this.predicted) {
+          // HP is authoritative-only (never predicted) — the HUD reads it off
+          // the predicted Ship, so keep it current on every sample.
+          this.predicted.hp = ship.hp;
+          if (!this.predictionActive) {
+            // Not flying the prediction (launch tube / dead): keep its pose
+            // tracking the server so the HUD's pos/vel stay truthful.
+            this.predicted.position.set(ship.x, 0, ship.z);
+            this.predicted.velocity.set(ship.vx, 0, ship.vz);
+            this.predicted.rotationY = ship.rotationY;
+            this.predicted.cannonAmmo = ship.cannonAmmo;
+            this.predicted.missileAmmo = ship.missileAmmo;
+          }
+        }
         if (this.predictionActive) this.reconcile();
       }
       let buf = this.snaps.get(key);
@@ -503,6 +640,7 @@ export class NetworkGame {
       buf.push({ t, x: ship.x, z: ship.z, rot: ship.rotationY, bank: ship.bankAngle, alive: ship.alive });
       if (buf.length > 40) buf.shift(); // ~2s of history at 20Hz
     });
+    this.hud.setPilotCounts(pilotHumans, pilotBots);
   }
 
   private readonly tick = (): void => {
@@ -578,6 +716,14 @@ export class NetworkGame {
       }
       view.update(this.pose);
       this.updateEngineFx(key, dt);
+      // Feed the shadow stub this frame's rendered pose — the sensor picture,
+      // radar, RWR and cosmetic missile homing all read the shadows.
+      const stub = this.shadows.get(key);
+      if (stub) {
+        stub.position.copyFrom(this.pose.position);
+        stub.rotationY = this.pose.rotationY;
+        stub.isAlive = this.pose.isAlive;
+      }
       if (key === this.myKey) {
         this.camPos.copyFrom(this.pose.position);
         havePlayer = true;
@@ -626,7 +772,8 @@ export class NetworkGame {
       ownGlow?.currentIntensity ?? (this.input.state.thrust ? 1 : 0),
     );
 
-    // 4. HUD straight from current state (HP/phase need no interpolation).
+    // 4. Sensor picture + HUD + radar straight from current state (HP/phase
+    // need no interpolation; poses come from the shadow roster fed above).
     const state = this.net.room.state as unknown as {
       humansMothership?: { hp: number; maxHp: number };
       machinesMothership?: { hp: number; maxHp: number };
@@ -634,12 +781,78 @@ export class NetworkGame {
       winner?: string;
     };
     if (state?.humansMothership && state.machinesMothership) {
+      // Carrier sims mirror the replicated HP: the radar diamond drops and the
+      // sensors lose their AWACS sweep when a carrier dies, like offline.
+      this.carrierSims.humans.hp = state.humansMothership.hp;
+      this.carrierSims.machines.hp = state.machinesMothership.hp;
       this.hud.setMothershipHp(
         this.fraction(state.humansMothership),
         this.fraction(state.machinesMothership),
       );
     }
-    this.updatePhase(state?.phase ?? "launching", state?.winner ?? "");
+    const phase = state?.phase ?? "launching";
+    this.updatePhase(phase, state?.winner ?? "");
+
+    // Client sensor sweep over the shadow roster (wall clock — it only ages
+    // tracks), then the lock cue the predicted missile fire also uses.
+    this.sensors.update(
+      nowMs,
+      this.shadowStubs as unknown as Record<Faction, Ship[]>,
+    );
+    this.lockStub = this.computeNetLock();
+
+    const myStub = this.myKey !== null ? this.shadows.get(this.myKey) : undefined;
+
+    // RWR: poll the ENEMY's cosmetic missile pool for rounds homing on OUR
+    // shadow (the homing target rides the missileFired event). Forced quiet
+    // outside live play, mirroring Game.tick.
+    const rwrActive =
+      phase === "playing" && this.myAlive && !this.myLaunching && !this.ended;
+    this.missileWarning.update(
+      dt,
+      nowMs,
+      this.cosmeticMissiles[this.enemyFaction],
+      rwrActive && myStub ? (myStub as unknown as Ship) : null,
+    );
+
+    if (this.predicted && myStub) {
+      // Stealth cue: does the ENEMY's picture hold a fresh track on us?
+      const signature = this.sensors.isTracked(
+        this.enemyFaction,
+        myStub as unknown as Ship,
+      )
+        ? "detected"
+        : this.sensors.isConcealed(myStub.position)
+          ? "hidden"
+          : "untracked";
+      this.hud.update(
+        this.predicted,
+        nowMs,
+        this.lockStub !== null,
+        this.cameraRig.currentZoom,
+        signature,
+        this.playerKills,
+        this.wingKills,
+        this.score,
+        this.bestScore,
+      );
+      this.hud.setJumpSpool(
+        myStub.isSpoolingJump && this.myAlive ? myStub.jumpSpoolProgress : null,
+      );
+    }
+    if (myStub) {
+      this.radar.update(
+        myStub as unknown as Ship,
+        this.shadowStubs[this.playerFaction] as unknown as Ship[],
+        this.sensors.contacts[this.playerFaction],
+        this.missileWarning.threats,
+        this.carrierSims,
+        this.rockObstacles,
+        this.combatNebulas.zones,
+        nowMs,
+        this.humanPiloted,
+      );
+    }
 
     this.scene.render();
   };
@@ -678,8 +891,9 @@ export class NetworkGame {
 
   /**
    * Depict one replicated sim fact — the MP mirror of Game.wireSimEventFeedback.
-   * Deliberate differences from offline: no hitstop (freezing the render clock
-   * would desync the interpolation timeline) and no kill/score bookkeeping yet.
+   * Deliberate difference from offline: no hitstop (freezing the render clock
+   * would desync the interpolation timeline). Kill/score bookkeeping rides
+   * shipDied's `by` field (recordKill).
    */
   private applyFxEvent(e: NetEvent): void {
     const shake = GameConfig.shake;
@@ -700,17 +914,24 @@ export class NetworkGame {
         const meta = this.meta.get(e.ship);
         const pose = this.poseOf(e.ship);
         if (!meta || !pose) return;
-        // The cosmetic round flies ballistic from the shooter's rendered pose
-        // (the lock isn't on the wire); the missileHit event detonates it.
+        // The cosmetic round homes on the TARGET's shadow (the lock ship id
+        // rides the event), so its depiction tracks the interpolated pose;
+        // the missileHit event still detonates it at the server's truth.
         // Same nose offset as Ship.tryFireMissile — the server's round leaves
         // from ahead of the hull, not the ship's center.
+        const target = e.target !== "" ? (this.shadows.get(e.target) ?? null) : null;
         const off = GameConfig.missile.spawnOffset;
         this.fxVec.set(
           pose.position.x + Math.sin(pose.rotationY) * off,
           0,
           pose.position.z + Math.cos(pose.rotationY) * off,
         );
-        this.cosmeticMissiles[meta.faction].spawn(this.fxVec, pose.rotationY, null, null);
+        this.cosmeticMissiles[meta.faction].spawn(
+          this.fxVec,
+          pose.rotationY,
+          target ? (target as unknown as Ship) : null,
+          null,
+        );
         this.sound.playMissileLaunch(e.ship === this.myKey ? undefined : this.fxVec);
         return;
       }
@@ -756,6 +977,9 @@ export class NetworkGame {
         this.fxVec.set(e.x, 0, e.z);
         // Destroyed mid-spool: cut its jump-drive clip (no-op otherwise).
         this.sound.stopJumpDrive(this.jumpKey(e.ship));
+        const stub = this.shadows.get(e.ship);
+        if (stub) stub.spoolStartMs = null;
+        this.recordKill(e.ship, e.by);
         this.explosions.spawn(this.fxVec);
         this.sound.playExplosion(this.fxVec);
         this.cameraRig.addTrauma(
@@ -798,15 +1022,22 @@ export class NetworkGame {
       }
       case "jumpSpoolStarted": {
         const pose = this.poseOf(e.ship);
+        // Shadow spool state: the radar's filling ring + the HUD's own jump
+        // gauge + the sensors' signature-spike rule all read it.
+        const stub = this.shadows.get(e.ship);
+        if (stub) stub.spoolStartMs = performance.now();
         this.sound.startJumpDrive(
           this.jumpKey(e.ship),
           e.ship === this.myKey || !pose ? null : pose.position.clone(),
         );
         return;
       }
-      case "jumpCancelled":
+      case "jumpCancelled": {
+        const stub = this.shadows.get(e.ship);
+        if (stub) stub.spoolStartMs = null;
         this.sound.stopJumpDrive(this.jumpKey(e.ship));
         return;
+      }
       case "asteroidShattered": {
         this.fxVec.set(e.x, e.y, e.z);
         this.explosions.spawn(this.fxVec);
@@ -827,6 +1058,8 @@ export class NetworkGame {
         return;
       }
       case "jumpFired": {
+        const stub = this.shadows.get(e.ship);
+        if (stub) stub.spoolStartMs = null;
         this.sound.releaseJumpDrive(this.jumpKey(e.ship));
         this.visuals.get(e.ship)?.glow?.resetTrails();
         const from = new Vector3(e.fromX, 0, e.fromZ);
@@ -951,6 +1184,9 @@ export class NetworkGame {
   private updatePrediction(dt: number): void {
     const meta = this.myKey !== null ? this.meta.get(this.myKey) : undefined;
     if (!meta) return;
+    // Built eagerly (not just when prediction activates): the HUD reads
+    // HP/ammo/pos off this Ship from the first snapshot, launch tube included.
+    if (!this.predicted) this.predicted = this.buildPredictedShip(meta);
     const shouldPredict =
       this.myAlive && !this.myLaunching && !this.ended && !this.connectionLost;
     if (!shouldPredict) {
@@ -960,7 +1196,6 @@ export class NetworkGame {
     }
     if (!this.predictionActive) {
       if (!this.myServer.valid) return;
-      if (!this.predicted) this.predicted = this.buildPredictedShip(meta);
       const s = this.myServer;
       const p = this.predicted;
       p.position.set(s.x, 0, s.z);
@@ -1017,7 +1252,14 @@ export class NetworkGame {
     if (this.input.state.fireMissile) {
       const missilePos = ship.tryFireMissile();
       if (missilePos) {
-        this.cosmeticMissiles[meta.faction].spawn(missilePos, ship.rotationY, null, null);
+        // The depicted round homes on the same lock the HUD advertises (the
+        // server computes its own identical lock — BattleSim.computeLockFor).
+        this.cosmeticMissiles[meta.faction].spawn(
+          missilePos,
+          ship.rotationY,
+          this.lockStub ? (this.lockStub as unknown as Ship) : null,
+          null,
+        );
         this.sound.playMissileLaunch();
       }
     }
@@ -1073,6 +1315,63 @@ export class NetworkGame {
       this.correctionPos.x -= ex;
       this.correctionPos.z -= ez;
       this.correctionRot -= er;
+    }
+  }
+
+  /**
+   * The enemy shadow a missile fired now would lock: nearest live enemy in
+   * lockRange + lock cone, not concealed — the client mirror of
+   * BattleSim.computeLockFor over the shadow roster (HUD cue + the predicted
+   * round's homing; the authoritative lock stays server-side).
+   */
+  private computeNetLock(): ShadowShip | null {
+    const me = this.myKey !== null ? this.shadows.get(this.myKey) : undefined;
+    if (!me || !me.isAlive || !this.myAlive || this.myLaunching) return null;
+    const cfg = GameConfig.missile;
+    const px = me.position.x;
+    const pz = me.position.z;
+    // Aim from the PREDICTED heading when flying it — that's the nose the
+    // player sees (the shadow's rendered rotation includes the correction).
+    const heading =
+      this.predictionActive && this.predicted ? this.predicted.rotationY : me.rotationY;
+    let best: ShadowShip | null = null;
+    let bestDist = Infinity;
+    for (const enemy of this.shadowStubs[this.enemyFaction]) {
+      if (!enemy.isAlive) continue;
+      const dx = enemy.position.x - px;
+      const dz = enemy.position.z - pz;
+      const dist = Math.hypot(dx, dz);
+      if (dist > cfg.lockRange || dist >= bestDist) continue;
+      if (this.sensors.isConcealed(enemy.position)) continue;
+      const angleToEnemy = Math.atan2(dx, dz);
+      if (Math.abs(wrapAngle(angleToEnemy - heading)) > cfg.lockConeAngle) continue;
+      best = enemy;
+      bestDist = dist;
+    }
+    return best;
+  }
+
+  /**
+   * Tally a shipDied event onto the kill/score board (mirrors Game.recordKill:
+   * only enemy fighters count; only OUR OWN kills score + roll the shared
+   * persistent best; other friendly shooters — human or AI — tally as wing).
+   */
+  private recordKill(victimId: string, shooterId: string): void {
+    const victim = this.meta.get(victimId);
+    if (!victim || victim.faction !== this.enemyFaction || shooterId === "") return;
+    if (shooterId === this.myKey) {
+      this.playerKills++;
+      this.score += GameConfig.shipTypes[victim.shipType].maxHp;
+      if (this.score > this.bestScore) {
+        this.bestScore = this.score;
+        try {
+          localStorage.setItem(BEST_SCORE_KEY, String(this.bestScore));
+        } catch {
+          // Storage unavailable — the in-session best still shows.
+        }
+      }
+    } else if (this.meta.get(shooterId)?.faction === this.playerFaction) {
+      this.wingKills++;
     }
   }
 
@@ -1257,7 +1556,12 @@ export class NetworkGame {
       if (!this.ended) {
         this.ended = true;
         this.hud.setLaunchOverlay(null);
-        this.hud.setEndBanner(winner === this.playerFaction ? "victory" : "defeat");
+        this.hud.setEndBanner(
+          winner === this.playerFaction ? "victory" : "defeat",
+          `KILLS ${this.playerKills} · SCORE ${this.score}${
+            this.score > 0 && this.score >= this.bestScore ? " · NEW BEST" : ""
+          }`,
+        );
       }
       return;
     }
@@ -1269,6 +1573,7 @@ export class NetworkGame {
   }
 
   dispose(): void {
+    window.removeEventListener("keydown", this.onKeyDown);
     this.input.detach();
     void this.net.leave();
     this.engine.stopRenderLoop();

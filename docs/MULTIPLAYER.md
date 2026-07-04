@@ -234,15 +234,18 @@ timing).
 
 ## Phase 1 — Colyseus skeleton
 
-> **Status (2026-07-04, post-playtest): online client PLAYS WELL solo** —
-> smooth motion (sim-clock interpolation), ready-gated visible launches from
-> the GLB's real tubes, full combat FX/sound, predicted local ship + own
-> weapon fire (muzzle-true, steady cadence), engine glow/trails/RCS, and a
-> replicated asteroid field with locally-predicted collisions (no invisible
-> walls). Branch `feat/phase1-multiplayer` (not yet merged); 10/10 tests
-> green; PROTOCOL_VERSION 7. Remaining before merge: MP HUD slice, PLAY
-> ONLINE/invite entry, friendly commander, the `[human]` two-tab acceptance
-> pass + feel tuning. **Resume notes: `docs/PHASE1_OPEN_ISSUES.md`.**
+> **Status (2026-07-04, post-playtest + HUD slice): online client PLAYS WELL
+> solo** — smooth motion (sim-clock interpolation), ready-gated visible
+> launches from the GLB's real tubes, full combat FX/sound, predicted local
+> ship + own weapon fire (muzzle-true, steady cadence), engine
+> glow/trails/RCS, a replicated asteroid field with locally-predicted
+> collisions (no invisible walls), and the FULL HUD online: radar w/ sensor
+> picture + stealth + human halos, RWR, kills/score, lock/sig cues, pilot
+> counts, homing missile depiction, server-side human missile locks.
+> Branch `feat/phase1-multiplayer` (not yet merged); 10/10 tests green;
+> PROTOCOL_VERSION 8. Remaining before merge: PLAY ONLINE/invite entry,
+> friendly commander, the `[human]` two-tab acceptance pass + feel tuning.
+> **Resume notes: `docs/PHASE1_OPEN_ISSUES.md`.**
 
 - [x] **Restructure into workspaces** (first task of this phase): npm
       workspaces with `shared/` + `client/` + `server/` per the layout
@@ -269,14 +272,14 @@ timing).
       integration + unit tests (held `rotateRight` over the wire turns the
       seat; `jumpPressed` is a one-shot edge). Client-side SAMPLING/sending
       lands with the dumb-client-rendering task.
-- [~] **AI fills empty seats**: DONE server-side — every seat starts
-      AI-flown (solo join plays the full battle), humans claim a free seat on
-      their faction (AI→`NetworkController`), `onLeave` hands it back; the
-      `isAI` flag is replicated (tested). Launch config is fixed-fleet
-      (`GameConfig.fleets` per side); the `baseFleet + wingPerHuman × humans`
-      formula knob is a later refinement (single preset at launch — see
-      Decisions). REMAINING: HUD human/AI counts + radar bot tags (client,
-      with the rendering task).
+- [x] **AI fills empty seats**: every seat starts AI-flown (solo join plays
+      the full battle), humans claim a free seat on their faction
+      (AI→`NetworkController`), `onLeave` hands it back; the `isAI` flag is
+      replicated (tested). Launch config is fixed-fleet (`GameConfig.fleets`
+      per side); the `baseFleet + wingPerHuman × humans` formula knob is a
+      later refinement (single preset at launch — see Decisions). Honesty
+      rule shipped 2026-07-04: HUD `pilots` row (N human · M ai) + white halo
+      rings on human-piloted radar blips, friend or foe.
 - [ ] **Friendly-side `FleetCommander`**: the player faction gets a
       commander (enemy side already has one) whose doctrine assigns the
       team's AI ships to human players as escort wings (`cover` w/ that
@@ -290,12 +293,11 @@ timing).
       bars + victory/defeat banner from state. Steppy/laggy as expected
       (interpolation + prediction are Phase 2). Fighters are procedural meshes
       for now (per-type GLBs = later polish); transient FX await Phase 2.
-- [~] **Protocol version gate**: DONE server-side — `PROTOCOL_VERSION` in
-      `shared/protocol.ts`, sent in join options; the room rejects a mismatch
-      with a typed `ServerError(PROTOCOL_MISMATCH)` (tested). Client surfaces a
-      failed join (mismatch/server-down) as a readable splash message.
-      REMAINING: a dedicated "new version — refresh" string keyed off the
-      mismatch code specifically (currently a generic "server unavailable").
+- [x] **Protocol version gate**: `PROTOCOL_VERSION` in `shared/protocol.ts`,
+      sent in join options; the room rejects a mismatch with a typed
+      `ServerError(PROTOCOL_MISMATCH)` (tested). The client keys a dedicated
+      "NEW VERSION — refresh the page" splash string off the mismatch code
+      (anything else stays "server unavailable").
 - [~] **Join flow**: QUICK MATCH works — `?online` (or `#online`) routes the
       existing splash/loadout flow into `joinOrCreate` with the loadout as join
       options (`LoadoutMenu` reused unchanged); no flag = fully-offline PLAY
@@ -345,7 +347,10 @@ so tuning passes don't need code changes.
       NetEvents; NetworkGame plays each at its sim time on the render
       clock (cosmetic projectile pools, explosions, jump FX, full
       SoundSystem, distance-scaled trauma). No hitstop in MP (a frozen
-      render clock would desync interpolation); kills/score TBD.
+      render clock would desync interpolation). Kills/score ride the
+      `shipDied` event's `by` attribution (server keeps a last-hit-by
+      ledger per ship); missiles carry their lock target id so the
+      cosmetic round homes and the RWR hears seekers on YOU.
 - [ ] **Sensor-filtered replication**: server only replicates contacts
       the player's faction `SensorSystem` can see (nebula stealth
       becomes anti-wallhack, not just UI). Friendlies always replicate.
