@@ -7,6 +7,7 @@ import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
 import { EquiRectangularCubeTexture } from "@babylonjs/core/Materials/Textures/equiRectangularCubeTexture";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
+import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 
 import {
   GameConfig,
@@ -17,6 +18,9 @@ import {
   LaserSystem,
   MissileSystem,
   Ship,
+  AsteroidSim,
+  collideShipWithAsteroid,
+  bumpShipOutOfSection,
   exponentialMultiplier,
   type Laser,
   type Faction,
@@ -38,6 +42,7 @@ import { AssetLoader } from "./AssetLoader";
 import { buildFighterMesh } from "./FighterMesh";
 import { ShipView } from "./view/ShipView";
 import { MothershipView } from "./view/MothershipView";
+import { AsteroidView } from "./view/AsteroidView";
 import { LaserSystemView } from "./view/LaserSystemView";
 import { MissileSystemView } from "./view/MissileSystemView";
 import { ExplosionSystem } from "./ExplosionSystem";
@@ -72,6 +77,24 @@ interface MutablePose {
   rotationY: number;
   bankAngle: number;
   isAlive: boolean;
+}
+
+/** The shape of a replicated asteroid spawn state (see AsteroidSchema). */
+interface NetRock {
+  t0: number;
+  x: number;
+  z: number;
+  rotX: number;
+  rotY: number;
+  rotZ: number;
+  driftX: number;
+  driftZ: number;
+  spinX: number;
+  spinY: number;
+  spinZ: number;
+  visualRadius: number;
+  squashX: number;
+  squashY: number;
 }
 
 /** One timestamped server sample of a ship's pose (SERVER sim clock, ms). */
@@ -190,6 +213,24 @@ export class NetworkGame {
   private readonly missileViews: Record<Faction, MissileSystemView>;
   /** Carrier centers (for the mothership death spectacle placement). */
   private readonly carrierCenters: Record<Faction, Vector3>;
+  /** Carrier sims (hull sections) — the prediction bumps off these locally. */
+  private readonly carrierSims: Record<Faction, Mothership>;
+
+  // ─── Replicated asteroid field ───
+  /** Shared rock material (mirrors AsteroidFieldView.buildMaterial). */
+  private readonly rockMaterial: StandardMaterial;
+  /**
+   * Rocks reconstructed from their replicated SPAWN STATE (drift/spin are
+   * constant, so integrating from t0 on the shared sim clock reproduces the
+   * server's trajectory exactly). `simT` = the sim time the pose is at.
+   */
+  private readonly rocks = new Map<
+    string,
+    { sim: AsteroidSim; view: AsteroidView; simT: number }
+  >();
+  /** Live rock sims, held BY REFERENCE as the cosmetic lasers' obstacles so
+   *  depicted bolts get consumed by rocks (line-of-sight reads correctly). */
+  private readonly rockObstacles: AsteroidSim[] = [];
   /** Server FX facts awaiting their sim time on the render clock. */
   private readonly fxQueue: Array<{ t: number; e: NetEvent }> = [];
   /** Stable per-ship stubs for SoundSystem's jump-drive clip tracking. */
@@ -277,17 +318,13 @@ export class NetworkGame {
       humans: new Vector3(0, ms.yLevel, ms.playerZ),
       machines: new Vector3(0, ms.yLevel, ms.enemyZ),
     };
+    this.carrierSims = {
+      humans: new Mothership(new Vector3(0, ms.yLevel, ms.playerZ), 0, "humans"),
+      machines: new Mothership(new Vector3(0, ms.yLevel, ms.enemyZ), Math.PI, "machines"),
+    };
     const carriers: Record<Faction, MothershipView> = {
-      humans: new MothershipView(
-        this.scene,
-        this.glowLayer,
-        new Mothership(new Vector3(0, ms.yLevel, ms.playerZ), 0, "humans"),
-      ),
-      machines: new MothershipView(
-        this.scene,
-        this.glowLayer,
-        new Mothership(new Vector3(0, ms.yLevel, ms.enemyZ), Math.PI, "machines"),
-      ),
+      humans: new MothershipView(this.scene, this.glowLayer, this.carrierSims.humans),
+      machines: new MothershipView(this.scene, this.glowLayer, this.carrierSims.machines),
     };
     for (const f of ["humans", "machines"] as Faction[]) {
       const file = GameConfig.mothership.model.file[f];
@@ -311,9 +348,14 @@ export class NetworkGame {
     this.explosions = new ExplosionSystem(this.scene, this.glowLayer);
     this.jumpFlashes = new JumpFlashSystem(this.scene, this.glowLayer);
     this.jumpRipple = new JumpRipple(this.scene, this.cameraRig.camera);
+    // Lit rocky grey (mirrors AsteroidFieldView) — NOT emissive, NOT glowed.
+    this.rockMaterial = new StandardMaterial("asteroid_mat", this.scene);
+    this.rockMaterial.diffuseColor = new Color3(0.32, 0.29, 0.26);
+    this.rockMaterial.specularColor = Color3.Black();
+
     this.cosmeticLasers = {
-      humans: new LaserSystem({ damage: 0 }),
-      machines: new LaserSystem({ damage: 0 }),
+      humans: new LaserSystem({ damage: 0, obstacles: this.rockObstacles }),
+      machines: new LaserSystem({ damage: 0, obstacles: this.rockObstacles }),
     };
     const tb = GameConfig.mothership.turrets.boltEmissive;
     const turretBoltEmissive = new Color3(tb.r, tb.g, tb.b);
@@ -402,7 +444,9 @@ export class NetworkGame {
     const s = state as {
       timeMs?: number;
       ships?: { forEach: (cb: (v: NetShip, k: string) => void) => void };
+      asteroids?: { forEach: (cb: (v: NetRock, k: string) => void) => void };
     };
+    if (s.asteroids) this.syncRocks(s.asteroids);
     if (!s.ships) return;
     const t = s.timeMs ?? 0;
 
@@ -497,6 +541,22 @@ export class NetworkGame {
     // until the first patch sets it there are no snapshots to render anyway.
     const renderT = nowMs - (this.clockOffsetMs ?? 0) - GameConfig.net.interpDelayMs;
     this.lastRenderT = renderT;
+
+    // Rocks: integrate each reconstructed sim to the render clock (drift+spin
+    // are constant, so this stays exactly on the server's trajectory). The
+    // first step can be NEGATIVE (t0 is ~an interp delay ahead of renderT) —
+    // linear motion reverses cleanly, but skip the wrap then, so a rock
+    // captured just after a server wrap can't bounce to the far side.
+    for (const entry of this.rocks.values()) {
+      const dtRock = (renderT - entry.simT) / 1000;
+      if (dtRock !== 0) {
+        entry.sim.update(dtRock);
+        if (dtRock > 0) this.wrapRock(entry.sim);
+        entry.simT = renderT;
+      }
+      entry.view.sync();
+    }
+
     let havePlayer = false;
     for (const [key, buf] of this.snaps) {
       if (buf.length === 0) continue;
@@ -747,6 +807,25 @@ export class NetworkGame {
       case "jumpCancelled":
         this.sound.stopJumpDrive(this.jumpKey(e.ship));
         return;
+      case "asteroidShattered": {
+        this.fxVec.set(e.x, e.y, e.z);
+        this.explosions.spawn(this.fxVec);
+        this.sound.playExplosion(this.fxVec);
+        this.cameraRig.addTrauma(
+          this.traumaAtDistance(GameConfig.asteroids.shatterTrauma, e.x, e.z) *
+            Math.min(1, e.r / GameConfig.asteroids.radiusMax),
+        );
+        return;
+      }
+      case "shipRammedAsteroid": {
+        // Offline parity: the heavy cue is for the local pilot only.
+        if (e.ship === this.myKey) {
+          this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
+          const pose = this.poseOf(e.ship);
+          if (pose) this.sound.playHit(pose.position);
+        }
+        return;
+      }
       case "jumpFired": {
         this.sound.releaseJumpDrive(this.jumpKey(e.ship));
         this.visuals.get(e.ship)?.glow?.resetTrails();
@@ -776,6 +855,55 @@ export class NetworkGame {
         return;
       }
     }
+  }
+
+  /**
+   * Reconcile the local rock set with the replicated map: new entries (the
+   * initial field, later shatter chunks) become REAL AsteroidSims rebuilt from
+   * their spawn state — no RNG draws, view + collision shape included; entries
+   * gone from the map (shattered/destroyed) are disposed. Death FX arrive
+   * separately as asteroidShattered events.
+   */
+  private syncRocks(map: { forEach: (cb: (v: NetRock, k: string) => void) => void }): void {
+    const seen = new Set<string>();
+    map.forEach((r, id) => {
+      seen.add(id);
+      if (this.rocks.has(id)) return;
+      const sim = new AsteroidSim({
+        position: new Vector3(r.x, GameConfig.asteroids.yLevel, r.z),
+        drift: new Vector3(r.driftX, 0, r.driftZ),
+        visualRadius: r.visualRadius,
+        spin: new Vector3(r.spinX, r.spinY, r.spinZ),
+        squash: { x: r.squashX, y: r.squashY },
+        orientation: { x: r.rotX, y: r.rotY, z: r.rotZ },
+      });
+      // Life/death is authoritative via map add/remove — make the local copy
+      // unkillable so cosmetic bolt damage can't kill it early.
+      sim.hp = Number.MAX_SAFE_INTEGER;
+      this.rocks.set(id, {
+        sim,
+        view: new AsteroidView(this.scene, this.rockMaterial, sim),
+        simT: r.t0,
+      });
+      this.rockObstacles.push(sim);
+    });
+    for (const [id, entry] of this.rocks) {
+      if (seen.has(id)) continue;
+      entry.view.dispose();
+      const i = this.rockObstacles.indexOf(entry.sim);
+      if (i >= 0) this.rockObstacles.splice(i, 1);
+      this.rocks.delete(id);
+    }
+  }
+
+  /** Mirror AsteroidFieldSim.wrap at the same arena bounds the server uses. */
+  private wrapRock(a: AsteroidSim): void {
+    const mx = GameConfig.arena.halfWidth + a.visualRadius;
+    const mz = GameConfig.arena.halfDepth + a.visualRadius;
+    if (a.position.x > mx) a.position.x = -mx;
+    else if (a.position.x < -mx) a.position.x = mx;
+    if (a.position.z > mz) a.position.z = -mz;
+    else if (a.position.z < -mz) a.position.z = mz;
   }
 
   /**
@@ -856,6 +984,19 @@ export class NetworkGame {
     }
     const ship = this.predicted!;
     ship.update(dt, this.input.state);
+
+    // Predict the solid-world bumps the server will apply — without these,
+    // rocks and carrier hulls are invisible rubber-band walls (the server
+    // corrects you but the prediction keeps flying into them). Same shared
+    // math as BattleSim; ram damage/FX stay server-side (events).
+    for (const entry of this.rocks.values()) {
+      if (collideShipWithAsteroid(ship, entry.sim)) break; // one bump per frame
+    }
+    for (const f of ["humans", "machines"] as Faction[]) {
+      for (const s of this.carrierSims[f].hullSections) {
+        bumpShipOutOfSection(ship, s);
+      }
+    }
 
     // Predicted weapon fire: depict our shots the instant the key acts, from
     // the live muzzle — even an instantly-applied server echo trails a

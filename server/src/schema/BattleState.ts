@@ -40,6 +40,38 @@ export const ShipSchema = schema(
 );
 export type ShipSchema = SchemaType<typeof ShipSchema>;
 
+/**
+ * One asteroid's SPAWN STATE — written once when the rock enters the sim
+ * (field layout at room creation, or a shatter chunk later) and never
+ * patched again: drift and spin are constant, so the client reconstructs a
+ * real AsteroidSim from this and integrates its pose locally on the shared
+ * sim clock (`t0` = sim time of capture). Death = entry deleted from the map.
+ */
+export const AsteroidSchema = schema(
+  {
+    id: "string",
+    /** Pose at capture time t0 (sim clock, ms). */
+    t0: "number",
+    x: "float32",
+    z: "float32",
+    rotX: "float32",
+    rotY: "float32",
+    rotZ: "float32",
+    /** Constant motion. */
+    driftX: "float32",
+    driftZ: "float32",
+    spinX: "float32",
+    spinY: "float32",
+    spinZ: "float32",
+    /** Shape. */
+    visualRadius: "float32",
+    squashX: "float32",
+    squashY: "float32",
+  },
+  "AsteroidSchema",
+);
+export type AsteroidSchema = SchemaType<typeof AsteroidSchema>;
+
 export const MothershipSchema = schema(
   {
     faction: "string",
@@ -60,6 +92,8 @@ export type MothershipSchema = SchemaType<typeof MothershipSchema>;
 export const BattleState = schema(
   {
     ships: { map: ShipSchema },
+    /** Live rocks by id — spawn states only (see AsteroidSchema). */
+    asteroids: { map: AsteroidSchema },
     humansMothership: { type: MothershipSchema },
     machinesMothership: { type: MothershipSchema },
     /** "launching" | "playing" | "ended" */

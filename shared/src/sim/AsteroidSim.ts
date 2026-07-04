@@ -34,8 +34,9 @@ export class AsteroidSim implements DamageTarget {
   readonly position: Vector3;
   /** Constant drift (units/sec) on the X/Z plane. */
   readonly drift: Vector3;
-  /** Per-axis tumble (rad/sec). */
-  private readonly spin: Vector3;
+  /** Per-axis tumble (rad/sec). Public (like `drift`) so the server can
+   *  replicate a rock's full spawn state to networked clients. */
+  readonly spin: Vector3;
 
   /** Visual radius (mesh max extent — the unsquashed axis). */
   readonly visualRadius: number;
@@ -96,6 +97,13 @@ export class AsteroidSim implements DamageTarget {
      * spin here so fresh debris tumbles from the blast.
      */
     spin?: Vector3;
+    /**
+     * Full-state reconstruction overrides (networked client): rebuild a rock
+     * from its REPLICATED spawn state without touching the seeded RNG. The
+     * server/headless path never passes these — its draws stay untouched.
+     */
+    squash?: { x: number; y: number };
+    orientation?: { x: number; y: number; z: number };
   }) {
     const cfg = GameConfig.asteroids;
     this.position = opts.position;
@@ -120,16 +128,25 @@ export class AsteroidSim implements DamageTarget {
 
     // Ellipsoid squash: two axes shrink, one stays at 1 so visualRadius is
     // still the true max extent (the tumble randomizes which way it points).
-    this.squashX = cfg.squashMin + simRandom() * (1 - cfg.squashMin);
-    this.squashY = cfg.squashMin + simRandom() * (1 - cfg.squashMin);
+    if (opts.squash) {
+      this.squashX = opts.squash.x;
+      this.squashY = opts.squash.y;
+    } else {
+      this.squashX = cfg.squashMin + simRandom() * (1 - cfg.squashMin);
+      this.squashY = cfg.squashMin + simRandom() * (1 - cfg.squashMin);
+    }
 
     // Random starting orientation so identical chunks don't read as clones —
     // it also phases the tumbling collision silhouette.
-    this.rotation.set(
-      simRandom() * Math.PI * 2,
-      simRandom() * Math.PI * 2,
-      simRandom() * Math.PI * 2,
-    );
+    if (opts.orientation) {
+      this.rotation.set(opts.orientation.x, opts.orientation.y, opts.orientation.z);
+    } else {
+      this.rotation.set(
+        simRandom() * Math.PI * 2,
+        simRandom() * Math.PI * 2,
+        simRandom() * Math.PI * 2,
+      );
+    }
     this.refreshCollisionShape();
   }
 

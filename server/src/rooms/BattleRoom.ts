@@ -10,6 +10,7 @@ import {
   type CommandedPilot,
   GameConfig,
   Ship,
+  type AsteroidSim,
   type DamageTarget,
   type Faction,
   type InputMessage,
@@ -22,7 +23,12 @@ import {
   MSG,
 } from "@space-duel/shared";
 
-import { BattleState, ShipSchema, MothershipSchema } from "../schema/BattleState";
+import {
+  BattleState,
+  ShipSchema,
+  MothershipSchema,
+  AsteroidSchema,
+} from "../schema/BattleState";
 
 /** A flyable slot in the battle: one ship that is either AI-flown or, when a
  *  human is connected, driven by their networked input. */
@@ -71,6 +77,9 @@ export class BattleRoom extends Room<{ state: BattleState }> {
   private readonly shipIds = new Map<Ship, string>();
   /** Whether the opening fleet launch has been released (first MSG.ready). */
   private launchReleased = false;
+  /** Live sim rock → its replicated id (diffed each tick in syncAsteroids). */
+  private readonly rockIds = new Map<AsteroidSim, string>();
+  private nextRockId = 0;
 
   override onCreate(): void {
     this.setState(new BattleState());
@@ -175,9 +184,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
    * Serialize the sim's transient-FX facts onto the wire (Phase 2 event
    * replication, docs/MULTIPLAYER.md): live object refs become schema ids and
    * raw coordinates here, at the network boundary — exactly the seam
-   * sim/SimEvents.ts promises. Not relayed: shipRammedAsteroid /
-   * asteroidShattered (the MP client doesn't render the asteroid field yet,
-   * so those cues would point at nothing — relay them when rocks replicate).
+   * sim/SimEvents.ts promises.
    */
   private wireEventRelay(): void {
     const ev = this.sim.events;
@@ -273,9 +280,62 @@ export class BattleRoom extends Room<{ state: BattleState }> {
         toZ,
       }),
     );
+    ev.on("asteroidShattered", ({ position, radius }) =>
+      this.pendingEvents.push({
+        k: "asteroidShattered",
+        x: position.x,
+        y: position.y,
+        z: position.z,
+        r: radius,
+      }),
+    );
+    ev.on("shipRammedAsteroid", ({ ship }) =>
+      this.pendingEvents.push({ k: "shipRammedAsteroid", ship: id(ship) }),
+    );
+  }
+
+  /**
+   * Diff the sim's live rocks against the replicated map: new rocks (initial
+   * field, shatter chunks) get their SPAWN STATE captured once; rocks gone
+   * from the sim (shattered/destroyed) get their entries deleted. Drift and
+   * spin are constant, so this is the ONLY asteroid traffic — clients
+   * integrate poses locally from t0 on the shared sim clock.
+   */
+  private syncAsteroids(): void {
+    const live = this.sim.asteroids.asteroids;
+    const liveSet = new Set<AsteroidSim>();
+    for (const rock of live) {
+      liveSet.add(rock);
+      if (this.rockIds.has(rock)) continue;
+      const id = `rock-${this.nextRockId++}`;
+      this.rockIds.set(rock, id);
+      const r = new AsteroidSchema();
+      r.id = id;
+      r.t0 = this.simTimeMs;
+      r.x = rock.position.x;
+      r.z = rock.position.z;
+      r.rotX = rock.rotation.x;
+      r.rotY = rock.rotation.y;
+      r.rotZ = rock.rotation.z;
+      r.driftX = rock.drift.x;
+      r.driftZ = rock.drift.z;
+      r.spinX = rock.spin.x;
+      r.spinY = rock.spin.y;
+      r.spinZ = rock.spin.z;
+      r.visualRadius = rock.visualRadius;
+      r.squashX = rock.squashX;
+      r.squashY = rock.squashY;
+      this.state.asteroids.set(id, r);
+    }
+    for (const [rock, id] of this.rockIds) {
+      if (liveSet.has(rock)) continue;
+      this.rockIds.delete(rock);
+      this.state.asteroids.delete(id);
+    }
   }
 
   private syncState(): void {
+    this.syncAsteroids();
     for (const seat of this.seats) {
       const ship = seat.combatant.ship;
       const s = seat.schema;

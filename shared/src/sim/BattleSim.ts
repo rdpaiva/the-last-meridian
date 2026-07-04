@@ -11,6 +11,7 @@ import { Mothership } from "./Mothership";
 import { LaserSystem } from "./LaserSystem";
 import { MissileSystem } from "./MissileSystem";
 import { AsteroidFieldSim } from "./AsteroidFieldSim";
+import type { AsteroidSim } from "./AsteroidSim";
 import { Hulk } from "./Hulk";
 import type { MothershipSection } from "./MothershipSection";
 import type { Turret } from "./Turret";
@@ -533,24 +534,7 @@ export class BattleSim {
       if (c.launch && !c.launch.isComplete) continue;
       for (const rock of this.asteroids.asteroids) {
         if (!rock.isAlive) continue;
-        const dx = ship.position.x - rock.position.x;
-        const dz = ship.position.z - rock.position.z;
-        const distSq = dx * dx + dz * dz;
-        const maxDist = ship.hitRadius + rock.radius;
-        if (distSq >= maxDist * maxDist) continue;
-        const minDist = ship.hitRadius + rock.surfaceRadiusToward(dx, dz);
-        if (distSq >= minDist * minDist) continue;
-
-        const dist = Math.sqrt(distSq) || 0.0001;
-        const nx = dx / dist;
-        const nz = dz / dist;
-        ship.position.x = rock.position.x + nx * minDist;
-        ship.position.z = rock.position.z + nz * minDist;
-        const vn = ship.velocity.x * nx + ship.velocity.z * nz;
-        if (vn < 0) {
-          ship.velocity.x -= vn * nx;
-          ship.velocity.z -= vn * nz;
-        }
+        if (!collideShipWithAsteroid(ship, rock)) continue;
 
         const last = this.lastBumpMs.get(ship) ?? -Infinity;
         if (nowMs - last >= bumpCooldownMs) {
@@ -570,7 +554,7 @@ export class BattleSim {
       if (c.launch && !c.launch.isComplete) continue;
       for (const f of ["humans", "machines"] as Faction[]) {
         for (const s of this.motherships[f].hullSections) {
-          this.bumpShipOutOfSection(ship, s);
+          bumpShipOutOfSection(ship, s);
         }
       }
     }
@@ -605,46 +589,6 @@ export class BattleSim {
     }
   }
 
-  private bumpShipOutOfSection(ship: Ship, s: MothershipSection): void {
-    const r = ship.hitRadius;
-    const px = Math.min(Math.max(ship.position.x, s.minX), s.maxX);
-    const pz = Math.min(Math.max(ship.position.z, s.minZ), s.maxZ);
-    const dx = ship.position.x - px;
-    const dz = ship.position.z - pz;
-    const distSq = dx * dx + dz * dz;
-    if (distSq > 0) {
-      if (distSq >= r * r) return;
-      const dist = Math.sqrt(distSq);
-      const nx = dx / dist;
-      const nz = dz / dist;
-      ship.position.x = px + nx * r;
-      ship.position.z = pz + nz * r;
-      const vn = ship.velocity.x * nx + ship.velocity.z * nz;
-      if (vn < 0) {
-        ship.velocity.x -= vn * nx;
-        ship.velocity.z -= vn * nz;
-      }
-    } else {
-      const left = ship.position.x - s.minX;
-      const right = s.maxX - ship.position.x;
-      const near = ship.position.z - s.minZ;
-      const far = s.maxZ - ship.position.z;
-      const min = Math.min(left, right, near, far);
-      if (min === left) {
-        ship.position.x = s.minX - r;
-        if (ship.velocity.x > 0) ship.velocity.x = 0;
-      } else if (min === right) {
-        ship.position.x = s.maxX + r;
-        if (ship.velocity.x < 0) ship.velocity.x = 0;
-      } else if (min === near) {
-        ship.position.z = s.minZ - r;
-        if (ship.velocity.z > 0) ship.velocity.z = 0;
-      } else {
-        ship.position.z = s.maxZ + r;
-        if (ship.velocity.z < 0) ship.velocity.z = 0;
-      }
-    }
-  }
 
   private respawnShip(c: SimCombatant): void {
     const ship = c.ship;
@@ -660,6 +604,9 @@ export class BattleSim {
     if (!this.motherships.machines.isAlive) this.endMatch("humans");
     else if (!this.motherships.humans.isAlive) this.endMatch("machines");
   }
+
+  // (collision helpers live at module scope below — shared with the
+  // networked client's prediction, which must bump identically)
 
   private endMatch(winner: Faction): void {
     this._state = "ended";
@@ -734,5 +681,82 @@ export class BattleSim {
       c.ship.respawn(start.x, start.z, home.rotationY);
       c.launch = this.makeLaunchSequence(home, baseHoldSec + i * stagger, c.cinematic);
     });
+  }
+}
+
+/**
+ * Resolve one ship↔asteroid overlap: broad-phase circle, then the rock's true
+ * top-down silhouette (surfaceRadiusToward); on overlap, push the ship to the
+ * surface and cancel its inward velocity. Returns true when a bump happened.
+ * GEOMETRY ONLY — ram damage/cooldown stay in resolveAsteroidCollisions.
+ * Exported so the networked client's prediction bumps its local ship exactly
+ * as the server will (otherwise rocks feel like rubber-band walls online).
+ */
+export function collideShipWithAsteroid(ship: Ship, rock: AsteroidSim): boolean {
+  const dx = ship.position.x - rock.position.x;
+  const dz = ship.position.z - rock.position.z;
+  const distSq = dx * dx + dz * dz;
+  const maxDist = ship.hitRadius + rock.radius;
+  if (distSq >= maxDist * maxDist) return false;
+  const minDist = ship.hitRadius + rock.surfaceRadiusToward(dx, dz);
+  if (distSq >= minDist * minDist) return false;
+
+  const dist = Math.sqrt(distSq) || 0.0001;
+  const nx = dx / dist;
+  const nz = dz / dist;
+  ship.position.x = rock.position.x + nx * minDist;
+  ship.position.z = rock.position.z + nz * minDist;
+  const vn = ship.velocity.x * nx + ship.velocity.z * nz;
+  if (vn < 0) {
+    ship.velocity.x -= vn * nx;
+    ship.velocity.z -= vn * nz;
+  }
+  return true;
+}
+
+/**
+ * Push a ship out of a carrier hull section (solid AABB): nearest-face
+ * ejection with inward-velocity cancel; the degenerate inside-the-box case
+ * exits through the closest face. Exported for the networked client's
+ * prediction (same reason as collideShipWithAsteroid).
+ */
+export function bumpShipOutOfSection(ship: Ship, s: MothershipSection): void {
+  const r = ship.hitRadius;
+  const px = Math.min(Math.max(ship.position.x, s.minX), s.maxX);
+  const pz = Math.min(Math.max(ship.position.z, s.minZ), s.maxZ);
+  const dx = ship.position.x - px;
+  const dz = ship.position.z - pz;
+  const distSq = dx * dx + dz * dz;
+  if (distSq > 0) {
+    if (distSq >= r * r) return;
+    const dist = Math.sqrt(distSq);
+    const nx = dx / dist;
+    const nz = dz / dist;
+    ship.position.x = px + nx * r;
+    ship.position.z = pz + nz * r;
+    const vn = ship.velocity.x * nx + ship.velocity.z * nz;
+    if (vn < 0) {
+      ship.velocity.x -= vn * nx;
+      ship.velocity.z -= vn * nz;
+    }
+  } else {
+    const left = ship.position.x - s.minX;
+    const right = s.maxX - ship.position.x;
+    const near = ship.position.z - s.minZ;
+    const far = s.maxZ - ship.position.z;
+    const min = Math.min(left, right, near, far);
+    if (min === left) {
+      ship.position.x = s.minX - r;
+      if (ship.velocity.x > 0) ship.velocity.x = 0;
+    } else if (min === right) {
+      ship.position.x = s.maxX + r;
+      if (ship.velocity.x < 0) ship.velocity.x = 0;
+    } else if (min === near) {
+      ship.position.z = s.minZ - r;
+      if (ship.velocity.z > 0) ship.velocity.z = 0;
+    } else {
+      ship.position.z = s.maxZ + r;
+      if (ship.velocity.z < 0) ship.velocity.z = 0;
+    }
   }
 }
