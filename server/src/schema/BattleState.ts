@@ -58,6 +58,10 @@ export const BattleState = schema(
     /** "" | "humans" | "machines" */
     winner: "string",
     tick: "number",
+    /** Accumulated sim time in ms — the client's interpolation timeline. The
+     *  sim (30Hz) and patch (20Hz) rates alias, so snapshots must be
+     *  timestamped on THIS clock, not client arrival time. */
+    timeMs: "number",
   },
   "BattleState",
 );

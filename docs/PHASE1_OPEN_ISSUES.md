@@ -26,36 +26,24 @@ See `docs/PHASE1_TWOTAB_CHECKLIST.md` for the full acceptance checklist.
   input-over-the-wire, protocol gate).
 - **Offline single-player** is unaffected by all the restructure work.
 
-## OPEN ISSUE 1 — online client jitter (PRIMARY, unresolved)
+## RESOLVED — online client jitter (fixed 2026-07-04)
 
-Ships/camera visibly jitter in the browser. **Not yet root-caused.** What we
-know and tried:
+**Root cause: sim/patch rate aliasing + arrival-time snapshot timestamps.**
+The server sim runs at 30Hz but patches at 20Hz, so consecutive patches carry
+alternating 1-or-2 sim ticks of motion (33ms vs 67ms worth) — while the client
+timestamped snapshots by arrival time (~50ms apart). Interpolating on that
+axis made apparent ship speed oscillate ±33% at 10Hz: a judder no amount of
+arrival-time smoothing could fix, which is why attempts 1 (`89b5ba6`, pose
+smoothing) and 2 (`9b2840a`, arrival-time snapshot interpolation) changed
+nothing. The stale-HMR-build hypothesis was a red herring.
 
-- The server data is smooth (confirmed via headless probe), so it's a
-  **client render / interpolation** problem, not the network feed.
-- Attempt 1 (commit `89b5ba6`): exponential smoothing of poses toward the
-  latest server value. User: no real improvement.
-- Attempt 2 (commit `9b2840a`): proper **snapshot interpolation** —
-  `NetworkGame` buffers timestamped poses per ship (`room.onStateChange`) and
-  renders at `now - 110ms`, lerping between the two bracketing samples; server
-  patch rate raised 15→20Hz. User: "didn't seem to fix anything."
-- **Untested hypothesis: stale browser build.** Vite HMR doesn't cleanly swap a
-  runtime-instantiated class like `NetworkGame`, so the tab may have been
-  running pre-fix code across BOTH attempts. **First thing to try next session:
-  hard-refresh (Cmd+Shift+R) and confirm whether the interpolation actually
-  took effect** before assuming the code is wrong.
-- If it's genuinely still jittery after a hard refresh, instrument it: expose
-  `window.__netGame` (or a debug overlay) and sample `camera.position` + a ship
-  mesh position across frames to see whether the jitter is the camera, the
-  ship poses, or rotational. Candidate culprits if real: the camera velocity
-  lead fed from interpolated-position deltas (`CameraRig.update` already
-  double-smooths, but try passing zero velocity to rule it out); or the
-  interpolation buffer timing.
-- Relevant code: `client/src/game/NetworkGame.ts` (`recordSnapshot`,
-  `sampleInto`, the `tick` camera block), `client/src/game/CameraRig.ts`.
-- Owner-driven self-debugging note: the project owner runs the dev server and
-  eyeballs in the browser himself (cloud/agent sessions should NOT drive the
-  browser). Prepare instrumentation + a "what to look for" list for him instead.
+**Fix:** interpolate on the server sim-time axis. `BattleState.timeMs`
+replicates accumulated sim time; `NetworkGame.recordSnapshot` timestamps
+snapshots with it and maintains a smoothed wall↔sim clock offset (EMA,
+hard-resync on >250ms jumps); render time = `now − offset − 110ms`.
+Duplicate-sim-time patches are dropped. `PROTOCOL_VERSION` bumped to 2.
+`window.__netGame` is now exposed for live netcode debugging. Confirmed
+smooth in-browser by the owner.
 
 ## OPEN ISSUE 2 — no visible launch in MP (minor, understood)
 
@@ -100,8 +88,7 @@ after the jitter fix.
 
 ## Suggested order to resume
 
-1. Hard-refresh + confirm whether jitter persists with the interpolation code
-   actually loaded. Instrument if needed. (Issue 1 — the real blocker.)
+1. ~~Jitter~~ — RESOLVED (see above).
 2. Phase 2 **FX + sound event replication** — makes combat visible/audible.
 3. Local-ship **prediction** — makes your own flying feel immediate.
 4. Then the Phase 1 polish list above, and merge `feat/phase1-multiplayer`.

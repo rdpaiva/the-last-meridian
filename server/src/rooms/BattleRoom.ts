@@ -51,6 +51,8 @@ export class BattleRoom extends Room<{ state: BattleState }> {
   private sim!: BattleSim;
   private readonly seats: Seat[] = [];
   private readonly seatBySession = new Map<string, Seat>();
+  /** Accumulated (clamped) sim time, replicated as the interpolation clock. */
+  private simTimeMs = 0;
 
   override onCreate(): void {
     this.setState(new BattleState());
@@ -71,6 +73,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     this.state.phase = "launching";
     this.state.winner = "";
     this.state.tick = 0;
+    this.state.timeMs = 0;
 
     this.maxClients = this.seats.length;
 
@@ -119,6 +122,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
 
   private step(deltaMs: number): void {
     const dt = Math.min(deltaMs / 1000, GameConfig.scene.maxDeltaSeconds);
+    this.simTimeMs += dt * 1000;
     this.sim.advance(dt);
     this.syncState();
   }
@@ -141,6 +145,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     this.state.phase = this.sim.state;
     this.state.winner = this.sim.winner ?? "";
     this.state.tick++;
+    this.state.timeMs = this.simTimeMs;
   }
 
   // ─── Scenario assembly ──────────────────────────────────────────────────────

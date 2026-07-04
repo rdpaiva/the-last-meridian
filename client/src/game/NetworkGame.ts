@@ -51,7 +51,7 @@ interface MutablePose {
   isAlive: boolean;
 }
 
-/** One timestamped server sample of a ship's pose (client arrival clock). */
+/** One timestamped server sample of a ship's pose (SERVER sim clock, ms). */
 interface Snap {
   t: number;
   x: number;
@@ -95,6 +95,16 @@ export class NetworkGame {
 
   // Interpolation state, keyed by ship id.
   private readonly snaps = new Map<string, Snap[]>();
+  /**
+   * Smoothed estimate of (client wall clock − server sim clock), i.e. what
+   * performance.now() reads when the server sim is at time 0, network delay
+   * included. Snapshots are timestamped on the SERVER sim clock (state.timeMs)
+   * because the sim (30Hz) and patch (20Hz) rates alias — consecutive patches
+   * carry alternating 1-or-2 sim ticks of motion, so arrival-time timestamps
+   * make apparent ship speed oscillate ±33% at 10Hz (the Phase 1 jitter).
+   * This offset maps render wall time onto that sim timeline.
+   */
+  private clockOffsetMs: number | null = null;
   private readonly meta = new Map<string, { faction: Faction; shipType: ShipTypeId }>();
   private readonly views = new Map<string, ShipView>();
   private myKey: string | null = null;
@@ -134,6 +144,9 @@ export class NetworkGame {
 
     this.scene = new Scene(this.engine);
     (window as unknown as { __BABYLON_SCENE__: Scene }).__BABYLON_SCENE__ = this.scene;
+    // DevTools debug handle (docs/PHASE1_OPEN_ISSUES.md): inspect snapshot
+    // buffers / clockOffsetMs / camera live while chasing netcode feel.
+    (window as unknown as { __netGame: NetworkGame }).__netGame = this;
     this.scene.skipPointerMovePicking = true;
     const c = GameConfig.scene.clearColor;
     this.scene.clearColor = new Color4(c.r, c.g, c.b, 1);
@@ -226,11 +239,25 @@ export class NetworkGame {
     );
   }
 
-  /** Capture one pose sample per ship at arrival time (the interpolation feed). */
+  /** Capture one pose sample per ship, timestamped on the server sim clock. */
   private recordSnapshot(state: unknown): void {
-    const s = state as { ships?: { forEach: (cb: (v: NetShip, k: string) => void) => void } };
+    const s = state as {
+      timeMs?: number;
+      ships?: { forEach: (cb: (v: NetShip, k: string) => void) => void };
+    };
     if (!s.ships) return;
-    const t = performance.now();
+    const t = s.timeMs ?? 0;
+
+    // Track the wall↔sim clock offset. EMA so per-patch arrival jitter doesn't
+    // wobble the render clock; hard resync on a big jump (first patch, hitch,
+    // or a tab that was backgrounded).
+    const offsetSample = performance.now() - t;
+    if (this.clockOffsetMs === null || Math.abs(offsetSample - this.clockOffsetMs) > 250) {
+      this.clockOffsetMs = offsetSample;
+    } else {
+      this.clockOffsetMs += (offsetSample - this.clockOffsetMs) * 0.05;
+    }
+
     s.ships.forEach((ship, key) => {
       if (!this.meta.has(key)) {
         this.meta.set(key, { faction: ship.faction, shipType: ship.shipType });
@@ -241,6 +268,9 @@ export class NetworkGame {
         buf = [];
         this.snaps.set(key, buf);
       }
+      // A patch can arrive without a sim step in between — same sim time,
+      // same pose. Skip it; a zero-dt pair would corrupt interpolation.
+      if (buf.length > 0 && buf[buf.length - 1].t >= t) return;
       buf.push({ t, x: ship.x, z: ship.z, rot: ship.rotationY, bank: ship.bankAngle, alive: ship.alive });
       if (buf.length > 40) buf.shift(); // ~2s of history at 20Hz
     });
@@ -261,8 +291,10 @@ export class NetworkGame {
       this.net.send(MSG.input, { ...this.input.state });
     }
 
-    // 2. Render every ship at (now - delay), interpolated between two samples.
-    const renderT = nowMs - INTERP_DELAY_MS;
+    // 2. Render every ship at (sim time - delay), interpolated between two
+    // samples. clockOffsetMs maps our wall clock onto the server sim clock;
+    // until the first patch sets it there are no snapshots to render anyway.
+    const renderT = nowMs - (this.clockOffsetMs ?? 0) - INTERP_DELAY_MS;
     let havePlayer = false;
     for (const [key, buf] of this.snaps) {
       if (buf.length === 0) continue;
