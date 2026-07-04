@@ -13,7 +13,9 @@ import { MissileSystem } from "./MissileSystem";
 import { AsteroidFieldSim } from "./AsteroidFieldSim";
 import { Hulk } from "./Hulk";
 import type { MothershipSection } from "./MothershipSection";
+import type { Turret } from "./Turret";
 import type { DamageTarget } from "../types";
+import { SimEventBus } from "./SimEvents";
 import { LaunchSequence } from "../LaunchSequence";
 import { computeConcealmentZones } from "./CombatNebulaZones";
 import { seedSimRng } from "./SimRng";
@@ -58,6 +60,15 @@ export type MatchState = "launching" | "playing" | "ended";
  * browser gates OUTSIDE this call — the server never freezes.
  */
 export class BattleSim {
+  /**
+   * The sim→view event channel (SimEvents.ts). Every transient fact the sim
+   * produces — fire, hits, deaths, launches, jumps, turret fire — is emitted
+   * here. The offline Game subscribes FX/SFX; a server room serializes these
+   * onto the wire (Phase 2 event replication); a headless run subscribes
+   * nothing. Emissions draw no RNG, so listeners can't perturb determinism.
+   */
+  readonly events = new SimEventBus();
+
   readonly motherships: Record<Faction, Mothership>;
   readonly asteroids: AsteroidFieldSim;
   readonly factionLasers: Record<Faction, LaserSystem>;
@@ -80,6 +91,8 @@ export class BattleSim {
     machines: [],
   };
   private readonly lastBumpMs = new Map<Ship, number>();
+  /** Turrets whose destruction has been announced (fire-once latch). */
+  private readonly deadTurretsAnnounced = new Set<Turret>();
 
   /** The seat whose launch-clear flips launching → playing (the cinematic one). */
   private primaryLaunch: SimCombatant | null = null;
@@ -128,29 +141,50 @@ export class BattleSim {
       if (hazard.kind === "hulk") this.hulks.push(new Hulk(hazard));
     }
 
+    this.asteroids.onShatter = (position, radius) =>
+      this.events.emit("asteroidShattered", { position, radius });
+
     // --- Weapon systems. Missiles BEFORE lasers so each laser system can hold
     // the OPPOSING pool's live missiles by reference as interceptables. ---
+    const onMissileHit = (
+      position: Vector3,
+      struck: DamageTarget | null,
+      shooter: Ship | null,
+    ) => this.events.emit("missileHit", { position, struck, shooter });
     const humansMissiles = new MissileSystem({
       minDamage: GameConfig.missile.minDamage,
       maxDamage: GameConfig.missile.maxDamage,
       obstacles: this.weaponObstacles,
+      onHit: onMissileHit,
     });
     const machinesMissiles = new MissileSystem({
       minDamage: GameConfig.missile.minDamage,
       maxDamage: GameConfig.missile.maxDamage,
       obstacles: this.weaponObstacles,
+      onHit: onMissileHit,
     });
+    const onLaserHit = (
+      target: DamageTarget,
+      shooter: Ship | null,
+      position: Vector3,
+    ) => this.events.emit("laserHit", { target, shooter, position });
+    const onIntercept = (position: Vector3) =>
+      this.events.emit("missileIntercepted", { position });
     this.factionMissiles = { humans: humansMissiles, machines: machinesMissiles };
     this.factionLasers = {
       humans: new LaserSystem({
         damage: GameConfig.combat.laserDamage,
         obstacles: this.weaponObstacles,
         interceptables: machinesMissiles.interceptables,
+        onHit: onLaserHit,
+        onIntercept,
       }),
       machines: new LaserSystem({
         damage: GameConfig.combat.laserDamage,
         obstacles: this.weaponObstacles,
         interceptables: humansMissiles.interceptables,
+        onHit: onLaserHit,
+        onIntercept,
       }),
     };
 
@@ -315,6 +349,7 @@ export class BattleSim {
       if (c.launch && !c.launch.isComplete) {
         if (ship.isAlive) {
           c.launch.update(dtSeconds, ship);
+          if (c.launch.justLaunched) this.events.emit("shipLaunched", { ship });
           if (c.launch.isComplete) {
             // Flip to "playing" when the cinematic seat clears the tube; with no
             // cinematic seat (MP rooms), the first seat to clear flips it.
@@ -348,6 +383,9 @@ export class BattleSim {
             ship.laserDamage,
           );
         }
+        if (positions.length > 0) {
+          this.events.emit("shipFiredLaser", { ship, muzzles: positions });
+        }
       }
 
       if (ship.isAlive && input.fireMissile) {
@@ -363,17 +401,34 @@ export class BattleSim {
             homing,
             ship,
           );
+          this.events.emit("missileFired", { ship });
         }
       }
 
       // Jump drive: arm/cancel on the input edge, teleport home on spool done.
       if (ship.isAlive) {
-        if (input.jumpPressed) ship.onJumpIntent();
+        if (input.jumpPressed) {
+          const intent = ship.onJumpIntent();
+          if (intent === "spool-started") {
+            this.events.emit("jumpSpoolStarted", { ship });
+          } else if (intent === "spool-cancelled") {
+            this.events.emit("jumpCancelled", { ship });
+          }
+        }
         if (ship.tickJump(dtSeconds)) {
           const home = this.motherships[ship.faction];
           if (home.isAlive) {
             const bay = home.getLaunchStartPosition(c.bayIndex);
+            const fromX = ship.position.x;
+            const fromZ = ship.position.z;
             ship.jumpTeleport(bay.x, bay.z, home.rotationY);
+            this.events.emit("jumpFired", {
+              ship,
+              fromX,
+              fromZ,
+              toX: bay.x,
+              toZ: bay.z,
+            });
           }
         }
       }
@@ -400,6 +455,17 @@ export class BattleSim {
       );
       for (const cmd of fires) {
         this.factionLasers[f].spawn(cmd.origin, cmd.rotationY, null, cmd.damage);
+        this.events.emit("turretFired", {
+          faction: f,
+          origin: cmd.origin,
+          rotationY: cmd.rotationY,
+        });
+      }
+      for (const turret of this.motherships[f].turrets) {
+        if (!turret.isAlive && !this.deadTurretsAnnounced.has(turret)) {
+          this.deadTurretsAnnounced.add(turret);
+          this.events.emit("turretDestroyed", { position: turret.position });
+        }
       }
     }
 
@@ -410,7 +476,10 @@ export class BattleSim {
     // Death bookkeeping + respawns.
     for (const c of this.combatants) {
       const ship = c.ship;
-      if (!ship.isAlive && !ship.explosionFired) ship.explosionFired = true;
+      if (!ship.isAlive && !ship.explosionFired) {
+        ship.explosionFired = true;
+        this.events.emit("shipDied", { ship });
+      }
       if (ship.shouldRespawn(nowMs)) this.respawnShip(c);
     }
 
@@ -487,6 +556,7 @@ export class BattleSim {
         if (nowMs - last >= bumpCooldownMs) {
           this.lastBumpMs.set(ship, nowMs);
           ship.takeDamage(cfg.collisionDamage, nowMs);
+          this.events.emit("shipRammedAsteroid", { ship });
         }
         break; // one bump per ship per frame
       }
@@ -594,6 +664,9 @@ export class BattleSim {
   private endMatch(winner: Faction): void {
     this._state = "ended";
     this._winner = winner;
+    this.events.emit("mothershipDied", {
+      mothership: this.motherships[opposing(winner)],
+    });
     for (const c of this.combatants) c.launch = null;
   }
 

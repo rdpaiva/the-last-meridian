@@ -1686,7 +1686,7 @@ export class Game {
           this.factionLasers[ship.faction].spawn(p, ship.rotationY, ship, ship.laserDamage);
         }
         if (positions.length > 0) {
-          this.events.emit("shipFiredLaser", { ship });
+          this.events.emit("shipFiredLaser", { ship, muzzles: positions });
         }
       }
 
@@ -1771,7 +1771,11 @@ export class Game {
       const fires = ms.updateTurrets(deltaSeconds, this.sensors.contacts[f], nowMs);
       for (const cmd of fires) {
         this.factionLasers[f].spawn(cmd.origin, cmd.rotationY, null, cmd.damage, true, cmd.velocityY);
-        this.events.emit("turretFired", { faction: f, origin: cmd.origin });
+        this.events.emit("turretFired", {
+          faction: f,
+          origin: cmd.origin,
+          rotationY: cmd.rotationY,
+        });
       }
     }
 

@@ -29,6 +29,7 @@ import {
   GameConfig,
   type JoinOptions,
   type InputState,
+  type EventsMessage,
 } from "../../shared/src/index";
 import { BattleRoom } from "../../server/src/rooms/BattleRoom";
 
@@ -168,6 +169,39 @@ describe("BattleRoom integration", () => {
         Math.abs(angleDelta(rotBefore, rotAfter)),
         "seat did not turn under held rotateRight — input did not reach the seat",
       ).toBeGreaterThan(0.1);
+
+      await client.leave();
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    "relays sim FX events to clients (Phase 2 event replication)",
+    async () => {
+      const room = await colyseus.createRoom(BATTLE_ROOM, {});
+      const client = await colyseus.connectTo(room, joinOpts());
+      const batches: EventsMessage[] = [];
+      client.onMessage(MSG.events, (msg: EventsMessage) => batches.push(msg));
+
+      // The fleets catapult out after launch.mpHoldSec — every launch must
+      // reach the client as a shipLaunched fact on the events channel.
+      expect(
+        await waitUntil(() =>
+          batches.some((b) => b.events.some((e) => e.k === "shipLaunched")),
+        ),
+        "no shipLaunched event batch reached the client",
+      ).toBe(true);
+
+      const batch = batches.find((b) =>
+        b.events.some((e) => e.k === "shipLaunched"),
+      )!;
+      // Batches are stamped on the sim clock (the client's FX timeline)...
+      expect(batch.t).toBeGreaterThan(0);
+      // ...and refer to ships by their replicated schema id.
+      const launched = batch.events.find((e) => e.k === "shipLaunched")!;
+      if (launched.k === "shipLaunched") {
+        expect(room.state.ships.has(launched.ship)).toBe(true);
+      }
 
       await client.leave();
     },

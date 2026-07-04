@@ -126,6 +126,7 @@ export class LaserSystem {
     damage?: number,
     turret = false,
     velocityY = 0,
+    heavy?: boolean,
   ): void {
     const cfg = GameConfig.laser;
 
@@ -159,7 +160,9 @@ export class LaserSystem {
         turret,
         // Heavy (gunship) bolts get the faction's heavy-laser tint. Turret flak
         // has no shooter, so it stays on the turret material regardless.
-        shooter?.heavy ?? false,
+        // The explicit `heavy` override serves shooter-less COSMETIC bolts (a
+        // networked client depicting a remote gunship's fire).
+        heavy ?? shooter?.heavy ?? false,
       ),
     );
   }

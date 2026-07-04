@@ -37,8 +37,11 @@ export interface SimEventMap {
   };
   /** A laser shot a missile out of the air (point defense) — no damage. */
   missileIntercepted: { position: Vector3 };
-  /** A ship fired its lasers this frame. */
-  shipFiredLaser: { ship: Ship };
+  /** A ship fired its lasers this frame. `muzzles` = the world-space muzzle
+   *  positions the bolts spawned from (one per barrel) — the Phase 2 relay
+   *  ships these so a networked client can spawn cosmetic bolts exactly
+   *  where the server did. */
+  shipFiredLaser: { ship: Ship; muzzles: readonly Vector3[] };
   /** A ship launched a missile this frame. */
   missileFired: { ship: Ship };
   /** A ship's catapult just flung it out of its carrier bow. */
@@ -49,8 +52,9 @@ export interface SimEventMap {
   shipDied: { ship: Ship };
   /** A mothership fell — the match-ending death spectacle. */
   mothershipDied: { mothership: Mothership };
-  /** A carrier defense turret fired a bolt this frame (faction = the shooter's). */
-  turretFired: { faction: Faction; origin: Vector3 };
+  /** A carrier defense turret fired a bolt this frame (faction = the shooter's).
+   *  `rotationY` = the bolt's heading, for networked cosmetic-bolt spawns. */
+  turretFired: { faction: Faction; origin: Vector3; rotationY: number };
   /** A carrier defense turret was shot off the hull (fires once, latched). */
   turretDestroyed: { position: Vector3 };
   /** A ship armed its jump drive and began the spool-up countdown. */

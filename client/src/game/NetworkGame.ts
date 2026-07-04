@@ -13,8 +13,15 @@ import {
   Mothership,
   lerp,
   wrapAngle,
+  FACTION_THEME,
+  LaserSystem,
+  MissileSystem,
+  type Laser,
+  type Ship,
   type Faction,
   type ShipTypeId,
+  type NetEvent,
+  type EventsMessage,
   MSG,
 } from "@space-duel/shared";
 import { Arena } from "./Arena";
@@ -29,6 +36,12 @@ import { AssetLoader } from "./AssetLoader";
 import { buildFighterMesh } from "./FighterMesh";
 import { ShipView } from "./view/ShipView";
 import { MothershipView } from "./view/MothershipView";
+import { LaserSystemView } from "./view/LaserSystemView";
+import { MissileSystemView } from "./view/MissileSystemView";
+import { ExplosionSystem } from "./ExplosionSystem";
+import { JumpFlashSystem } from "./JumpFlashSystem";
+import { JumpRipple } from "./JumpRipple";
+import { SoundSystem } from "./SoundSystem";
 import type { NetClient } from "../net/NetClient";
 
 /** The shape of a replicated ship (decoded from the server schema). */
@@ -70,13 +83,29 @@ interface Snap {
 const INTERP_DELAY_MS = 110;
 
 /**
+ * A position delta between consecutive snapshots larger than this (world
+ * units) is a TELEPORT (jump drive, respawn at the carrier), not motion —
+ * far beyond any ship's per-patch travel. Interpolation must pop across it,
+ * not streak the ship across the map for a patch interval.
+ */
+const TELEPORT_SNAP_UNITS = 80;
+
+/**
  * The networked client renderer (docs/MULTIPLAYER.md Phase 1 — "dumb client
  * rendering" + the start of Phase 2's interpolation buffer). Runs NO sim: it
  * buffers timestamped server poses per ship and renders each at
  * `now - INTERP_DELAY_MS`, lerping between the two bracketing samples, so ships
  * move smoothly even though state arrives in 20Hz steps. Samples the local
- * keyboard and ships InputState at 30Hz. Still missing (Phase 2): local-ship
- * prediction, transient FX (lasers/explosions), and sound.
+ * keyboard and ships InputState at 30Hz.
+ *
+ * Transient FX + sound (Phase 2 event replication): the server relays the
+ * sim's SimEventBus facts as batched, sim-timestamped NetEvents (MSG.events);
+ * applyFxEvent depicts each one when the render clock reaches its sim time,
+ * so muzzle flashes, bolts, explosions and SFX line up with the interpolated
+ * poses. Weapon projectiles here are COSMETIC pools — no damage, no
+ * collision; hits arrive as events. Still missing (Phase 2): local-ship
+ * prediction; hitstop is deliberately absent (freezing the render clock
+ * would desync the interpolation timeline).
  */
 export class NetworkGame {
   private readonly engine: Engine;
@@ -108,6 +137,25 @@ export class NetworkGame {
   private readonly meta = new Map<string, { faction: Faction; shipType: ShipTypeId }>();
   private readonly views = new Map<string, ShipView>();
   private myKey: string | null = null;
+
+  // ─── Transient FX (Phase 2 event replication) ───
+  private readonly sound: SoundSystem;
+  private readonly explosions: ExplosionSystem;
+  private readonly jumpFlashes: JumpFlashSystem;
+  private readonly jumpRipple: JumpRipple;
+  /** Cosmetic per-faction projectile pools (no damage/collision — see class doc). */
+  private readonly cosmeticLasers: Record<Faction, LaserSystem>;
+  private readonly laserViews: Record<Faction, LaserSystemView>;
+  private readonly cosmeticMissiles: Record<Faction, MissileSystem>;
+  private readonly missileViews: Record<Faction, MissileSystemView>;
+  /** Carrier centers (for the mothership death spectacle placement). */
+  private readonly carrierCenters: Record<Faction, Vector3>;
+  /** Server FX facts awaiting their sim time on the render clock. */
+  private readonly fxQueue: Array<{ t: number; e: NetEvent }> = [];
+  /** Stable per-ship stubs for SoundSystem's jump-drive clip tracking. */
+  private readonly jumpSoundKeys = new Map<string, Ship>();
+  private readonly fxVec = new Vector3();
+  private lastRenderT = 0;
 
   // Reused per-frame scratch (no allocation in the loop).
   private readonly pose: MutablePose = {
@@ -185,6 +233,10 @@ export class NetworkGame {
 
     // --- Carriers (static depiction; live HP from the server) ---
     const ms = GameConfig.mothership;
+    this.carrierCenters = {
+      humans: new Vector3(0, ms.yLevel, ms.playerZ),
+      machines: new Vector3(0, ms.yLevel, ms.enemyZ),
+    };
     const carriers: Record<Faction, MothershipView> = {
       humans: new MothershipView(
         this.scene,
@@ -212,6 +264,57 @@ export class NetworkGame {
     this.input = new InputManager();
     this.input.attach();
     this.loader = new AssetLoader(this.scene);
+
+    // --- Transient FX (Phase 2 event replication): sound + explosions +
+    // jump FX + cosmetic projectile pools, driven by applyFxEvent.
+    this.sound = new SoundSystem(this.scene);
+    this.explosions = new ExplosionSystem(this.scene, this.glowLayer);
+    this.jumpFlashes = new JumpFlashSystem(this.scene, this.glowLayer);
+    this.jumpRipple = new JumpRipple(this.scene, this.cameraRig.camera);
+    this.cosmeticLasers = {
+      humans: new LaserSystem({ damage: 0 }),
+      machines: new LaserSystem({ damage: 0 }),
+    };
+    const tb = GameConfig.mothership.turrets.boltEmissive;
+    const turretBoltEmissive = new Color3(tb.r, tb.g, tb.b);
+    this.laserViews = {
+      humans: new LaserSystemView(this.scene, this.cosmeticLasers.humans, {
+        emissive: FACTION_THEME.humans.laserEmissive,
+        heavyEmissive: FACTION_THEME.humans.laserHeavyEmissive,
+        materialName: FACTION_THEME.humans.laserMaterialName,
+        turretEmissive: turretBoltEmissive,
+      }),
+      machines: new LaserSystemView(this.scene, this.cosmeticLasers.machines, {
+        emissive: FACTION_THEME.machines.laserEmissive,
+        heavyEmissive: FACTION_THEME.machines.laserHeavyEmissive,
+        materialName: FACTION_THEME.machines.laserMaterialName,
+        turretEmissive: turretBoltEmissive,
+      }),
+    };
+    this.cosmeticMissiles = {
+      humans: new MissileSystem({ minDamage: 0, maxDamage: 0 }),
+      machines: new MissileSystem({ minDamage: 0, maxDamage: 0 }),
+    };
+    // Round colors mirror Game's faction-themed missile views.
+    this.missileViews = {
+      humans: new MissileSystemView(this.scene, this.cosmeticMissiles.humans, {
+        bodyColor: new Color3(0.62, 0.66, 0.7),
+        finColor: new Color3(0.78, 0.16, 0.16),
+        trailEmissive: new Color3(2.2, 0.7, 0.1),
+        materialName: "humans_missile_mat",
+      }),
+      machines: new MissileSystemView(this.scene, this.cosmeticMissiles.machines, {
+        bodyColor: new Color3(0.4, 0.38, 0.44),
+        finColor: new Color3(0.5, 0.12, 0.14),
+        trailEmissive: new Color3(0.5, 2.2, 0.6),
+        materialName: "machines_missile_mat",
+      }),
+    };
+
+    // Queue server FX facts; the tick plays each at its sim time.
+    this.net.room.onMessage(MSG.events, (msg: EventsMessage) => {
+      for (const e of msg.events) this.fxQueue.push({ t: msg.t, e });
+    });
 
     // Buffer a timestamped pose for every ship on each server patch.
     this.net.room.onStateChange((state) => this.recordSnapshot(state));
@@ -270,7 +373,14 @@ export class NetworkGame {
       }
       // A patch can arrive without a sim step in between — same sim time,
       // same pose. Skip it; a zero-dt pair would corrupt interpolation.
-      if (buf.length > 0 && buf[buf.length - 1].t >= t) return;
+      const prev = buf.length > 0 ? buf[buf.length - 1] : null;
+      if (prev && prev.t >= t) return;
+      // Teleport (jump drive / respawn): duplicate the arrival pose just after
+      // the departure sample so interpolation POPS across the discontinuity
+      // instead of streaking the ship across the map for a patch interval.
+      if (prev && Math.hypot(ship.x - prev.x, ship.z - prev.z) > TELEPORT_SNAP_UNITS) {
+        buf.push({ t: prev.t + 1, x: ship.x, z: ship.z, rot: ship.rotationY, bank: ship.bankAngle, alive: ship.alive });
+      }
       buf.push({ t, x: ship.x, z: ship.z, rot: ship.rotationY, bank: ship.bankAngle, alive: ship.alive });
       if (buf.length > 40) buf.shift(); // ~2s of history at 20Hz
     });
@@ -281,6 +391,11 @@ export class NetworkGame {
 
     // 1. Sample + send local input, throttled to the server tick rate.
     this.input.update();
+    // Audio unlock rides the first real input gesture (mirrors Game.tick).
+    const held = this.input.state;
+    if (held.thrust || held.reverse || held.rotateLeft || held.rotateRight || held.fire) {
+      this.sound.unlock();
+    }
     const nowMs = performance.now();
     if (
       !this.ended &&
@@ -295,6 +410,7 @@ export class NetworkGame {
     // samples. clockOffsetMs maps our wall clock onto the server sim clock;
     // until the first patch sets it there are no snapshots to render anyway.
     const renderT = nowMs - (this.clockOffsetMs ?? 0) - INTERP_DELAY_MS;
+    this.lastRenderT = renderT;
     let havePlayer = false;
     for (const [key, buf] of this.snaps) {
       if (buf.length === 0) continue;
@@ -325,6 +441,24 @@ export class NetworkGame {
     const zoomInput = this.input.state.zoomIn ? 1 : this.input.state.zoomOut ? -1 : 0;
     this.cameraRig.update(dt, this.camPos, this.camVel, zoomInput);
     this.starfield.update();
+
+    // 3.5 Transient FX: play each queued server fact once the render clock
+    // reaches its sim time (aligning FX with the interpolated poses), then
+    // advance the cosmetic projectile pools + one-shot FX systems.
+    while (this.fxQueue.length > 0 && this.fxQueue[0].t <= renderT) {
+      this.applyFxEvent(this.fxQueue.shift()!.e);
+    }
+    const dtMs = dt * 1000;
+    for (const f of ["humans", "machines"] as Faction[]) {
+      this.cosmeticLasers[f].update(dt, dtMs, nowMs);
+      this.laserViews[f].update();
+      this.cosmeticMissiles[f].update(dt, dtMs, nowMs);
+      this.missileViews[f].update();
+    }
+    this.explosions.update(dt, dtMs);
+    this.jumpFlashes.update(dtMs);
+    this.jumpRipple.update(dtMs);
+    this.sound.updateEngine(dt, this.input.state.thrust ? 1 : 0);
 
     // 4. HUD straight from current state (HP/phase need no interpolation).
     const state = this.net.room.state as unknown as {
@@ -374,6 +508,218 @@ export class NetworkGame {
         return;
       }
     }
+  }
+
+  /**
+   * Depict one replicated sim fact — the MP mirror of Game.wireSimEventFeedback.
+   * Deliberate differences from offline: no hitstop (freezing the render clock
+   * would desync the interpolation timeline) and no kill/score bookkeeping yet.
+   */
+  private applyFxEvent(e: NetEvent): void {
+    const shake = GameConfig.shake;
+    switch (e.k) {
+      case "laserFired": {
+        const meta = this.meta.get(e.ship);
+        if (!meta || e.mx.length === 0) return;
+        const type = GameConfig.shipTypes[meta.shipType];
+        for (let i = 0; i < e.mx.length; i++) {
+          this.fxVec.set(e.mx[i], 0, e.mz[i]);
+          this.cosmeticLasers[meta.faction].spawn(this.fxVec, e.rot, null, 0, false, 0, type.heavy);
+        }
+        this.fxVec.set(e.mx[0], 0, e.mz[0]);
+        this.sound.playFireSound(type.fireSound, e.ship === this.myKey ? undefined : this.fxVec);
+        return;
+      }
+      case "missileFired": {
+        const meta = this.meta.get(e.ship);
+        const pose = this.poseOf(e.ship);
+        if (!meta || !pose) return;
+        // The cosmetic round flies ballistic from the shooter's rendered pose
+        // (the lock isn't on the wire); the missileHit event detonates it.
+        this.cosmeticMissiles[meta.faction].spawn(pose.position, pose.rotationY, null, null);
+        this.sound.playMissileLaunch(e.ship === this.myKey ? undefined : pose.position);
+        return;
+      }
+      case "laserHit": {
+        this.fxVec.set(e.x, e.y, e.z);
+        this.sound.playHit(this.fxVec);
+        this.explosions.spawnSpark(this.fxVec);
+        this.killNearestBolt(e.x, e.z);
+        if (this.myKey !== null && e.target === this.myKey) {
+          this.cameraRig.addTrauma(shake.traumaPlayerLaserHit);
+        } else if (this.myKey !== null && e.shooter === this.myKey) {
+          this.cameraRig.addTrauma(shake.traumaEnemyLaserHit);
+        }
+        return;
+      }
+      case "missileHit":
+      case "missileIntercepted": {
+        this.fxVec.set(e.x, e.y, e.z);
+        this.explosions.spawn(this.fxVec);
+        this.sound.playExplosion(this.fxVec);
+        this.killNearestMissile(e.x, e.z);
+        if (e.k === "missileHit" && this.myKey !== null && e.target === this.myKey) {
+          this.cameraRig.addTrauma(shake.traumaPlayerMissileHit);
+        } else {
+          this.cameraRig.addTrauma(this.traumaAtDistance(shake.traumaMissileHit, e.x, e.z));
+        }
+        return;
+      }
+      case "shipLaunched": {
+        if (e.ship === this.myKey) {
+          this.cameraRig.addTrauma(GameConfig.launch.launchTrauma);
+        } else {
+          const pose = this.poseOf(e.ship);
+          if (pose) {
+            this.cameraRig.addTrauma(
+              this.traumaAtDistance(GameConfig.launch.launchTrauma, pose.position.x, pose.position.z),
+            );
+          }
+        }
+        return;
+      }
+      case "shipDied": {
+        this.fxVec.set(e.x, 0, e.z);
+        // Destroyed mid-spool: cut its jump-drive clip (no-op otherwise).
+        this.sound.stopJumpDrive(this.jumpKey(e.ship));
+        this.explosions.spawn(this.fxVec);
+        this.sound.playExplosion(this.fxVec);
+        this.cameraRig.addTrauma(
+          e.ship === this.myKey
+            ? shake.traumaPlayerExplosion
+            : this.traumaAtDistance(shake.traumaEnemyExplosion, e.x, e.z),
+        );
+        return;
+      }
+      case "mothershipDied": {
+        const cfg = GameConfig.mothership;
+        const center = this.carrierCenters[e.faction];
+        for (let i = 0; i < cfg.deathExplosionCount; i++) {
+          this.fxVec.set(
+            center.x + (Math.random() * 2 - 1) * cfg.deathExplosionSpread,
+            center.y,
+            center.z + (Math.random() * 2 - 1) * cfg.deathExplosionSpread,
+          );
+          this.explosions.spawn(this.fxVec);
+        }
+        this.sound.playExplosion(center);
+        this.cameraRig.addTrauma(cfg.deathTrauma);
+        return;
+      }
+      case "turretFired": {
+        this.fxVec.set(e.x, e.y, e.z);
+        this.cosmeticLasers[e.faction].spawn(this.fxVec, e.rot, null, 0, true);
+        this.sound.playTurretFire(this.fxVec);
+        this.explosions.spawnMuzzleFlash(this.fxVec);
+        return;
+      }
+      case "turretDestroyed": {
+        this.fxVec.set(e.x, e.y, e.z);
+        this.explosions.spawn(this.fxVec);
+        this.sound.playExplosion(this.fxVec);
+        this.cameraRig.addTrauma(
+          this.traumaAtDistance(GameConfig.mothership.turrets.destroyTrauma, e.x, e.z),
+        );
+        return;
+      }
+      case "jumpSpoolStarted": {
+        const pose = this.poseOf(e.ship);
+        this.sound.startJumpDrive(
+          this.jumpKey(e.ship),
+          e.ship === this.myKey || !pose ? null : pose.position.clone(),
+        );
+        return;
+      }
+      case "jumpCancelled":
+        this.sound.stopJumpDrive(this.jumpKey(e.ship));
+        return;
+      case "jumpFired": {
+        this.sound.releaseJumpDrive(this.jumpKey(e.ship));
+        const from = new Vector3(e.fromX, 0, e.fromZ);
+        const to = new Vector3(e.toX, 0, e.toZ);
+        this.jumpFlashes.spawn(from);
+        this.jumpFlashes.spawn(to);
+        this.jumpRipple.spawn(from);
+        if (e.ship === this.myKey) {
+          // Our own teleport: hard-snap the camera across the discontinuity
+          // (mirrors offline) and zero the velocity lead so it doesn't whip.
+          this.cameraRig.snapTo(to);
+          this.lastPlayerPos.copyFrom(to);
+          this.camVel.set(0, 0, 0);
+        }
+        return;
+      }
+    }
+  }
+
+  /** Sample a ship's interpolation buffer at the current render time. Writes
+   *  the shared pose scratch — copy anything you need to keep. Null = unseen. */
+  private poseOf(key: string): MutablePose | null {
+    const buf = this.snaps.get(key);
+    if (!buf || buf.length === 0) return null;
+    this.sampleInto(buf, this.lastRenderT, this.pose);
+    return this.pose;
+  }
+
+  /** Trauma attenuated by distance from OUR ship (mirrors Game.traumaAtDistance). */
+  private traumaAtDistance(base: number, x: number, z: number): number {
+    const dx = x - this.camPos.x;
+    const dz = z - this.camPos.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    return base * Math.max(0, 1 - dist / GameConfig.sound.maxDistance);
+  }
+
+  /** SoundSystem keys jump-drive clips by Ship identity and reads only its
+   *  `.faction`; networked ships have no sim Ship, so hand it a stable stub. */
+  private jumpKey(shipId: string): Ship {
+    let stub = this.jumpSoundKeys.get(shipId);
+    if (!stub) {
+      stub = {
+        faction: this.meta.get(shipId)?.faction ?? "humans",
+      } as unknown as Ship;
+      this.jumpSoundKeys.set(shipId, stub);
+    }
+    return stub;
+  }
+
+  /** Kill the closest live cosmetic bolt to an impact — the server consumed
+   *  the real one; without this the depicted bolt sails through its victim. */
+  private killNearestBolt(x: number, z: number): void {
+    let best: Laser | null = null;
+    let bestSq = 15 * 15;
+    for (const f of ["humans", "machines"] as Faction[]) {
+      for (const bolt of this.cosmeticLasers[f].bolts) {
+        if (bolt.isExpired) continue;
+        const dx = bolt.position.x - x;
+        const dz = bolt.position.z - z;
+        const dSq = dx * dx + dz * dz;
+        if (dSq < bestSq) {
+          bestSq = dSq;
+          best = bolt;
+        }
+      }
+    }
+    best?.kill();
+  }
+
+  /** Same as killNearestBolt, for cosmetic missile rounds (wider net — the
+   *  ballistic depiction can drift further from the server's homing truth). */
+  private killNearestMissile(x: number, z: number): void {
+    let best: { kill(): void } | null = null;
+    let bestSq = 30 * 30;
+    for (const f of ["humans", "machines"] as Faction[]) {
+      for (const round of this.cosmeticMissiles[f].rounds) {
+        if (!round.isAlive) continue;
+        const dx = round.position.x - x;
+        const dz = round.position.z - z;
+        const dSq = dx * dx + dz * dz;
+        if (dSq < bestSq) {
+          bestSq = dSq;
+          best = round;
+        }
+      }
+    }
+    best?.kill();
   }
 
   private makeView(key: string): ShipView {

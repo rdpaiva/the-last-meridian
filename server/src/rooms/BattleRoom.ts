@@ -9,10 +9,14 @@ import {
   FleetCommander,
   type CommandedPilot,
   GameConfig,
+  Ship,
+  type DamageTarget,
   type Faction,
   type InputState,
   type JoinOptions,
   type ShipTypeId,
+  type NetEvent,
+  type EventsMessage,
   PROTOCOL_VERSION,
   PROTOCOL_MISMATCH,
   MSG,
@@ -53,6 +57,11 @@ export class BattleRoom extends Room<{ state: BattleState }> {
   private readonly seatBySession = new Map<string, Seat>();
   /** Accumulated (clamped) sim time, replicated as the interpolation clock. */
   private simTimeMs = 0;
+  /** FX facts collected from the sim bus during the current tick (Phase 2
+   *  event replication); step() broadcasts + clears them after syncState. */
+  private readonly pendingEvents: NetEvent[] = [];
+  /** Live sim Ship → replicated schema id (the ships-map key clients see). */
+  private readonly shipIds = new Map<Ship, string>();
 
   override onCreate(): void {
     this.setState(new BattleState());
@@ -64,6 +73,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     // Both teams are AI fleets to begin with; humans take seats on join.
     this.buildFleet("humans");
     this.buildFleet("machines");
+    this.wireEventRelay();
     this.sim.start();
 
     // Carrier slots + initial match fields (the schema() factory leaves
@@ -125,6 +135,115 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     this.simTimeMs += dt * 1000;
     this.sim.advance(dt);
     this.syncState();
+    if (this.pendingEvents.length > 0) {
+      const msg: EventsMessage = { t: this.simTimeMs, events: [...this.pendingEvents] };
+      this.broadcast(MSG.events, msg);
+      this.pendingEvents.length = 0;
+    }
+  }
+
+  /**
+   * Serialize the sim's transient-FX facts onto the wire (Phase 2 event
+   * replication, docs/MULTIPLAYER.md): live object refs become schema ids and
+   * raw coordinates here, at the network boundary — exactly the seam
+   * sim/SimEvents.ts promises. Not relayed: shipRammedAsteroid /
+   * asteroidShattered (the MP client doesn't render the asteroid field yet,
+   * so those cues would point at nothing — relay them when rocks replicate).
+   */
+  private wireEventRelay(): void {
+    const ev = this.sim.events;
+    const id = (ship: Ship | null): string =>
+      (ship && this.shipIds.get(ship)) || "";
+    const targetId = (t: DamageTarget | null): string =>
+      t instanceof Ship ? id(t) : "";
+    ev.on("shipFiredLaser", ({ ship, muzzles }) =>
+      this.pendingEvents.push({
+        k: "laserFired",
+        ship: id(ship),
+        rot: ship.rotationY,
+        mx: muzzles.map((m) => m.x),
+        mz: muzzles.map((m) => m.z),
+      }),
+    );
+    ev.on("missileFired", ({ ship }) =>
+      this.pendingEvents.push({ k: "missileFired", ship: id(ship) }),
+    );
+    ev.on("laserHit", ({ target, shooter, position }) =>
+      this.pendingEvents.push({
+        k: "laserHit",
+        x: position.x,
+        y: position.y,
+        z: position.z,
+        target: targetId(target),
+        shooter: id(shooter),
+      }),
+    );
+    ev.on("missileHit", ({ position, struck, shooter }) =>
+      this.pendingEvents.push({
+        k: "missileHit",
+        x: position.x,
+        y: position.y,
+        z: position.z,
+        target: targetId(struck),
+        shooter: id(shooter),
+      }),
+    );
+    ev.on("missileIntercepted", ({ position }) =>
+      this.pendingEvents.push({
+        k: "missileIntercepted",
+        x: position.x,
+        y: position.y,
+        z: position.z,
+      }),
+    );
+    ev.on("shipLaunched", ({ ship }) =>
+      this.pendingEvents.push({ k: "shipLaunched", ship: id(ship) }),
+    );
+    ev.on("shipDied", ({ ship }) =>
+      this.pendingEvents.push({
+        k: "shipDied",
+        ship: id(ship),
+        x: ship.position.x,
+        z: ship.position.z,
+      }),
+    );
+    ev.on("mothershipDied", ({ mothership }) =>
+      this.pendingEvents.push({ k: "mothershipDied", faction: mothership.faction }),
+    );
+    ev.on("turretFired", ({ faction, origin, rotationY }) =>
+      this.pendingEvents.push({
+        k: "turretFired",
+        faction,
+        rot: rotationY,
+        x: origin.x,
+        y: origin.y,
+        z: origin.z,
+      }),
+    );
+    ev.on("turretDestroyed", ({ position }) =>
+      this.pendingEvents.push({
+        k: "turretDestroyed",
+        x: position.x,
+        y: position.y,
+        z: position.z,
+      }),
+    );
+    ev.on("jumpSpoolStarted", ({ ship }) =>
+      this.pendingEvents.push({ k: "jumpSpoolStarted", ship: id(ship) }),
+    );
+    ev.on("jumpCancelled", ({ ship }) =>
+      this.pendingEvents.push({ k: "jumpCancelled", ship: id(ship) }),
+    );
+    ev.on("jumpFired", ({ ship, fromX, fromZ, toX, toZ }) =>
+      this.pendingEvents.push({
+        k: "jumpFired",
+        ship: id(ship),
+        fromX,
+        fromZ,
+        toX,
+        toZ,
+      }),
+    );
   }
 
   private syncState(): void {
@@ -180,6 +299,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
         const combatant = this.sim.addCombatant({ ship, controller: ai });
         const schema = this.makeShipSchema(faction, entry.type, `${faction}-${index}`);
         this.state.ships.set(schema.id, schema);
+        this.shipIds.set(ship, schema.id);
         this.seats.push({
           id: schema.id,
           faction,
