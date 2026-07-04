@@ -614,8 +614,16 @@ export class NetworkGame {
         if (!meta || !pose) return;
         // The cosmetic round flies ballistic from the shooter's rendered pose
         // (the lock isn't on the wire); the missileHit event detonates it.
-        this.cosmeticMissiles[meta.faction].spawn(pose.position, pose.rotationY, null, null);
-        this.sound.playMissileLaunch(e.ship === this.myKey ? undefined : pose.position);
+        // Same nose offset as Ship.tryFireMissile — the server's round leaves
+        // from ahead of the hull, not the ship's center.
+        const off = GameConfig.missile.spawnOffset;
+        this.fxVec.set(
+          pose.position.x + Math.sin(pose.rotationY) * off,
+          0,
+          pose.position.z + Math.cos(pose.rotationY) * off,
+        );
+        this.cosmeticMissiles[meta.faction].spawn(this.fxVec, pose.rotationY, null, null);
+        this.sound.playMissileLaunch(e.ship === this.myKey ? undefined : this.fxVec);
         return;
       }
       case "laserHit": {
