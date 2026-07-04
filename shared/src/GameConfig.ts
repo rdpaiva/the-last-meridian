@@ -1200,6 +1200,15 @@ export const GameConfig = {
      */
     staggerSec: 0.4,
     /**
+     * Base launch hold (seconds) when there is NO cinematic seat — i.e.
+     * multiplayer rooms, where the sim starts the instant the room is created,
+     * before any client has finished joining and loading ship GLBs. Holding the
+     * fleets in their tubes this long lets the first player actually SEE the
+     * catapult launch instead of joining into ships already in open space.
+     * Single-player ignores this: its hold is the cinematic 3-2-1 countdown.
+     */
+    mpHoldSec: 4.0,
+    /**
      * How many ships fill a launch bay before the queue spills to the next one.
      * Ships are assigned to bays in contiguous blocks (the first `shipsPerBay`
      * launch from bay 0, the next `shipsPerBay` from bay 1, …) rather than

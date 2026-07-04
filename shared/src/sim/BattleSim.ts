@@ -620,9 +620,12 @@ export class BattleSim {
 
   /** Catapult each faction's fleet out of its carrier; the cinematic seat leads
    *  its fleet so its hold is the intro/countdown. With no cinematic seat (MP
-   *  rooms), the base hold is 0 — ships launch immediately, staggered by bay. */
+   *  rooms), the base hold is launch.mpHoldSec — long enough for joining
+   *  clients to load and watch the fleets stream out. */
   private assignInitialLaunches(): void {
-    const base = this.primaryLaunch ? LaunchSequence.cinematicHoldSec() : 0;
+    const base = this.primaryLaunch
+      ? LaunchSequence.cinematicHoldSec()
+      : GameConfig.launch.mpHoldSec;
     for (const f of ["humans", "machines"] as Faction[]) {
       const queue = this.combatants.filter((c) => c.ship.faction === f);
       // Cinematic seat first so it leads the stagger (its hold is the countdown).

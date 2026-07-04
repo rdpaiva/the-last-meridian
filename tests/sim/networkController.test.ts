@@ -26,7 +26,9 @@ function launchedShip(net: NetworkController) {
   });
   const combatant = sim.addCombatant({ ship, controller: net });
   sim.start();
-  for (let i = 0; i < 400 && combatant.launch; i++) sim.advance(1 / 60);
+  // Cap must cover launch.mpHoldSec (the no-cinematic-seat hold) + catapult
+  // travel + handback ease; the loop exits early the moment the launch clears.
+  for (let i = 0; i < 900 && combatant.launch; i++) sim.advance(1 / 60);
   expect(combatant.launch, "ship never cleared the launch tube").toBeNull();
   ship.debugInvulnerable = true; // ignore stray carrier-turret fire
   return { sim, ship };
