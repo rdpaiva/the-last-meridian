@@ -759,6 +759,40 @@ export const GameConfig = {
     ] as ReadonlyArray<{ x: number; z: number }>,
 
     /**
+     * MEASURED launch geometry per carrier GLB — each model's `launch.*`
+     * empties (carrier-local x/z, sorted by x) and bow-clearing exit distance,
+     * captured by `node scripts/measure-carrier-footprint.mjs`. RE-RUN + RE-FIT
+     * after re-exporting a carrier model.
+     *
+     * Why it exists: the sim seeds itself with these at construction so a
+     * HEADLESS run (the Colyseus server, tests) stages launches in the same
+     * tubes the loaded model shows. Without it the server fell back to the
+     * procedural `launchBays` above and online ships parked/launched beside
+     * the visible bays. The browser still refines these live off the loaded
+     * GLB (MothershipView → setModelLaunchData); measured-vs-live should agree
+     * to rounding.
+     */
+    measuredLaunch: {
+      humans: {
+        bays: [
+          { x: -38.2, z: 86.9 },
+          { x: 38.2, z: 86.9 },
+        ],
+        exitDistance: 164.9,
+      },
+      machines: {
+        bays: [
+          { x: -41.3, z: 23.3 },
+          { x: 41.3, z: 23.3 },
+        ],
+        exitDistance: 171.3,
+      },
+    } as Record<
+      "humans" | "machines",
+      { bays: ReadonlyArray<{ x: number; z: number }>; exitDistance: number }
+    >,
+
+    /**
      * Detailed carrier MODELS (Blender → GLB) that replace the procedural box
      * build at runtime. Loaded once per carrier in Game.start(); on success the
      * procedural meshes are disposed and the GLB takes over. `file` is

@@ -22,7 +22,7 @@ const CONFIG = { rotX: 0, rotY: Math.PI, rotZ: 0, scale: 10.6 }; // GameConfig.m
 
 for (const file of ["bastion_carrier.glb", "choirship.glb"]) {
   const scene = new Scene(engine);
-  const b64 = fs.readFileSync("public/models/" + file).toString("base64");
+  const b64 = fs.readFileSync("client/public/models/" + file).toString("base64");
   const result = await SceneLoader.ImportMeshAsync(
     "", "", "data:;base64," + b64, scene, undefined, ".glb",
   );
@@ -72,6 +72,26 @@ for (const file of ["bastion_carrier.glb", "choirship.glb"]) {
   );
   console.log(
     `Y: ${minY.toFixed(1)} .. ${maxY.toFixed(1)}  (launch exit dist = maxZ+25 = ${(maxZ + 25).toFixed(1)})`,
+  );
+
+  // launch.* empties in carrier-LOCAL x/z (root at origin, rotation 0, so
+  // world == local here) — the same capture MothershipView.captureLaunchMarkers
+  // does in the browser. Paste these into GameConfig.mothership.measuredLaunch
+  // so HEADLESS sims (Colyseus server, tests) stage launches in the same tubes
+  // the loaded model shows.
+  const bays = [];
+  for (const n of result.transformNodes) {
+    if (!n.name || !n.name.toLowerCase().startsWith("launch")) continue;
+    n.computeWorldMatrix(true);
+    const p = n.getAbsolutePosition();
+    bays.push({ x: p.x, z: p.z });
+  }
+  bays.sort((a, b) => a.x - b.x);
+  console.log(
+    `launch.* empties (carrier-local, sorted by x): ` +
+      (bays.length === 0
+        ? "NONE"
+        : bays.map((b) => `{ x: ${b.x.toFixed(1)}, z: ${b.z.toFixed(1)} }`).join(", ")),
   );
 
   // Z-binned half-width profile: for each 10-unit Z slice, the widest |x|

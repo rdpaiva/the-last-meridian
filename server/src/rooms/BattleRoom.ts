@@ -287,6 +287,8 @@ export class BattleRoom extends Room<{ state: BattleState }> {
       s.bankAngle = ship.bankAngle;
       s.hp = ship.hp;
       s.alive = ship.isAlive;
+      s.cannonAmmo = ship.cannonAmmo;
+      s.missileAmmo = ship.missileAmmo;
       s.launching = seat.combatant.launch !== null;
       s.lastInputSeq = seat.lastInputSeq;
     }
@@ -377,6 +379,8 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     ship.lastInputSeq = 0;
     ship.maxHp = GameConfig.shipTypes[typeId].maxHp;
     ship.hp = ship.maxHp;
+    ship.cannonAmmo = GameConfig.shipTypes[typeId].cannonAmmo;
+    ship.missileAmmo = GameConfig.shipTypes[typeId].missileAmmo;
     ship.alive = true;
     ship.launching = true;
     ship.isAI = true;

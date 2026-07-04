@@ -124,6 +124,14 @@ export class Mothership implements DamageTarget {
     });
     this.avoidanceCircles = this.buildAvoidanceCircles();
     this.turrets = this.buildTurrets(worldPosition, sin, cos);
+
+    // Seed the launch geometry with the values MEASURED off this faction's
+    // carrier GLB (scripts/measure-carrier-footprint.mjs), so a HEADLESS sim
+    // (Colyseus server, tests) stages launches in the same tubes the browser
+    // shows. The browser refines these live once its model loads — measured
+    // and live agree to rounding, so there is no visible re-stage.
+    const measured = GameConfig.mothership.measuredLaunch[faction];
+    if (measured) this.setModelLaunchData(measured.bays, measured.exitDistance);
   }
 
   /**

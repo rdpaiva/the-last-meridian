@@ -59,6 +59,8 @@ interface NetShip {
   bankAngle: number;
   alive: boolean;
   launching: boolean;
+  cannonAmmo: number;
+  missileAmmo: number;
   lastInputSeq: number;
 }
 
@@ -142,8 +144,6 @@ export class NetworkGame {
   /** Visual offset hiding sub-snap reconciliation error; decays each frame. */
   private readonly correctionPos = new Vector3();
   private correctionRot = 0;
-  /** Local barrel cycle for own alternate-mode fire depiction. */
-  private ownMuzzleIdx = 0;
   /** Own seat's newest authoritative sample (prediction seed + rewind point). */
   private readonly myServer = {
     x: 0,
@@ -152,6 +152,8 @@ export class NetworkGame {
     vz: 0,
     rot: 0,
     bank: 0,
+    cannonAmmo: 0,
+    missileAmmo: 0,
     seq: 0,
     valid: false,
   };
@@ -332,9 +334,9 @@ export class NetworkGame {
     };
 
     // Queue server FX facts; the tick plays each at its sim time. EXCEPT our
-    // own weapon fire: that is depicted immediately from the PREDICTED pose —
-    // queued to the (delayed) render clock it would spawn at where our ship
-    // was a full prediction-lead ago, i.e. visibly behind our own ship.
+    // own weapon fire: that is depicted PREDICTIVELY at the keypress
+    // (updatePrediction) — the server echo would double-render it, and even
+    // an immediately-applied echo trails a thrusting ship by a round trip.
     this.net.room.onMessage(MSG.events, (msg: EventsMessage) => {
       for (const e of msg.events) {
         if (
@@ -342,10 +344,9 @@ export class NetworkGame {
           (e.k === "laserFired" || e.k === "missileFired") &&
           e.ship === this.myKey
         ) {
-          this.applyOwnFire(e);
-        } else {
-          this.fxQueue.push({ t: msg.t, e });
+          continue;
         }
+        this.fxQueue.push({ t: msg.t, e });
       }
     });
 
@@ -411,6 +412,8 @@ export class NetworkGame {
         this.myServer.vz = ship.vz;
         this.myServer.rot = ship.rotationY;
         this.myServer.bank = ship.bankAngle;
+        this.myServer.cannonAmmo = ship.cannonAmmo;
+        this.myServer.missileAmmo = ship.missileAmmo;
         this.myServer.seq = ship.lastInputSeq;
         this.myServer.valid = true;
         this.myAlive = ship.alive;
@@ -582,45 +585,6 @@ export class NetworkGame {
         out.isAlive = a.alive; // discrete; take the earlier sample's state
         return;
       }
-    }
-  }
-
-  /**
-   * Depict OUR OWN weapon fire at the predicted ship's CURRENT muzzles, the
-   * moment the server confirms the shot (~one RTT after the keypress). The
-   * server's muzzle coordinates are deliberately ignored — they're where the
-   * ship was on the server timeline, behind the predicted pose on screen.
-   */
-  private applyOwnFire(e: Extract<NetEvent, { k: "laserFired" | "missileFired" }>): void {
-    const meta = this.myKey !== null ? this.meta.get(this.myKey) : undefined;
-    const ship = this.predicted;
-    if (!meta || !ship) return;
-    const type = GameConfig.shipTypes[meta.shipType];
-    if (e.k === "laserFired") {
-      const muzzles = type.muzzles;
-      const salvo = e.mx.length >= muzzles.length;
-      for (let i = 0; i < e.mx.length; i++) {
-        // Salvo mode = every barrel; alternate mode = one barrel per shot,
-        // cycled locally (phase may differ from the server's cycle — the
-        // barrels still visibly alternate, which is all that reads).
-        const m = salvo
-          ? muzzles[i]
-          : muzzles[this.ownMuzzleIdx++ % muzzles.length];
-        ship.worldFromLocal(m.x, m.y, m.z, this.fxVec);
-        this.cosmeticLasers[meta.faction].spawn(
-          this.fxVec,
-          ship.rotationY,
-          null,
-          0,
-          false,
-          0,
-          type.heavy,
-        );
-      }
-      this.sound.playFireSound(type.fireSound);
-    } else {
-      this.cosmeticMissiles[meta.faction].spawn(ship.position, ship.rotationY, null, null);
-      this.sound.playMissileLaunch();
     }
   }
 
@@ -804,12 +768,40 @@ export class NetworkGame {
       p.velocity.set(s.vx, 0, s.vz);
       p.rotationY = s.rot;
       p.bankAngle = s.bank;
+      p.cannonAmmo = s.cannonAmmo;
+      p.missileAmmo = s.missileAmmo;
       this.correctionPos.set(0, 0, 0);
       this.correctionRot = 0;
       this.pendingInputs.length = 0;
       this.predictionActive = true;
     }
-    this.predicted!.update(dt, this.input.state);
+    const ship = this.predicted!;
+    ship.update(dt, this.input.state);
+
+    // Predicted weapon fire: depict our shots the instant the key acts, from
+    // the live muzzle — even an instantly-applied server echo trails a
+    // thrusting ship by a round trip ("lasers firing from behind the ship").
+    // tryFire/tryFireMissile mirror the server's cooldown + ammo gates, and
+    // ammo re-syncs from every authoritative sample, so the depiction can't
+    // run away from the truth. Hits remain entirely server-decided.
+    const type = GameConfig.shipTypes[meta.shipType];
+    if (this.input.state.fire) {
+      const positions = ship.tryFire();
+      if (positions.length > 0) {
+        for (const p of positions) {
+          this.cosmeticLasers[meta.faction].spawn(p, ship.rotationY, null, 0, false, 0, type.heavy);
+        }
+        this.sound.playFireSound(type.fireSound);
+      }
+    }
+    if (this.input.state.fireMissile) {
+      const missilePos = ship.tryFireMissile();
+      if (missilePos) {
+        this.cosmeticMissiles[meta.faction].spawn(missilePos, ship.rotationY, null, null);
+        this.sound.playMissileLaunch();
+      }
+    }
+
     // Decay the visual correction offset toward zero (frame-rate independent).
     const m = exponentialMultiplier(GameConfig.net.correctionRate, dt);
     this.correctionPos.x *= m;
@@ -835,6 +827,10 @@ export class NetworkGame {
     ship.velocity.set(s.vx, 0, s.vz);
     ship.rotationY = s.rot;
     ship.bankAngle = s.bank;
+    // Ammo is authoritative (spends + carrier-service refills happen there);
+    // syncing every sample keeps the predicted fire gates honest.
+    ship.cannonAmmo = s.cannonAmmo;
+    ship.missileAmmo = s.missileAmmo;
     while (this.pendingInputs.length > 0 && this.pendingInputs[0].seq <= s.seq) {
       this.pendingInputs.shift();
     }

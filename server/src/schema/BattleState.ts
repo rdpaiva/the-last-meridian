@@ -24,6 +24,10 @@ export const ShipSchema = schema(
     bankAngle: "float32",
     hp: "float32",
     maxHp: "float32",
+    /** Ammo (fractional while the carrier service refills) — the owner's
+     *  predicted fire re-syncs from these so its depiction can't drift. */
+    cannonAmmo: "float32",
+    missileAmmo: "float32",
     /** Last InputMessage.seq applied to this seat (prediction ack; 0 = none). */
     lastInputSeq: "number",
     alive: "boolean",
