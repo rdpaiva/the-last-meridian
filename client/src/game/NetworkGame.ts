@@ -142,6 +142,8 @@ export class NetworkGame {
   /** Visual offset hiding sub-snap reconciliation error; decays each frame. */
   private readonly correctionPos = new Vector3();
   private correctionRot = 0;
+  /** Local barrel cycle for own alternate-mode fire depiction. */
+  private ownMuzzleIdx = 0;
   /** Own seat's newest authoritative sample (prediction seed + rewind point). */
   private readonly myServer = {
     x: 0,
@@ -329,9 +331,22 @@ export class NetworkGame {
       }),
     };
 
-    // Queue server FX facts; the tick plays each at its sim time.
+    // Queue server FX facts; the tick plays each at its sim time. EXCEPT our
+    // own weapon fire: that is depicted immediately from the PREDICTED pose —
+    // queued to the (delayed) render clock it would spawn at where our ship
+    // was a full prediction-lead ago, i.e. visibly behind our own ship.
     this.net.room.onMessage(MSG.events, (msg: EventsMessage) => {
-      for (const e of msg.events) this.fxQueue.push({ t: msg.t, e });
+      for (const e of msg.events) {
+        if (
+          this.predictionActive &&
+          (e.k === "laserFired" || e.k === "missileFired") &&
+          e.ship === this.myKey
+        ) {
+          this.applyOwnFire(e);
+        } else {
+          this.fxQueue.push({ t: msg.t, e });
+        }
+      }
     });
 
     // Buffer a timestamped pose for every ship on each server patch.
@@ -348,6 +363,9 @@ export class NetworkGame {
   async start(): Promise<void> {
     await this.preloadTemplates();
     this.engine.runRenderLoop(this.tick);
+    // Loaded + rendering: tell the room we can actually SEE the battlefield.
+    // The first ready in a room releases the opening fleet launch.
+    this.net.send(MSG.ready, {});
   }
 
   private async preloadTemplates(): Promise<void> {
@@ -564,6 +582,45 @@ export class NetworkGame {
         out.isAlive = a.alive; // discrete; take the earlier sample's state
         return;
       }
+    }
+  }
+
+  /**
+   * Depict OUR OWN weapon fire at the predicted ship's CURRENT muzzles, the
+   * moment the server confirms the shot (~one RTT after the keypress). The
+   * server's muzzle coordinates are deliberately ignored — they're where the
+   * ship was on the server timeline, behind the predicted pose on screen.
+   */
+  private applyOwnFire(e: Extract<NetEvent, { k: "laserFired" | "missileFired" }>): void {
+    const meta = this.myKey !== null ? this.meta.get(this.myKey) : undefined;
+    const ship = this.predicted;
+    if (!meta || !ship) return;
+    const type = GameConfig.shipTypes[meta.shipType];
+    if (e.k === "laserFired") {
+      const muzzles = type.muzzles;
+      const salvo = e.mx.length >= muzzles.length;
+      for (let i = 0; i < e.mx.length; i++) {
+        // Salvo mode = every barrel; alternate mode = one barrel per shot,
+        // cycled locally (phase may differ from the server's cycle — the
+        // barrels still visibly alternate, which is all that reads).
+        const m = salvo
+          ? muzzles[i]
+          : muzzles[this.ownMuzzleIdx++ % muzzles.length];
+        ship.worldFromLocal(m.x, m.y, m.z, this.fxVec);
+        this.cosmeticLasers[meta.faction].spawn(
+          this.fxVec,
+          ship.rotationY,
+          null,
+          0,
+          false,
+          0,
+          type.heavy,
+        );
+      }
+      this.sound.playFireSound(type.fireSound);
+    } else {
+      this.cosmeticMissiles[meta.faction].spawn(ship.position, ship.rotationY, null, null);
+      this.sound.playMissileLaunch();
     }
   }
 

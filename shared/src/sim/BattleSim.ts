@@ -693,17 +693,29 @@ export class BattleSim {
 
   /** Catapult each faction's fleet out of its carrier; the cinematic seat leads
    *  its fleet so its hold is the intro/countdown. With no cinematic seat (MP
-   *  rooms), the base hold is launch.mpHoldSec — long enough for joining
-   *  clients to load and watch the fleets stream out. */
+   *  rooms), the base hold is launch.mpHoldSec. */
   private assignInitialLaunches(): void {
-    const base = this.primaryLaunch
-      ? LaunchSequence.cinematicHoldSec()
-      : GameConfig.launch.mpHoldSec;
+    this.stageLaunches(
+      this.primaryLaunch
+        ? LaunchSequence.cinematicHoldSec()
+        : GameConfig.launch.mpHoldSec,
+    );
+  }
+
+  /**
+   * (Re)stage both fleets in their launch tubes, `baseHoldSec` before the
+   * first catapult fires (each later ship adds the stagger). Idempotent —
+   * every combatant is respawned at its bay with a fresh sequence — so a
+   * server room can park the fleets on an effectively-infinite hold at
+   * creation and RESTAGE with the real hold once the first client reports
+   * ready, guaranteeing the opening launch is witnessed (BattleRoom).
+   */
+  stageLaunches(baseHoldSec: number): void {
     for (const f of ["humans", "machines"] as Faction[]) {
       const queue = this.combatants.filter((c) => c.ship.faction === f);
       // Cinematic seat first so it leads the stagger (its hold is the countdown).
       queue.sort((a, b) => Number(b.cinematic) - Number(a.cinematic));
-      this.launchFleet(queue, this.motherships[f], base);
+      this.launchFleet(queue, this.motherships[f], baseHoldSec);
     }
   }
 

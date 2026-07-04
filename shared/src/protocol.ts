@@ -9,7 +9,7 @@ import type { InputState } from "./types";
  * message protocol or to GameConfig (balance lives in shared, so a tweak is a
  * both-sides deploy) — see docs/MULTIPLAYER.md → Decisions (protocol version).
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 /** Room name registered on the server + asked for by the client. */
 export const BATTLE_ROOM = "battle";
@@ -73,4 +73,11 @@ export const MSG = {
   input: "i",
   /** Server → client: an EventsMessage batch of transient-FX facts. */
   events: "e",
+  /**
+   * Client → server, once, after assets are loaded and the render loop is
+   * running. The FIRST ready in a room releases the opening fleet launch
+   * (until then both fleets hold in their tubes), so the launch is actually
+   * witnessed no matter how long the client spends loading. Payload: {}.
+   */
+  ready: "r",
 } as const;

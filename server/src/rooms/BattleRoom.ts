@@ -41,6 +41,11 @@ interface Seat {
 
 const SIM_HZ = 30;
 const PATCH_HZ = 20;
+/** Pre-ready launch hold: effectively "park in the tubes until released". */
+const HOLD_FOR_READY_SEC = 3600;
+/** Release the launch anyway this long after creation (a client that never
+ *  sends MSG.ready — crashed mid-load, ancient build — can't stall the match). */
+const READY_SAFETY_MS = 20_000;
 
 /**
  * Server-authoritative battle room (docs/MULTIPLAYER.md Phase 1). Runs the
@@ -64,6 +69,8 @@ export class BattleRoom extends Room<{ state: BattleState }> {
   private readonly pendingEvents: NetEvent[] = [];
   /** Live sim Ship → replicated schema id (the ships-map key clients see). */
   private readonly shipIds = new Map<Ship, string>();
+  /** Whether the opening fleet launch has been released (first MSG.ready). */
+  private launchReleased = false;
 
   override onCreate(): void {
     this.setState(new BattleState());
@@ -77,6 +84,11 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     this.buildFleet("machines");
     this.wireEventRelay();
     this.sim.start();
+    // Park both fleets in their tubes until the first client is READY to
+    // watch (MSG.ready) — a fixed hold gets eaten by asset loading and the
+    // opening launch happens unseen. Safety timer so nothing stalls forever.
+    this.sim.stageLaunches(HOLD_FOR_READY_SEC);
+    this.clock.setTimeout(() => this.releaseLaunch(), READY_SAFETY_MS);
 
     // Carrier slots + initial match fields (the schema() factory leaves
     // primitives undefined; tick must start at 0 or `tick++` yields NaN).
@@ -98,6 +110,9 @@ export class BattleRoom extends Room<{ state: BattleState }> {
       seat.net.setInput(msg.input);
       seat.lastInputSeq = msg.seq;
     });
+
+    // First loaded-and-rendering client releases the opening launch.
+    this.onMessage(MSG.ready, () => this.releaseLaunch());
 
     // Fixed-tick sim; clamp the delta exactly like Game.tick so a hitch can't
     // teleport ships (the server never freezes — no hitstop here).
@@ -133,6 +148,13 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     seat.combatant.controller = seat.ai;
     seat.schema.isAI = true;
     seat.schema.owner = "";
+  }
+
+  /** Restage the parked fleets with the real (short) pre-launch hold. */
+  private releaseLaunch(): void {
+    if (this.launchReleased) return;
+    this.launchReleased = true;
+    this.sim.stageLaunches(GameConfig.launch.mpHoldSec);
   }
 
   // ─── Sim loop ─────────────────────────────────────────────────────────────

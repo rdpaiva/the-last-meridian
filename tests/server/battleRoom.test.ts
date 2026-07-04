@@ -113,7 +113,9 @@ describe("BattleRoom integration", () => {
     "advances the shared sim on the server (launches clear, ships move)",
     async () => {
       const room = await colyseus.createRoom(BATTLE_ROOM, {});
-      await colyseus.connectTo(room, joinOpts());
+      const client = await colyseus.connectTo(room, joinOpts());
+      // The fleets hold in their tubes until a client reports ready.
+      client.send(MSG.ready, {});
 
       // Snapshot after the first sim tick so positions are real (not the
       // pre-sync defaults), then prove they change as the battle plays out.
@@ -150,6 +152,8 @@ describe("BattleRoom integration", () => {
       const seatId = seat.schema.id;
       // Shield it from combat so a stray hit can't mask the input under test.
       seat.combatant.ship.debugInvulnerable = true;
+      // Release the parked launch (fleets hold until a client reports ready).
+      client.send(MSG.ready, {});
 
       // Wait until the seat clears its launch tube (the catapult suppresses the
       // controller until then).
@@ -187,6 +191,8 @@ describe("BattleRoom integration", () => {
       const client = await colyseus.connectTo(room, joinOpts());
       const batches: EventsMessage[] = [];
       client.onMessage(MSG.events, (msg: EventsMessage) => batches.push(msg));
+      // Release the parked launch (fleets hold until a client reports ready).
+      client.send(MSG.ready, {});
 
       // The fleets catapult out after launch.mpHoldSec — every launch must
       // reach the client as a shipLaunched fact on the events channel.
