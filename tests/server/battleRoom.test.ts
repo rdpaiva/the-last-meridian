@@ -28,7 +28,7 @@ import {
   NEUTRAL_INPUT,
   GameConfig,
   type JoinOptions,
-  type InputState,
+  type InputMessage,
   type EventsMessage,
 } from "../../shared/src/index";
 import { BattleRoom } from "../../server/src/rooms/BattleRoom";
@@ -162,9 +162,14 @@ describe("BattleRoom integration", () => {
       // Held rotateRight sent over the wire: the seat must turn (input reached
       // the sim through the transport + NetworkController).
       const rotBefore = room.state.ships.get(seatId)!.rotationY;
-      client.send(MSG.input, { ...NEUTRAL_INPUT, rotateRight: true } satisfies InputState);
+      client.send(MSG.input, {
+        seq: 1,
+        input: { ...NEUTRAL_INPUT, rotateRight: true },
+      } satisfies InputMessage);
       for (let i = 0; i < 20; i++) await room.waitForNextSimulationTick();
       const rotAfter = room.state.ships.get(seatId)!.rotationY;
+      // The applied seq must ack back through the schema (the prediction seam).
+      expect(room.state.ships.get(seatId)!.lastInputSeq).toBe(1);
       expect(
         Math.abs(angleDelta(rotBefore, rotAfter)),
         "seat did not turn under held rotateRight — input did not reach the seat",

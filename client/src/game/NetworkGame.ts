@@ -16,10 +16,12 @@ import {
   FACTION_THEME,
   LaserSystem,
   MissileSystem,
+  Ship,
+  exponentialMultiplier,
   type Laser,
-  type Ship,
   type Faction,
   type ShipTypeId,
+  type InputState,
   type NetEvent,
   type EventsMessage,
   MSG,
@@ -51,9 +53,13 @@ interface NetShip {
   shipType: ShipTypeId;
   x: number;
   z: number;
+  vx: number;
+  vz: number;
   rotationY: number;
   bankAngle: number;
   alive: boolean;
+  launching: boolean;
+  lastInputSeq: number;
 }
 
 /** Mutable pose scratch (structurally satisfies the read-only ShipPose). */
@@ -74,21 +80,9 @@ interface Snap {
   alive: boolean;
 }
 
-/**
- * Render this far BEHIND the latest server sample, in ms. Interpolating between
- * two already-received samples (instead of chasing the newest) is what makes
- * motion smooth regardless of patch jitter — the price is this much added
- * visual latency. ~2 patch intervals at 20Hz, with slack for arrival jitter.
- */
-const INTERP_DELAY_MS = 110;
-
-/**
- * A position delta between consecutive snapshots larger than this (world
- * units) is a TELEPORT (jump drive, respawn at the carrier), not motion —
- * far beyond any ship's per-patch travel. Interpolation must pop across it,
- * not streak the ship across the map for a patch interval.
- */
-const TELEPORT_SNAP_UNITS = 80;
+// Netcode feel knobs (interp delay, teleport/correction thresholds, rates)
+// live in GameConfig.net — read at use sites, never captured at module scope,
+// so ConfigOverrides applied at startup are honored.
 
 /**
  * The networked client renderer (docs/MULTIPLAYER.md Phase 1 — "dumb client
@@ -137,6 +131,30 @@ export class NetworkGame {
   private readonly meta = new Map<string, { faction: Faction; shipType: ShipTypeId }>();
   private readonly views = new Map<string, ShipView>();
   private myKey: string | null = null;
+
+  // ─── Local-ship prediction (Phase 2) ───
+  /** The locally simulated own ship (shared Ship math = server parity). */
+  private predicted: Ship | null = null;
+  private predictionActive = false;
+  /** Inputs sent but not yet acked (ShipSchema.lastInputSeq) — the replay set. */
+  private readonly pendingInputs: Array<{ seq: number; input: InputState }> = [];
+  private inputSeq = 0;
+  /** Visual offset hiding sub-snap reconciliation error; decays each frame. */
+  private readonly correctionPos = new Vector3();
+  private correctionRot = 0;
+  /** Own seat's newest authoritative sample (prediction seed + rewind point). */
+  private readonly myServer = {
+    x: 0,
+    z: 0,
+    vx: 0,
+    vz: 0,
+    rot: 0,
+    bank: 0,
+    seq: 0,
+    valid: false,
+  };
+  private myAlive = false;
+  private myLaunching = true;
 
   // ─── Transient FX (Phase 2 event replication) ───
   private readonly sound: SoundSystem;
@@ -366,6 +384,21 @@ export class NetworkGame {
         this.meta.set(key, { faction: ship.faction, shipType: ship.shipType });
       }
       if (ship.owner === this.net.sessionId) this.myKey = key;
+      if (key === this.myKey) {
+        // Own seat: capture the authoritative sample for prediction and fold
+        // it in immediately (rewind + replay happens on arrival, not render).
+        this.myServer.x = ship.x;
+        this.myServer.z = ship.z;
+        this.myServer.vx = ship.vx;
+        this.myServer.vz = ship.vz;
+        this.myServer.rot = ship.rotationY;
+        this.myServer.bank = ship.bankAngle;
+        this.myServer.seq = ship.lastInputSeq;
+        this.myServer.valid = true;
+        this.myAlive = ship.alive;
+        this.myLaunching = ship.launching;
+        if (this.predictionActive) this.reconcile();
+      }
       let buf = this.snaps.get(key);
       if (!buf) {
         buf = [];
@@ -378,7 +411,7 @@ export class NetworkGame {
       // Teleport (jump drive / respawn): duplicate the arrival pose just after
       // the departure sample so interpolation POPS across the discontinuity
       // instead of streaking the ship across the map for a patch interval.
-      if (prev && Math.hypot(ship.x - prev.x, ship.z - prev.z) > TELEPORT_SNAP_UNITS) {
+      if (prev && Math.hypot(ship.x - prev.x, ship.z - prev.z) > GameConfig.net.teleportSnapUnits) {
         buf.push({ t: prev.t + 1, x: ship.x, z: ship.z, rot: ship.rotationY, bank: ship.bankAngle, alive: ship.alive });
       }
       buf.push({ t, x: ship.x, z: ship.z, rot: ship.rotationY, bank: ship.bankAngle, alive: ship.alive });
@@ -403,20 +436,44 @@ export class NetworkGame {
       nowMs - this.lastSendMs >= NetworkGame.SEND_INTERVAL_MS
     ) {
       this.lastSendMs = nowMs;
-      this.net.send(MSG.input, { ...this.input.state });
+      const input = { ...this.input.state };
+      const seq = ++this.inputSeq;
+      this.net.send(MSG.input, { seq, input });
+      if (this.predictionActive) {
+        this.pendingInputs.push({ seq, input });
+        if (this.pendingInputs.length > GameConfig.net.maxPendingInputs) {
+          this.pendingInputs.shift();
+        }
+      }
     }
+
+    // 1.5 Local-ship prediction: fly our own ship on this frame's input.
+    this.updatePrediction(dt);
 
     // 2. Render every ship at (sim time - delay), interpolated between two
     // samples. clockOffsetMs maps our wall clock onto the server sim clock;
     // until the first patch sets it there are no snapshots to render anyway.
-    const renderT = nowMs - (this.clockOffsetMs ?? 0) - INTERP_DELAY_MS;
+    const renderT = nowMs - (this.clockOffsetMs ?? 0) - GameConfig.net.interpDelayMs;
     this.lastRenderT = renderT;
     let havePlayer = false;
     for (const [key, buf] of this.snaps) {
       if (buf.length === 0) continue;
       let view = this.views.get(key);
       if (!view) view = this.makeView(key);
-      this.sampleInto(buf, renderT, this.pose); // writes into this.pose
+      if (key === this.myKey && this.predictionActive && this.predicted) {
+        // Own ship: the locally predicted pose (immediate input response),
+        // plus the decaying correction offset that hides reconciliation.
+        this.pose.position.set(
+          this.predicted.position.x + this.correctionPos.x,
+          0,
+          this.predicted.position.z + this.correctionPos.z,
+        );
+        this.pose.rotationY = this.predicted.rotationY + this.correctionRot;
+        this.pose.bankAngle = this.predicted.bankAngle;
+        this.pose.isAlive = true;
+      } else {
+        this.sampleInto(buf, renderT, this.pose); // writes into this.pose
+      }
       view.update(this.pose);
       if (key === this.myKey) {
         this.camPos.copyFrom(this.pose.position);
@@ -646,10 +703,116 @@ export class NetworkGame {
           this.cameraRig.snapTo(to);
           this.lastPlayerPos.copyFrom(to);
           this.camVel.set(0, 0, 0);
+          if (this.predicted && this.predictionActive) {
+            // Mirror the server teleport into the prediction so it doesn't
+            // render the pre-jump pose for a patch until reconciliation snaps.
+            // Arrival heading = the home carrier's (humans 0, machines π).
+            this.predicted.position.set(e.toX, 0, e.toZ);
+            this.predicted.velocity.set(0, 0, 0);
+            this.predicted.rotationY = this.playerFaction === "machines" ? Math.PI : 0;
+            this.predicted.bankAngle = 0;
+            this.correctionPos.set(0, 0, 0);
+            this.correctionRot = 0;
+          }
         }
         return;
       }
     }
+  }
+
+  /**
+   * Local-ship prediction (Phase 2): run the SHARED Ship movement math on the
+   * player's own input every render frame, so the ship answers the stick
+   * immediately instead of after a server round-trip + interpolation delay.
+   * Active only while the seat is alive and clear of the launch catapult —
+   * during launch/death/respawn the server-driven interpolated pose renders
+   * instead, and prediction re-seeds from the authoritative state on re-entry.
+   */
+  private updatePrediction(dt: number): void {
+    const meta = this.myKey !== null ? this.meta.get(this.myKey) : undefined;
+    if (!meta) return;
+    const shouldPredict =
+      this.myAlive && !this.myLaunching && !this.ended && !this.connectionLost;
+    if (!shouldPredict) {
+      this.predictionActive = false;
+      this.pendingInputs.length = 0;
+      return;
+    }
+    if (!this.predictionActive) {
+      if (!this.myServer.valid) return;
+      if (!this.predicted) this.predicted = this.buildPredictedShip(meta);
+      const s = this.myServer;
+      const p = this.predicted;
+      p.position.set(s.x, 0, s.z);
+      p.velocity.set(s.vx, 0, s.vz);
+      p.rotationY = s.rot;
+      p.bankAngle = s.bank;
+      this.correctionPos.set(0, 0, 0);
+      this.correctionRot = 0;
+      this.pendingInputs.length = 0;
+      this.predictionActive = true;
+    }
+    this.predicted!.update(dt, this.input.state);
+    // Decay the visual correction offset toward zero (frame-rate independent).
+    const m = exponentialMultiplier(GameConfig.net.correctionRate, dt);
+    this.correctionPos.x *= m;
+    this.correctionPos.z *= m;
+    this.correctionRot *= m;
+  }
+
+  /**
+   * Fold the newest authoritative sample into the prediction: rewind the
+   * predicted ship to the server state, drop acked inputs, replay the pending
+   * ones at the send cadence, and absorb the resulting pose delta into the
+   * decaying correction offset — or hard-snap past correctionSnapUnits (an
+   * unpredicted collision or teleport).
+   */
+  private reconcile(): void {
+    const ship = this.predicted;
+    if (!ship) return;
+    const s = this.myServer;
+    const prevX = ship.position.x;
+    const prevZ = ship.position.z;
+    const prevRot = ship.rotationY;
+    ship.position.set(s.x, 0, s.z);
+    ship.velocity.set(s.vx, 0, s.vz);
+    ship.rotationY = s.rot;
+    ship.bankAngle = s.bank;
+    while (this.pendingInputs.length > 0 && this.pendingInputs[0].seq <= s.seq) {
+      this.pendingInputs.shift();
+    }
+    const dt = NetworkGame.SEND_INTERVAL_MS / 1000;
+    for (const p of this.pendingInputs) ship.update(dt, p.input);
+    const ex = ship.position.x - prevX;
+    const ez = ship.position.z - prevZ;
+    const er = wrapAngle(ship.rotationY - prevRot);
+    if (Math.hypot(ex, ez) > GameConfig.net.correctionSnapUnits) {
+      this.correctionPos.set(0, 0, 0);
+      this.correctionRot = 0;
+    } else {
+      // Keep the RENDERED pose continuous: the offset absorbs the delta now
+      // and decays away over the next few frames (updatePrediction).
+      this.correctionPos.x -= ex;
+      this.correctionPos.z -= ez;
+      this.correctionRot -= er;
+    }
+  }
+
+  /** The prediction's Ship — same construction as BattleSim.spawnShip. */
+  private buildPredictedShip(meta: { faction: Faction; shipType: ShipTypeId }): Ship {
+    const type = GameConfig.shipTypes[meta.shipType];
+    return new Ship({
+      faction: meta.faction,
+      maxHp: type.maxHp,
+      respawnDelayMs: GameConfig.combat.playerRespawnDelayMs,
+      startMissileAmmo: type.missileAmmo,
+      startCannonAmmo: type.cannonAmmo,
+      movement: type,
+      laserDamage: type.laserDamage,
+      hitRadius: type.hitRadius,
+      fireSound: type.fireSound,
+      heavy: type.heavy,
+    });
   }
 
   /** Sample a ship's interpolation buffer at the current render time. Writes

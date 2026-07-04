@@ -12,7 +12,7 @@ import {
   Ship,
   type DamageTarget,
   type Faction,
-  type InputState,
+  type InputMessage,
   type JoinOptions,
   type ShipTypeId,
   type NetEvent,
@@ -35,6 +35,8 @@ interface Seat {
   net: NetworkController;
   occupant: string | null; // client sessionId, or null when AI-flown
   schema: ShipSchema;
+  /** Sequence number of the newest InputMessage applied (prediction ack). */
+  lastInputSeq: number;
 }
 
 const SIM_HZ = 30;
@@ -87,9 +89,14 @@ export class BattleRoom extends Room<{ state: BattleState }> {
 
     this.maxClients = this.seats.length;
 
-    // Client → server input.
-    this.onMessage(MSG.input, (client: Client, input: InputState) => {
-      this.seatBySession.get(client.sessionId)?.net.setInput(input);
+    // Client → server input (sequenced — the seq is acked back through
+    // ShipSchema.lastInputSeq so the sender's prediction can reconcile).
+    this.onMessage(MSG.input, (client: Client, msg: InputMessage) => {
+      if (!msg?.input) return;
+      const seat = this.seatBySession.get(client.sessionId);
+      if (!seat) return;
+      seat.net.setInput(msg.input);
+      seat.lastInputSeq = msg.seq;
     });
 
     // Fixed-tick sim; clamp the delta exactly like Game.tick so a hitch can't
@@ -252,11 +259,14 @@ export class BattleRoom extends Room<{ state: BattleState }> {
       const s = seat.schema;
       s.x = ship.position.x;
       s.z = ship.position.z;
+      s.vx = ship.velocity.x;
+      s.vz = ship.velocity.z;
       s.rotationY = ship.rotationY;
       s.bankAngle = ship.bankAngle;
       s.hp = ship.hp;
       s.alive = ship.isAlive;
       s.launching = seat.combatant.launch !== null;
+      s.lastInputSeq = seat.lastInputSeq;
     }
     this.syncMothership(this.state.humansMothership, "humans");
     this.syncMothership(this.state.machinesMothership, "machines");
@@ -309,6 +319,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
           net: new NetworkController(),
           occupant: null,
           schema,
+          lastInputSeq: 0,
         });
         pilots.push({ ship, ai });
       }
@@ -337,8 +348,11 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     ship.shipType = typeId;
     ship.x = 0;
     ship.z = 0;
+    ship.vx = 0;
+    ship.vz = 0;
     ship.rotationY = 0;
     ship.bankAngle = 0;
+    ship.lastInputSeq = 0;
     ship.maxHp = GameConfig.shipTypes[typeId].maxHp;
     ship.hp = ship.maxHp;
     ship.alive = true;

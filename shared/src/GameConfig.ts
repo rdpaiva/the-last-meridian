@@ -2282,6 +2282,42 @@ export const GameConfig = {
     maxDeltaSeconds: 1 / 30,
   },
 
+  /**
+   * Netcode feel (docs/MULTIPLAYER.md Phase 2). CLIENT-side knobs — the
+   * server never reads these, so tuning them is not a both-sides deploy.
+   * Phase 2's rule: every feel parameter is a tunable, not a constant.
+   */
+  net: {
+    /**
+     * Render remote ships this far BEHIND the newest server sample (ms).
+     * Interpolating between two already-received samples is what makes motion
+     * smooth regardless of patch jitter — the price is this much added visual
+     * latency. ~2 patch intervals at 20Hz, with slack for arrival jitter.
+     */
+    interpDelayMs: 110,
+    /**
+     * A position delta between consecutive snapshots larger than this (world
+     * units) is a TELEPORT (jump drive, respawn at the carrier), not motion —
+     * far beyond any ship's per-patch travel. Interpolation pops across it
+     * instead of streaking the ship across the map for a patch interval.
+     */
+    teleportSnapUnits: 80,
+    /**
+     * Local-ship prediction: reconciliation error (predicted vs authoritative
+     * + replay, world units) beyond which the client hard-snaps instead of
+     * smoothing — big divergence means a collision/teleport we didn't predict.
+     */
+    correctionSnapUnits: 20,
+    /**
+     * Exponential decay rate (1/sec) of the visual correction offset that
+     * hides sub-snap reconciliation errors. Higher = corrections vanish
+     * faster but read as micro-jerks; lower = softer but floatier.
+     */
+    correctionRate: 12,
+    /** Cap on remembered unacked input samples (~4s at the 30Hz send rate). */
+    maxPendingInputs: 120,
+  },
+
   /** Dev/test only — not part of normal play. */
   debug: {
     /**

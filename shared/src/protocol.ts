@@ -9,7 +9,7 @@ import type { InputState } from "./types";
  * message protocol or to GameConfig (balance lives in shared, so a tweak is a
  * both-sides deploy) — see docs/MULTIPLAYER.md → Decisions (protocol version).
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 /** Room name registered on the server + asked for by the client. */
 export const BATTLE_ROOM = "battle";
@@ -24,8 +24,17 @@ export interface JoinOptions {
   shipType: ShipTypeId;
 }
 
-/** Client → server, sampled once per client frame: the player's input. */
-export type InputMessage = InputState;
+/**
+ * Client → server, sampled at the send cadence: one InputState plus a
+ * monotonically increasing sequence number. The server acks the last seq it
+ * applied via ShipSchema.lastInputSeq, which is what lets the client's
+ * prediction drop acknowledged inputs and replay only the still-pending ones
+ * on top of the authoritative state (Phase 2 reconciliation).
+ */
+export interface InputMessage {
+  seq: number;
+  input: InputState;
+}
 
 /**
  * One serialized transient-FX fact (Phase 2 event replication): the wire form

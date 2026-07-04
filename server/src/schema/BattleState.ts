@@ -17,10 +17,15 @@ export const ShipSchema = schema(
     shipType: "string",
     x: "float32",
     z: "float32",
+    /** Velocity — the client's prediction seeds its replay from this. */
+    vx: "float32",
+    vz: "float32",
     rotationY: "float32",
     bankAngle: "float32",
     hp: "float32",
     maxHp: "float32",
+    /** Last InputMessage.seq applied to this seat (prediction ack; 0 = none). */
+    lastInputSeq: "number",
     alive: "boolean",
     /** Still in the launch catapult (view shows the ramp / suppresses some FX). */
     launching: "boolean",
