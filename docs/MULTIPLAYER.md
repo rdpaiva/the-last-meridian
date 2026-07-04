@@ -234,15 +234,15 @@ timing).
 
 ## Phase 1 — Colyseus skeleton
 
-> **Status (2026-07-04): server pipe DONE + tested; online client PLAYABLE
-> with smooth motion, visible launches, full combat FX/sound, and local-ship
-> prediction.** Branch `feat/phase1-multiplayer` (not yet merged). Full test
-> suite 10/10 green. The Phase 1 jitter was root-caused (sim/patch rate
-> aliasing + arrival-time interpolation) and fixed by interpolating on the
-> replicated sim clock; the core Phase 2 netcode-feel items (event
-> replication, prediction) are in. Remaining before merge: the Phase 1
-> polish list (PLAY ONLINE buttons, friendly commander, HUD bot tags) and
-> the `[human]` feel-tuning loop. **History: `docs/PHASE1_OPEN_ISSUES.md`.**
+> **Status (2026-07-04, post-playtest): online client PLAYS WELL solo** —
+> smooth motion (sim-clock interpolation), ready-gated visible launches from
+> the GLB's real tubes, full combat FX/sound, predicted local ship + own
+> weapon fire (muzzle-true, steady cadence), engine glow/trails/RCS, and a
+> replicated asteroid field with locally-predicted collisions (no invisible
+> walls). Branch `feat/phase1-multiplayer` (not yet merged); 10/10 tests
+> green; PROTOCOL_VERSION 7. Remaining before merge: MP HUD slice, PLAY
+> ONLINE/invite entry, friendly commander, the `[human]` two-tab acceptance
+> pass + feel tuning. **Resume notes: `docs/PHASE1_OPEN_ISSUES.md`.**
 
 - [x] **Restructure into workspaces** (first task of this phase): npm
       workspaces with `shared/` + `client/` + `server/` per the layout

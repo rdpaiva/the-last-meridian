@@ -1,14 +1,14 @@
-# Phase 1 — open issues / handoff notes
+# Phase 1/2 — status + handoff notes
 
 Snapshot for resuming the multiplayer work. Branch: **`feat/phase1-multiplayer`**
-(not yet merged to `main`). Everything below builds + typechecks; the full test
-suite is **9/9 green** (`npm test`). The blockers are all in the **online client
-experience**, not the server.
+(not yet merged to `main`). Everything builds + typechecks; the full test suite
+is **10/10 green** (`npm test`). PROTOCOL_VERSION is **7** — stale tabs get a
+clean join rejection, so always reload after pulling.
 
 ## How to run / reproduce
 
 ```bash
-npm run server     # Colyseus on :2567
+npm run server     # Colyseus on :2567 (tsx watch — restarts on code change)
 npm run dev        # Vite client on :5173
 ```
 Open `http://localhost:5173/?online`, pick side + ship, PLAY. No `?online` =
@@ -16,15 +16,32 @@ the normal offline single-player game (works fine).
 
 See `docs/PHASE1_TWOTAB_CHECKLIST.md` for the full acceptance checklist.
 
-## What is CONFIRMED WORKING
+## STATE AS OF 2026-07-04 (end of the owner-playtest session)
 
-- **Server is correct.** Verified by joining the live server with a headless
-  `@colyseus/sdk` client: the local player's ship is identified (`owner` =
-  sessionId, `isAI: false`), all 14 ships replicate, positions update smoothly
-  at ~20Hz, the match reaches `phase: "playing"`. The Node integration test
-  (`tests/server/battleRoom.test.ts`) also passes (replication, sim advance,
-  input-over-the-wire, protocol gate).
-- **Offline single-player** is unaffected by all the restructure work.
+Solo-online is **playable and feels close to single-player**. Confirmed by
+owner playtest this session, in order fixed:
+
+- **Jitter** — root cause sim(30Hz)/patch(20Hz) aliasing + arrival-time
+  interpolation; fixed by interpolating on the replicated sim clock
+  (`state.timeMs`).
+- **Opening launch** — gated on the first client's MSG.ready (fleets park in
+  the tubes until someone can watch); headless launch bays re-fit to the GLB
+  `launch.*` empties via `GameConfig.mothership.measuredLaunch` (the measure
+  script prints them now — re-fit after any carrier re-export).
+- **FX + sound event replication** — combat is visible/audible online
+  (bolts, missiles, explosions, jump FX, turrets, full SoundSystem, trauma).
+- **Client prediction + reconciliation** — own ship answers input instantly;
+  own weapon FIRE is predicted too (muzzle-true at speed, steady cadence —
+  weapon cooldowns are exempt from rewind/replay).
+- **Engine FX** — per-marker engine glow + trails on all ships, RCS plumes on
+  own ship, trail flush on teleports.
+- **Asteroid field replicated** (spawn-state-only; client integrates
+  deterministically) + local collision prediction vs rocks AND carrier hulls
+  — the "invisible wall" rubber-banding is gone.
+
+**Offline single-player remains unaffected** (smoke baseline recaptured once,
+intentionally, for the bay re-fit; the collision-helper extraction was proven
+behavior-identical by the untouched baseline).
 
 ## RESOLVED — online client jitter (fixed 2026-07-04)
 
@@ -45,12 +62,17 @@ Duplicate-sim-time patches are dropped. `PROTOCOL_VERSION` bumped to 2.
 `window.__netGame` is now exposed for live netcode debugging. Confirmed
 smooth in-browser by the owner.
 
-## RESOLVED — no visible launch in MP (fixed 2026-07-04)
+## RESOLVED — no visible launch in MP (fixed 2026-07-04, two rounds)
 
-MP rooms started simulating at creation, before clients finished joining and
-loading, so the whole fleet launched unseen (base hold was 0 with no cinematic
-seat). Fixed: `GameConfig.launch.mpHoldSec` (4s) holds both fleets in their
-tubes long enough for the first client to load and watch the catapults fire.
+Round 1: a fixed pre-launch hold (`launch.mpHoldSec`) — insufficient, because
+the hold started at room creation and a cold client spends longer loading
+GLBs. Round 2 (the real fix): rooms park both fleets in their tubes
+indefinitely; the client sends **MSG.ready** once loaded + rendering, and the
+first ready restages the launch with `mpHoldSec` (now 3s of pure watch time;
+20s safety timer). ALSO: the headless server was staging ships at the STALE
+procedural bay coordinates — launch-geometry truth was browser-only (GLB
+`launch.*` empties). Fixed via `GameConfig.mothership.measuredLaunch` (baked
+by the measure script; the sim Mothership seeds itself from it).
 
 ## NON-ISSUE — "background doesn't move, only stars"
 
@@ -73,30 +95,57 @@ after the jitter fix.
   visual correction offset. Feel knobs live in `GameConfig.net` — the
   `[human]` feel-tuning loop (docs/MULTIPLAYER.md Phase 2) is still ahead.
 
-## KNOWN GAPS — remaining (expected, not bugs)
+## NEXT SESSION — suggested order
 
-- **Asteroids don't render online** (and their ram/shatter events aren't
-  relayed): ships can visibly bump off invisible rocks on maps with dense
-  fields. Needs asteroid replication.
-- **Cosmetic missiles fly ballistic** (the lock target isn't on the wire);
-  the detonation still lands at the server's true impact point.
-- **No MP kills/score, radar, missile warning, HUD ship-HP cue.**
+1. **Keep the owner-playtest nitpick loop going** (this session's rhythm
+   worked: every report so far was a real netcode bug). Feel knobs live in
+   `GameConfig.net` (interp delay, correction rate/snap); `window.__netGame`
+   is the live debug handle. Known depiction gaps to not chase as bugs:
+   - **Cosmetic REMOTE missiles fly ballistic** (the lock target isn't on the
+     wire; detonations still land at the server's true impact point). Fix:
+     put the homing target's ship id in the `missileFired` event and steer
+     the cosmetic round at the target's interpolated pose.
+   - **No hitstop online** (deliberate — a frozen render clock would desync
+     interpolation).
+   - Remote engine glow rides a speed proxy, not real thrust input.
+2. **MP HUD slice** — all reads of already-replicated state: kills/score
+   (server would relay kill attribution), own-ship HP + ammo (replicated),
+   **Radar** (friendlies truth; hostiles… see sensor note below), missile
+   warning RWR, HUD human/AI counts + radar bot tags (honesty rule; `isAI`
+   is replicated). Client "new version — refresh" string keyed to the
+   PROTOCOL_MISMATCH error code.
+3. **Phase 1 polish for real multiplayer entry**: splash **PLAY SOLO /
+   PLAY ONLINE** buttons (currently the `?online` flag) + **WITH FRIENDS**
+   invite link (`#join=<roomId>`); **friendly-side FleetCommander** escort
+   wings on the human player (`setOrder` cover).
+4. **`[human]` two-tab acceptance pass** (`docs/PHASE1_TWOTAB_CHECKLIST.md`)
+   — second joiner takes a seat, both see each other move/fire, leave hands
+   the seat back to AI. Then **merge `feat/phase1-multiplayer`**.
+5. Later (Phase 2 tail, pre-deploy): **sensor-filtered replication** (today
+   the client receives ALL ships — nebula stealth is not yet anti-wallhack;
+   an MP radar built from full state would wallhack, so decide this before
+   or with the radar), clock-sync **debug overlay**, **network-condition
+   simulator**, then Phase 3 (room lifecycle, reconnection, hosting).
 
-## REMAINING Phase 1 polish (deferred, low risk)
+## Architecture notes for whoever picks this up
 
-- Explicit splash **PLAY SOLO / PLAY ONLINE** buttons (currently the `?online`
-  query flag) + **WITH FRIENDS** invite link (`#join=<roomId>`). Task #9.
-- **Friendly-side FleetCommander** distributing AI as escort wings to humans
-  (`setOrder` cover). Task #6. (Both factions currently get a standard
-  commander.)
-- HUD **human/AI counts + radar bot tags** (the honesty rule; `isAI` is already
-  replicated). Client "new version — refresh" string keyed to the protocol
-  mismatch code specifically.
-- Per-type ship GLBs load in MP now; carrier GLB + turret models too.
-
-## Suggested order to resume
-
-1. ~~Jitter~~ — RESOLVED (see above).
-2. ~~Phase 2 FX + sound event replication~~ — DONE 2026-07-04.
-3. ~~Local-ship prediction~~ — DONE 2026-07-04.
-4. Then the Phase 1 polish list above, and merge `feat/phase1-multiplayer`.
+- **Event replication pattern**: sim emits facts on `BattleSim.events`
+  (SimEventBus) → `BattleRoom.wireEventRelay` serializes to `NetEvent`s
+  (ships → schema ids, Vector3 → coords) → batched per tick as
+  `EventsMessage{t}` → client queues and plays each when the render clock
+  reaches `t` (`NetworkGame.applyFxEvent`). Own weapon fire is the exception:
+  predicted at the keypress, server echo dropped.
+- **Clocks**: `state.timeMs` is THE timeline. Snapshots, FX events, and the
+  replicated asteroid spawn states all live on it; the client maintains one
+  EMA wall↔sim offset. Never timestamp by arrival.
+- **Prediction**: sequenced inputs, `lastInputSeq` ack, rewind+replay with a
+  decaying correction offset; weapon cooldowns are exempt from replay
+  (cadence is real-time state); collisions vs replicated rocks + carrier
+  hull sections use the SAME exported helpers the server runs
+  (`collideShipWithAsteroid` / `bumpShipOutOfSection` in BattleSim.ts).
+- **Asteroids replicate by spawn state only** (constant drift/spin ⇒ the
+  client integrates exactly); life/death = map add/remove; local copies are
+  made unkillable so cosmetic bolt damage can't desync them.
+- **Carrier GLB re-export checklist grew**: re-run the measure script and
+  re-fit BOTH `hullRects` AND `mothership.measuredLaunch`, and expect a
+  smoke-baseline recapture if bays move.
