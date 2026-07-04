@@ -44,6 +44,8 @@ import { ExplosionSystem } from "./ExplosionSystem";
 import { JumpFlashSystem } from "./JumpFlashSystem";
 import { JumpRipple } from "./JumpRipple";
 import { SoundSystem } from "./SoundSystem";
+import { EngineGlow } from "./EngineGlow";
+import { SecondaryThrusters } from "./SecondaryThrusters";
 import type { NetClient } from "../net/NetClient";
 
 /** The shape of a replicated ship (decoded from the server schema). */
@@ -132,6 +134,22 @@ export class NetworkGame {
   private clockOffsetMs: number | null = null;
   private readonly meta = new Map<string, { faction: Faction; shipType: ShipTypeId }>();
   private readonly views = new Map<string, ShipView>();
+  /**
+   * Per-ship engine FX (offline parity: every GLB fighter gets an EngineGlow;
+   * procedural fallbacks carry their own emissive engine block). `thrusters`
+   * (RCS plumes) exist only on OUR ship — they depict reverse/strafe INPUT,
+   * which isn't replicated for remotes. `lastX/lastZ` feed the remote-speed
+   * estimate that drives glow intensity (their thrust input isn't on the wire).
+   */
+  private readonly visuals = new Map<
+    string,
+    {
+      glow: EngineGlow | null;
+      thrusters: SecondaryThrusters | null;
+      lastX: number;
+      lastZ: number;
+    }
+  >();
   private myKey: string | null = null;
 
   // ─── Local-ship prediction (Phase 2) ───
@@ -434,6 +452,9 @@ export class NetworkGame {
       // instead of streaking the ship across the map for a patch interval.
       if (prev && Math.hypot(ship.x - prev.x, ship.z - prev.z) > GameConfig.net.teleportSnapUnits) {
         buf.push({ t: prev.t + 1, x: ship.x, z: ship.z, rot: ship.rotationY, bank: ship.bankAngle, alive: ship.alive });
+        // The exhaust trail is NOT parented to the ship root — flush it or the
+        // teleport (jump/respawn) drags a streak across the whole map.
+        this.visuals.get(key)?.glow?.resetTrails();
       }
       buf.push({ t, x: ship.x, z: ship.z, rot: ship.rotationY, bank: ship.bankAngle, alive: ship.alive });
       if (buf.length > 40) buf.shift(); // ~2s of history at 20Hz
@@ -496,6 +517,7 @@ export class NetworkGame {
         this.sampleInto(buf, renderT, this.pose); // writes into this.pose
       }
       view.update(this.pose);
+      this.updateEngineFx(key, dt);
       if (key === this.myKey) {
         this.camPos.copyFrom(this.pose.position);
         havePlayer = true;
@@ -536,7 +558,13 @@ export class NetworkGame {
     this.explosions.update(dt, dtMs);
     this.jumpFlashes.update(dtMs);
     this.jumpRipple.update(dtMs);
-    this.sound.updateEngine(dt, this.input.state.thrust ? 1 : 0);
+    // Engine hum tracks our glow's smoothed intensity (offline parity),
+    // falling back to raw thrust before the visuals exist.
+    const ownGlow = this.myKey !== null ? this.visuals.get(this.myKey)?.glow : null;
+    this.sound.updateEngine(
+      dt,
+      ownGlow?.currentIntensity ?? (this.input.state.thrust ? 1 : 0),
+    );
 
     // 4. HUD straight from current state (HP/phase need no interpolation).
     const state = this.net.room.state as unknown as {
@@ -721,6 +749,7 @@ export class NetworkGame {
         return;
       case "jumpFired": {
         this.sound.releaseJumpDrive(this.jumpKey(e.ship));
+        this.visuals.get(e.ship)?.glow?.resetTrails();
         const from = new Vector3(e.fromX, 0, e.fromZ);
         const to = new Vector3(e.toX, 0, e.toZ);
         this.jumpFlashes.spawn(from);
@@ -747,6 +776,40 @@ export class NetworkGame {
         return;
       }
     }
+  }
+
+  /**
+   * Light one ship's exhaust from this frame's rendered pose (this.pose must
+   * hold it — call right after view.update). Our own ship burns on REAL input
+   * (predicted sim speed + held keys, RCS plumes included) and hides the glow
+   * in the launch tube like offline (a lit glow bleeds through the carrier
+   * hull via the GlowLayer). Remotes have no replicated input, so intensity
+   * rides a speed estimate from pose deltas: above half throttle reads as
+   * burning, below as coasting. Dead ships are skipped — the disabled root
+   * hides the cores and the (unparented) trail collapses on its own.
+   */
+  private updateEngineFx(key: string, dt: number): void {
+    const vis = this.visuals.get(key);
+    if (!vis) return;
+    const isMine = key === this.myKey;
+    if (isMine && this.myLaunching) {
+      vis.glow?.hide();
+      vis.thrusters?.update(dt, false, false, false);
+    } else if (isMine && this.predictionActive && this.predicted) {
+      const held = this.input.state;
+      vis.glow?.update(dt, this.predicted.speed, this.predicted.maxSpeed, held.thrust);
+      vis.thrusters?.update(dt, held.reverse, held.strafeLeft, held.strafeRight);
+    } else if (this.pose.isAlive) {
+      const type = GameConfig.shipTypes[this.meta.get(key)!.shipType];
+      const raw = dt > 0
+        ? Math.hypot(this.pose.position.x - vis.lastX, this.pose.position.z - vis.lastZ) / dt
+        : 0;
+      // Clamp: a missed teleport-pop otherwise reads as a hypersonic burn.
+      const speed = Math.min(raw, type.maxSpeed * 1.6);
+      vis.glow?.update(dt, speed, type.maxSpeed, speed > type.maxSpeed * 0.5);
+    }
+    vis.lastX = this.pose.position.x;
+    vis.lastZ = this.pose.position.z;
   }
 
   /**
@@ -782,6 +845,14 @@ export class NetworkGame {
       this.correctionRot = 0;
       this.pendingInputs.length = 0;
       this.predictionActive = true;
+      // Our ship gets the RCS plumes (reverse/strafe are OUR held keys —
+      // remotes can't have them, their input isn't replicated). Config
+      // nozzle positions; MP templates don't expose the GLB rcs markers.
+      const vis = this.visuals.get(this.myKey!);
+      const view = this.views.get(this.myKey!);
+      if (vis && view && !vis.thrusters) {
+        vis.thrusters = new SecondaryThrusters(this.scene, view.root, this.glowLayer, {});
+      }
     }
     const ship = this.predicted!;
     ship.update(dt, this.input.state);
@@ -950,7 +1021,43 @@ export class NetworkGame {
     const m = this.meta.get(key)!;
     const view = new ShipView(this.buildRoot(m.faction, m.shipType));
     this.views.set(key, view);
+    // Engine glow on GLB fighters only — the procedural fallback mesh carries
+    // its own emissive engine block (offline parity). Clones carry no thruster
+    // markers, so the nozzle is derived from the mesh bounds (rearEmitters).
+    const hasTemplate = (this.templates.get(m.shipType) ?? null) !== null;
+    this.visuals.set(key, {
+      glow: hasTemplate
+        ? new EngineGlow(this.scene, view.root, this.glowLayer, this.rearEmitters(view.root))
+        : null,
+      thrusters: null,
+      lastX: 0,
+      lastZ: 0,
+    });
     return view;
+  }
+
+  /**
+   * Rear-nozzle fallback for fleet clones (mirrors Game.rearEmitters): the
+   * mesh-bounds rear center, nudged slightly forward to sit at the nozzle
+   * plane. Local frame — the root is freshly built at the origin here.
+   */
+  private rearEmitters(root: TransformNode): Array<{ x: number; y: number; z: number }> {
+    const meshes = root.getChildMeshes(false);
+    if (meshes.length === 0) return [];
+    const inv = root.getWorldMatrix().clone().invert();
+    let min = new Vector3(Infinity, Infinity, Infinity);
+    let max = new Vector3(-Infinity, -Infinity, -Infinity);
+    for (const m of meshes) {
+      m.computeWorldMatrix(true);
+      for (const corner of m.getBoundingInfo().boundingBox.vectorsWorld) {
+        const local = Vector3.TransformCoordinates(corner, inv);
+        min = Vector3.Minimize(min, local);
+        max = Vector3.Maximize(max, local);
+      }
+    }
+    return [
+      { x: (min.x + max.x) * 0.5, y: (min.y + max.y) * 0.5, z: min.z + 0.15 },
+    ];
   }
 
   /** Clone the type's GLB template (two-tier root), else procedural fallback. */
