@@ -1022,18 +1022,45 @@ export class NetworkGame {
     const view = new ShipView(this.buildRoot(m.faction, m.shipType));
     this.views.set(key, view);
     // Engine glow on GLB fighters only — the procedural fallback mesh carries
-    // its own emissive engine block (offline parity). Clones carry no thruster
-    // markers, so the nozzle is derived from the mesh bounds (rearEmitters).
+    // its own emissive engine block (offline parity). Nozzles come from the
+    // model's `thruster.*` marker empties (cloned along with the hierarchy —
+    // a Spitfire burns two trails, like offline); mesh-bounds rear center is
+    // the fallback for models that author no markers.
     const hasTemplate = (this.templates.get(m.shipType) ?? null) !== null;
+    const nozzles = this.thrusterMarkers(view.root);
     this.visuals.set(key, {
       glow: hasTemplate
-        ? new EngineGlow(this.scene, view.root, this.glowLayer, this.rearEmitters(view.root))
+        ? new EngineGlow(
+            this.scene,
+            view.root,
+            this.glowLayer,
+            nozzles.length > 0 ? nozzles : this.rearEmitters(view.root),
+          )
         : null,
       thrusters: null,
       lastX: 0,
       lastZ: 0,
     });
     return view;
+  }
+
+  /**
+   * `thruster*` marker empties read off the cloned hierarchy, in root-local
+   * coordinates (the root is freshly built at the origin here — same frame
+   * AssetLoader.extractMarkers uses). Substring match: instantiateHierarchy
+   * may prefix clone names. Empty = the model authored no markers.
+   */
+  private thrusterMarkers(root: TransformNode): Array<{ x: number; y: number; z: number }> {
+    root.computeWorldMatrix(true);
+    const out: Array<{ x: number; y: number; z: number }> = [];
+    for (const n of root.getDescendants()) {
+      if (!(n instanceof TransformNode) || !n.name) continue;
+      if (!n.name.toLowerCase().includes("thruster")) continue;
+      n.computeWorldMatrix(true);
+      const p = n.getAbsolutePosition();
+      out.push({ x: p.x, y: p.y, z: p.z });
+    }
+    return out;
   }
 
   /**
