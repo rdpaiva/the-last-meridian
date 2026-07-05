@@ -1015,6 +1015,25 @@ export class NetworkGame {
     );
 
     if (this.predicted && myStub) {
+      // Carrier-service cue (offline parity — Game.tick's dock block): the
+      // same gate the server applies, mirrored over the predicted ship —
+      // loitering inside the HOME carrier's service bubble. SERVICING vs
+      // DOCKED derives from the replicated hp/ammo; serviceTick itself never
+      // runs here (refills are authoritative and already ride the schema).
+      const ship = this.predicted;
+      const home = this.carrierSims[this.playerFaction];
+      const myType = GameConfig.shipTypes[this.meta.get(this.myKey!)!.shipType];
+      const docked =
+        this.myAlive &&
+        home.isAlive &&
+        ship.speed <= GameConfig.service.loiterMaxSpeed &&
+        home.serviceZoneContains(ship.position.x, ship.position.z);
+      const needsService =
+        ship.hp < ship.maxHp ||
+        ship.cannonAmmo < myType.cannonAmmo ||
+        ship.missileAmmo < myType.missileAmmo;
+      this.hud.setServiceStatus(docked ? (needsService ? "servicing" : "docked") : null);
+
       // Stealth cue: does the ENEMY's picture hold a fresh track on us?
       const signature = this.sensors.isTracked(
         this.enemyFaction,
@@ -1305,13 +1324,18 @@ export class NetworkGame {
         this.visuals.get(e.ship)?.glow?.resetTrails();
         const from = new Vector3(e.fromX, 0, e.fromZ);
         const to = new Vector3(e.toX, 0, e.toZ);
+        // BSG "FTL crack" at BOTH ends (offline parity): flash + shockwave
+        // where the ship left AND where it arrived — for our OWN jump the
+        // camera snaps to the arrival, so the `to` ripple is the one we see.
         this.jumpFlashes.spawn(from);
         this.jumpFlashes.spawn(to);
         this.jumpRipple.spawn(from);
+        this.jumpRipple.spawn(to);
         if (e.ship === this.myKey) {
           // Our own teleport: hard-snap the camera across the discontinuity
           // (mirrors offline) and zero the velocity lead so it doesn't whip.
           this.cameraRig.snapTo(to);
+          this.cameraRig.addTrauma(GameConfig.jump.arrivalTrauma);
           this.lastPlayerPos.copyFrom(to);
           this.camVel.set(0, 0, 0);
           if (this.predicted && this.predictionActive) {
