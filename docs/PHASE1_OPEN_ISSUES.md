@@ -1,10 +1,39 @@
 # Phase 1/2 — status + handoff notes
 
-Snapshot for resuming the multiplayer work. Branch: **`feat/phase1-multiplayer`**
-(not yet merged to `main`). Everything builds + typechecks; the full test suite
-is **14/14 green** (`npm test`). PROTOCOL_VERSION is **10** — stale tabs get a
-clean join rejection (rendered as "NEW VERSION — refresh"), so always
-reload after pulling.
+Snapshot for resuming the multiplayer work. Phases 1–2 core are MERGED to
+`main` (`6c119ec`, 2026-07-05, owner-accepted); the netcode TOOLING below
+lives on **`feat/phase2-net-tools`**. Everything builds + typechecks; the
+full test suite is **17/17 green** (`npm test`). PROTOCOL_VERSION is **11**
+— stale tabs get a clean join rejection (rendered as "NEW VERSION —
+refresh"), so always reload after pulling.
+
+## DONE 2026-07-05 — netcode tooling (network-condition simulator + debug overlay)
+
+The Phase 2 tail's tooling pair, built so the `[human]` feel-tuning loop can
+run on localhost:
+
+- **Netsim** (`GameConfig.net.sim` — dev section, OFF by default; flip
+  `enabled` and reload): `latencyMs` is the simulated ROUND TRIP (half
+  applied to each direction), `jitterMs` adds 0..j per-message randomness.
+  Outbound: `NetClient.send` holds input/ready sends (monotonic release —
+  TCP never reorders). Inbound: `NetworkGame` holds arriving state patches
+  and `MSG.events` batches in `DelayQueue`s (client/src/net/DelayQueue.ts,
+  unit-tested) drained at the top of the tick — patches are CLONED at
+  arrival (`cloneNetState`) because Colyseus decodes into the same live
+  object. Direct-state reads (carrier HP, phase, winner) stay realtime;
+  slow-changing, not feel-relevant. It cannot run silently: console banner
+  on join + a pinned amber NETSIM badge for the whole match.
+- **Netcode overlay** (`NetDebugOverlay`, plain DOM): press **Backquote**
+  in an online match (offline that key is god mode) for a top-right
+  readout — clock offset, configured interp delay, own-ship snapshot
+  buffer depth + HEADROOM (newest sample minus render time; ≤0 = buffer
+  starvation, the interp-delay smoking gun), pending inputs + ack lag
+  (`inputSeq − acked seq`), correction offset magnitude (units + degrees),
+  fx-queue depth, ships tracked, netsim status. Stats are gathered in
+  `NetworkGame.tick` only while visible; the panel rewrites at 5Hz.
+
+Next: the `[human]` feel pass at 40/80/120ms ± jitter — knob→symptom map
+and anchors are in `docs/AGENT_KICKOFF.md`.
 
 ## How to run / reproduce
 
