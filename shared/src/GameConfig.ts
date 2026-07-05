@@ -1557,6 +1557,46 @@ export const GameConfig = {
   },
 
   /**
+   * Own-ship engine tint (client view only): the ship YOU are flying burns a
+   * distinct exhaust color so you can re-acquire yourself at a glance in a
+   * furball (owner ask 2026-07-05; owner picked the tint over a hull-ring
+   * marker). Purely a depiction — offline it lands on the player's
+   * EngineGlow, online on the `myKey` view's; nothing rides the wire.
+   * Teal on purpose: every other burn in the game is ember-to-orange, RCS
+   * plumes are blue-white, and the faction laser palettes are pink/blue vs
+   * crimson/green — nothing else on the field burns this color.
+   */
+  ownShipTint: {
+    /** Idle/coasting exhaust color (dim — mirrors the standard ember). */
+    idle: { r: 0.08, g: 0.3, b: 0.26 },
+    /** Full-burn exhaust color. Components > 1 bloom via the GlowLayer,
+     * matching the standard hot orange's punch. */
+    hot: { r: 0.45, g: 1.75, b: 1.45 },
+  },
+
+  /**
+   * Ship nameplates (client view only): plain-DOM callsign labels projected
+   * under the ships each frame. Friendlies always show; enemies only while
+   * they're YOUR current missile-lock target (furball text clutter is the
+   * failure mode this avoids); your own ship never does (the own-ship engine
+   * tint is your cue). Human pilots wear their typed name, AI seats their
+   * generated scheme (Callsigns.ts) — styled visibly differently per the
+   * honesty rule. Works offline and online.
+   */
+  nameplates: {
+    /** Screen-space gap (px) between the ship's projected position and the
+     * top of its label. Positive = below the ship. */
+    offsetPx: 34,
+    /** Camera zoom factor (see camera.minZoom/maxZoom) where the labels
+     * start fading out — pulled back past this, text is clutter. */
+    zoomFadeStart: 1.7,
+    /** Camera zoom factor where the labels are fully gone. */
+    zoomFadeEnd: 2.3,
+    /** Peak label opacity (friendly plates; the CSS dims AI/enemy further). */
+    maxAlpha: 0.85,
+  },
+
+  /**
    * Scene lighting for the non-emissive surfaces — ship hulls, the motherships,
    * asteroids. (Emissive things — lasers, engines, the backdrop/nebulas — ignore
    * lights and are governed by their own emissive color + the GlowLayer.)

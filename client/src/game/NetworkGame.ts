@@ -56,6 +56,7 @@ import { JumpFlashSystem } from "./JumpFlashSystem";
 import { JumpRipple } from "./JumpRipple";
 import { SoundSystem } from "./SoundSystem";
 import { EngineGlow } from "./EngineGlow";
+import { Nameplates } from "./Nameplates";
 import { SecondaryThrusters } from "./SecondaryThrusters";
 import { NetDebugOverlay } from "./NetDebugOverlay";
 import { DelayQueue } from "../net/DelayQueue";
@@ -76,6 +77,9 @@ interface NetShip {
   alive: boolean;
   launching: boolean;
   isAI: boolean;
+  /** Pilot identity (nameplates): typed name while human-flown, else the
+   *  seat's generated AI callsign. */
+  callsign: string;
   cannonAmmo: number;
   missileAmmo: number;
   lastInputSeq: number;
@@ -111,6 +115,12 @@ class ShadowShip {
   present = false;
   /** Wall-clock ms the drive started spooling, or null when idle. */
   spoolStartMs: number | null = null;
+  /** Pilot identity for the nameplate (patch-fed; slow-changing). */
+  callsign = "";
+  isHumanPilot = false;
+  /** Still in the launch catapult — nameplates hold off (a DOM label would
+   *  float over the carrier hull; DOM ignores occlusion). */
+  launching = true;
 
   constructor(readonly faction: Faction) {}
 
@@ -282,6 +292,8 @@ export class NetworkGame {
     }
   >();
   private myKey: string | null = null;
+  /** Projected callsign labels (shadow-roster fed — see the plate loop). */
+  private readonly nameplates: Nameplates;
 
   // ─── Local-ship prediction (Phase 2) ───
   /** The locally simulated own ship (shared Ship math = server parity). */
@@ -457,6 +469,7 @@ export class NetworkGame {
     this.starfield = new Starfield(this.scene, this.cameraRig.camera);
     this.hud = new Hud(hudRoot);
     this.hud.setLaunchOverlay("STAND BY");
+    this.nameplates = new Nameplates(this.scene, this.cameraRig.camera, hudRoot);
 
     this.input = new InputManager();
     this.input.attach();
@@ -646,6 +659,11 @@ export class NetworkGame {
       } else {
         this.humanPiloted.add(stub as unknown as Ship);
       }
+      // Nameplate identity rides the stub (patch cadence is plenty — the
+      // callsign only changes when a seat swaps human↔AI).
+      stub.callsign = ship.callsign ?? "";
+      stub.isHumanPilot = !ship.isAI;
+      stub.launching = ship.launching;
       if (ship.owner === this.net.sessionId) this.myKey = key;
       if (key === this.myKey) {
         // Own seat: capture the authoritative sample for prediction and fold
@@ -773,6 +791,7 @@ export class NetworkGame {
           alive: v.alive,
           launching: v.launching,
           isAI: v.isAI,
+          callsign: v.callsign,
           cannonAmmo: v.cannonAmmo,
           missileAmmo: v.missileAmmo,
           lastInputSeq: v.lastInputSeq,
@@ -1071,6 +1090,28 @@ export class NetworkGame {
         this.humanPiloted,
       );
     }
+
+    // Nameplates off the shadow roster: friendly pilots always, an enemy's
+    // only while it's the lock target, never our own ship (the own-ship
+    // engine tint is that cue). Human names vs AI callsigns style
+    // differently (honesty rule); launch-gated like offline (a DOM label
+    // would float over the carrier hull — DOM ignores occlusion).
+    this.nameplates.begin(this.cameraRig.currentZoom);
+    for (const [key, stub] of this.shadows) {
+      if (key === this.myKey || !stub.present || !stub.isAlive || stub.launching) continue;
+      if (stub.callsign === "") continue;
+      const friendly = stub.faction === this.playerFaction;
+      if (!friendly && stub !== this.lockStub) continue;
+      this.nameplates.show(
+        key,
+        stub.callsign,
+        stub.position.x,
+        stub.position.z,
+        stub.isHumanPilot ? "human" : "ai",
+        stub.faction,
+      );
+    }
+    this.nameplates.end();
 
     // Netcode readout — stats gathered only while the panel is showing (the
     // one dev-path allocation; the overlay itself rewrites at 5Hz).
@@ -1740,12 +1781,18 @@ export class NetworkGame {
     const hasTemplate = (this.templates.get(m.shipType) ?? null) !== null;
     const nozzles = this.thrusterMarkers(view.root);
     this.visuals.set(key, {
+      // Our own seat's burn wears the own-ship tint (teal vs everyone
+      // else's orange — client-only depiction, remote peers never see it).
+      // myKey is always known by now: it's set while the patch that first
+      // carries our ship ingests, and views are only built afterwards, in
+      // the render pass over that patch's snapshots.
       glow: hasTemplate
         ? new EngineGlow(
             this.scene,
             view.root,
             this.glowLayer,
             nozzles.length > 0 ? nozzles : this.rearEmitters(view.root),
+            key === this.myKey ? GameConfig.ownShipTint : undefined,
           )
         : null,
       // RCS plumes ride the replicated reverse/strafe bits — FRIENDLY ships
@@ -1848,6 +1895,7 @@ export class NetworkGame {
   dispose(): void {
     window.removeEventListener("keydown", this.onKeyDown);
     this.netDebug.dispose();
+    this.nameplates.dispose(); // DOM layer — scene.dispose won't remove it
     this.input.detach();
     void this.net.leave();
     this.engine.stopRenderLoop();

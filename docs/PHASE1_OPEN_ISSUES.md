@@ -1,12 +1,48 @@
 # Phase 1/2 — status + handoff notes
 
-Snapshot for resuming the multiplayer work. Phases 1–2 core are MERGED to
-`main` (`6c119ec`, 2026-07-05, owner-accepted); the netcode TOOLING and
-SENSOR-FILTERED REPLICATION below live on **`feat/phase2-net-tools`**.
+Snapshot for resuming the multiplayer work. Phases 1–2 core AND the Phase 2
+tail (netsim + overlay + sensor-filtered replication) are MERGED to `main`
+(`0667a72`, 2026-07-05, owner-accepted); the IDENTITY slice below (own-ship
+marker + callsigns/nameplates) lives on **`feat/own-ship-marker`**.
 Everything builds + typechecks; the full test suite is **18/18 green**
-(`npm test`). PROTOCOL_VERSION is **12** — stale tabs get a clean join
+(`npm test`). PROTOCOL_VERSION is **15** — stale tabs get a clean join
 rejection (rendered as "NEW VERSION — refresh"), so always reload after
 pulling.
+
+## DONE + OWNER-VERIFIED 2026-07-05 — identity slice
+
+Both owner asks from the 2026-07-05 session, built on `feat/own-ship-marker`
+and accepted in-browser the same day after three owner review rounds:
+ring → TEAL ENGINE TINT (owner call), numbered callsigns → TWO-WORD handles
+(owner call), and a dark backing pill so plates read over exhaust plumes
+(owner finding, `b54d7a4`):
+
+- **Own-ship engine tint** (owner-decided 2026-07-05, replacing the ring
+  marker first built as `4fba536`): the ship YOU fly burns TEAL exhaust —
+  every other burn is ember-to-orange, RCS plumes are blue-white, so
+  nothing else on the field wears this color. `EngineGlow` grew an optional
+  idle/hot palette param; the player's own glow (offline `Game`, online the
+  `myKey` view in `NetworkGame.makeView`) passes `GameConfig.ownShipTint`,
+  everyone else defaults. Wingmen flying the SAME model keep orange. Known
+  trade (owner accepted): the cue fades while coasting and hides in the
+  launch tube — it's a burn, not a beacon.
+- **Callsigns + nameplates** (`ebfed8d`): `shared/src/Callsigns.ts` names
+  AI seats deterministically per (faction, seat index) — Commonwealth
+  pilot handles ("Blue Fox", "Iron Wolf"…) vs Novari choir names
+  ("Silent Psalm", "Glass Hymn"…) — two-word, no numbers (owner call), per
+  the story bible; the offline Game names its wing/fleet with the SAME
+  generator. Humans wear a typed pilot name: CALLSIGN field on loadout
+  page 2 → `lastMeridian_pilotName` → `JoinOptions.pilotName` (sanitized
+  BOTH sides) → `ShipSchema.callsign`, which swaps with `isAI` on
+  join/leave (a leaver's name never lingers on the bot; integration-tested
+  over the transport). `Nameplates.ts`: pooled plain-DOM labels projected
+  per frame, zoom-faded (`GameConfig.nameplates`), friendlies-always +
+  enemies-only-while-lock-targeted + never your own ship, launch-gated
+  (DOM ignores occlusion); human names bright/haloed vs dimmer
+  faction-tinted AI callsigns (honesty rule). Online rides new ShadowShip
+  stub fields (`callsign`/`isHumanPilot`/`launching`) fed per patch —
+  and note `cloneNetState` (the netsim copy) must carry every new
+  `ShipSchema` field.
 
 ## FIXED + OWNER-VERIFIED 2026-07-05 — MP parity: dock cue + jump ripple
 

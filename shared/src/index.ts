@@ -14,6 +14,7 @@ export * from "./GameConfig";
 export * from "./math";
 export * from "./types";
 export * from "./Faction";
+export * from "./Callsigns";
 
 // AI + awareness
 export * from "./AIController";

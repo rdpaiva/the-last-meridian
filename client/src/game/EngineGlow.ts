@@ -54,21 +54,34 @@ export class EngineGlow {
   private readonly currentColor = new Color3();
 
   // Color targets for emissive. > 1 values bloom harder via GlowLayer.
-  private readonly idleColor = new Color3(0.35, 0.18, 0.08);
-  private readonly hotColor = new Color3(1.6, 0.85, 0.35);
+  private readonly idleColor: Color3;
+  private readonly hotColor: Color3;
 
   /**
    * `emitters` are nozzle positions in the ship's local frame; when omitted or
    * empty (no model markers), `GameConfig.engineGlow.emitters` is used.
+   * `palette` overrides the idle→hot burn colors — the own-ship tint
+   * (`GameConfig.ownShipTint`) rides this; omitted = the fleet's standard
+   * ember-to-orange.
    */
   constructor(
     scene: Scene,
     shipRoot: TransformNode,
     glowLayer: GlowLayer,
     emitters?: ReadonlyArray<{ x: number; y: number; z: number }>,
+    palette?: {
+      idle: { r: number; g: number; b: number };
+      hot: { r: number; g: number; b: number };
+    },
   ) {
     this.scene = scene;
     const cfg = GameConfig.engineGlow;
+    this.idleColor = palette
+      ? new Color3(palette.idle.r, palette.idle.g, palette.idle.b)
+      : new Color3(0.35, 0.18, 0.08);
+    this.hotColor = palette
+      ? new Color3(palette.hot.r, palette.hot.g, palette.hot.b)
+      : new Color3(1.6, 0.85, 0.35);
     const nozzles = emitters && emitters.length > 0 ? emitters : cfg.emitters;
 
     // Shared materials — one set drives every nozzle, updated once per frame.

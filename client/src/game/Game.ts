@@ -13,7 +13,7 @@ import { ImageProcessingConfiguration } from "@babylonjs/core/Materials/imagePro
 // the PBR (metallic) GLB ships, which need an environment to reflect.
 import { EquiRectangularCubeTexture } from "@babylonjs/core/Materials/Textures/equiRectangularCubeTexture";
 
-import { GameConfig, type ShipTypeId, type WingOrder } from "@space-duel/shared";
+import { GameConfig, aiCallsign, type ShipTypeId, type WingOrder } from "@space-duel/shared";
 import { InputManager } from "./InputManager";
 import { Arena } from "./Arena";
 import { AssetLoader } from "./AssetLoader";
@@ -44,6 +44,7 @@ import { JumpRipple } from "./JumpRipple";
 import { SoundSystem } from "./SoundSystem";
 import { MusicSystem } from "./MusicSystem";
 import { DamageFlash } from "./DamageFlash";
+import { Nameplates } from "./Nameplates";
 import { Mothership } from "@space-duel/shared";
 import { MothershipSection } from "@space-duel/shared";
 import { Turret } from "@space-duel/shared";
@@ -223,6 +224,9 @@ export class Game {
   private engineGlow: EngineGlow | null = null;
   private secondaryThrusters: SecondaryThrusters | null = null;
   private playerDamageFlash: DamageFlash | null = null;
+  private nameplates: Nameplates | null = null;
+  /** AI callsigns by ship (Callsigns.ts schemes) — the nameplate labels. */
+  private readonly shipCallsigns = new Map<Ship, string>();
   /** Hit-confirm flash for every non-player ship (enemies + wingmen). */
   private readonly aiDamageFlashes = new Map<Ship, DamageFlash>();
 
@@ -530,6 +534,7 @@ export class Game {
     this.starfield = new Starfield(this.scene, this.cameraRig.camera);
     this.hud = new Hud(hudRoot);
     this.radar = new Radar();
+    this.nameplates = new Nameplates(this.scene, this.cameraRig.camera, hudRoot);
     this.missileWarning = new MissileWarning(this.sound, this.hud);
 
     // Per-faction sensor pictures — built before the controller worlds, which
@@ -767,13 +772,20 @@ export class Game {
       });
       this.combatants.push({ ship, view, controller, launch: null, bayIndex: 0, lastInput: null });
       this.aiDamageFlashes.set(ship, new DamageFlash(this.scene, view.root, this.glowLayer, new Color3(2.5, 1.5, 0.2)));
+      // Wing callsigns: deterministic per (faction, seat index) — the same
+      // scheme the server names its AI seats with (Callsigns.ts).
+      this.shipCallsigns.set(ship, aiCallsign(this.playerFaction, i));
     }
 
+    // The player's own burn wears the own-ship tint (teal vs the fleet's
+    // orange) — the "this one is you" cue. Wingmen flying the same model
+    // keep the standard palette (constructed above, no palette arg).
     this.engineGlow = new EngineGlow(
       this.scene,
       loaded.root,
       this.glowLayer,
       markers.thrusters,
+      GameConfig.ownShipTint,
     );
     this.secondaryThrusters = new SecondaryThrusters(
       this.scene,
@@ -852,6 +864,7 @@ export class Game {
           });
         }
         this.aiDamageFlashes.set(ship, new DamageFlash(this.scene, view.root, this.glowLayer, new Color3(2.5, 1.5, 0.2)));
+        this.shipCallsigns.set(ship, aiCallsign(this.enemyFaction, fleetIndex));
       }
     }
 
@@ -2007,6 +2020,22 @@ export class Game {
         this.combatNebulas.zones,
         nowMs,
       );
+    }
+    // Nameplates: wing callsigns always, an enemy's only while it's the
+    // current missile-lock target, never the player's own (the own-ship
+    // engine tint is that cue). Launch-gated — a plate for a ship still in the
+    // tube would float over the carrier hull (DOM ignores occlusion).
+    if (this.nameplates && this.playerShip) {
+      this.nameplates.begin(this.cameraRig.currentZoom);
+      for (const c of this.combatants) {
+        if (c === this.playerCombatant || c.launch !== null || !c.ship.isAlive) continue;
+        const friendly = c.ship.faction === this.playerFaction;
+        if (!friendly && c.ship !== this.lockTarget) continue;
+        const sign = this.shipCallsigns.get(c.ship);
+        if (!sign) continue;
+        this.nameplates.show(sign, sign, c.ship.position.x, c.ship.position.z, "ai", c.ship.faction);
+      }
+      this.nameplates.end();
     }
     this.hud.setLaunchOverlay(this.playerLaunch?.overlayText ?? null);
     this.hud.setEndBanner(

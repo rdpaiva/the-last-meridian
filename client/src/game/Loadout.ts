@@ -1,5 +1,5 @@
 import type { Faction } from "@space-duel/shared";
-import { GameConfig, type ShipTypeId } from "@space-duel/shared";
+import { GameConfig, sanitizePilotName, type ShipTypeId } from "@space-duel/shared";
 
 /**
  * What the pilot chose on the splash loadout menu: which side to fly, in which
@@ -25,6 +25,7 @@ export interface PlayerLoadout {
 const FACTION_KEY = "lastMeridian_faction";
 const SHIP_KEY = "lastMeridian_ship";
 const INTRO_KEY = "lastMeridian_introSeen";
+const PILOT_NAME_KEY = "lastMeridian_pilotName";
 /** Pre-rename single-JSON key — still read as a fallback, removed on save. */
 const LEGACY_KEY = "space-duel-loadout";
 
@@ -94,6 +95,27 @@ export function saveLoadout(loadout: PlayerLoadout): void {
     localStorage.removeItem(LEGACY_KEY);
   } catch {
     // Storage unavailable (private mode etc.) — the choice just won't persist.
+  }
+}
+
+/**
+ * The persisted pilot name (callsign the player wears online), sanitized on
+ * the way out. "" = never entered / nothing usable — the server falls back
+ * to the seat's AI callsign.
+ */
+export function loadPilotName(): string {
+  try {
+    return sanitizePilotName(localStorage.getItem(PILOT_NAME_KEY) ?? "");
+  } catch {
+    return "";
+  }
+}
+
+export function savePilotName(name: string): void {
+  try {
+    localStorage.setItem(PILOT_NAME_KEY, sanitizePilotName(name));
+  } catch {
+    // Storage unavailable — the name just won't persist across sessions.
   }
 }
 

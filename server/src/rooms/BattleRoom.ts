@@ -22,6 +22,8 @@ import {
   PROTOCOL_VERSION,
   PROTOCOL_MISMATCH,
   MSG,
+  aiCallsign,
+  sanitizePilotName,
 } from "@space-duel/shared";
 
 import {
@@ -44,6 +46,9 @@ interface Seat {
   schema: ShipSchema;
   /** Sequence number of the newest InputMessage applied (prediction ack). */
   lastInputSeq: number;
+  /** This seat's generated AI callsign — worn while AI-flown, restored when
+   *  a human occupant leaves (the bot resumes its own designation). */
+  aiCallsign: string;
 }
 
 const SIM_HZ = 30;
@@ -191,6 +196,11 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     seat.net.setInput(NEUTRAL_INPUT); // start from a clean frame until the first message
     seat.schema.isAI = false;
     seat.schema.owner = client.sessionId; // lets that client find its own ship
+    // The seat wears the human's name while they fly it. Sanitized HERE (not
+    // just client-side) — the wire string feeds every peer's DOM nameplates.
+    // Empty after sanitizing = keep the AI callsign; nobody flies anonymous.
+    const pilotName = sanitizePilotName(options.pilotName);
+    seat.schema.callsign = pilotName !== "" ? pilotName : seat.aiCallsign;
     this.seatBySession.set(client.sessionId, seat);
 
     // Sensor-filtered replication: this client's view starts with every
@@ -222,6 +232,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     seat.combatant.controller = seat.ai;
     seat.schema.isAI = true;
     seat.schema.owner = "";
+    seat.schema.callsign = seat.aiCallsign; // the bot resumes its designation
     this.retaskLeader(seat.faction);
   }
 
@@ -561,6 +572,10 @@ export class BattleRoom extends Room<{ state: BattleState }> {
         }
         const combatant = this.sim.addCombatant({ ship, controller: ai });
         const schema = this.makeShipSchema(faction, entry.type, `${faction}-${index}`);
+        // Deterministic per (faction, seat index) — the same fleet the
+        // offline Game names in makeFighter.
+        const callsign = aiCallsign(faction, index);
+        schema.callsign = callsign;
         this.state.ships.set(schema.id, schema);
         this.shipIds.set(ship, schema.id);
         const seat: Seat = {
@@ -573,6 +588,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
           occupant: null,
           schema,
           lastInputSeq: 0,
+          aiCallsign: callsign,
         };
         this.seats.push(seat);
         this.seatByShip.set(ship, seat);
@@ -618,6 +634,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     ship.alive = true;
     ship.launching = true;
     ship.isAI = true;
+    ship.callsign = ""; // real value set by buildFleet (every-field-init rule)
     ship.reverse = false;
     ship.strafeLeft = false;
     ship.strafeRight = false;
