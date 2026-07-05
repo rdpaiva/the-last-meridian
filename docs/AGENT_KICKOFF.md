@@ -31,11 +31,13 @@ view hiding handled client-side). PROTOCOL_VERSION 12. Typecheck + 18/18
 tests green. NEITHER the feel under simulated latency NOR the filtering
 has been owner-playtested yet.
 
-**My playtest findings**: <fill in — solo-online first: enemies should pop
-onto radar+screen when tracked and vanish honestly into nebulas (ghost
-rings age out, no frozen "statue" ships, no trail streaks on reappear);
-then fly at netsim 40/80/120ms ± jitter and report what feels wrong,
-with overlay numbers when something spikes>
+**Owner playtest 2026-07-05 on this branch**: came back clean after two
+MP-parity fixes (dock cue + arrival-side jump ripple, `28dac09` — see
+PHASE1_OPEN_ISSUES). Still untested: the netsim feel pass at real
+latencies (work-order item 1).
+
+**My playtest findings**: <fill in — fly at netsim 40/80/120ms ± jitter
+and report what feels wrong, with overlay numbers when something spikes>
 
 **Work order**:
 

@@ -8,6 +8,21 @@ Everything builds + typechecks; the full test suite is **18/18 green**
 rejection (rendered as "NEW VERSION — refresh"), so always reload after
 pulling.
 
+## FIXED + OWNER-VERIFIED 2026-07-05 — MP parity: dock cue + jump ripple
+
+Two owner playtest findings against this branch, both online-only gaps vs
+Game.tick, fixed in `28dac09` and re-verified by the owner in-browser:
+
+- **Dock cue**: NetworkGame never called `Hud.setServiceStatus` — the
+  server refuelled fine (authoritative), the HUD just never said so. Now
+  mirrors the offline gate over the predicted ship; SERVICING/DOCKED
+  derives from replicated hp/ammo vs the type caps (no client serviceTick).
+- **Jump ripple**: only the DEPARTURE ripple spawned, and the own-jump
+  camera snaps to the arrival — the effect was always off-screen. Now both
+  endpoints (offline parity) + the missing `arrivalTrauma` kick.
+
+The owner's pass on this branch otherwise came back clean.
+
 ## DONE 2026-07-05 — sensor-filtered replication (the anti-wallhack gate)
 
 Nebula stealth + sensor range now filter the WIRE, not just the radar. With
