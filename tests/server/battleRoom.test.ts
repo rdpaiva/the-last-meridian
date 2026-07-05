@@ -44,6 +44,7 @@ const joinOpts = (over: Partial<JoinOptions> = {}): JoinOptions => ({
   protocolVersion: PROTOCOL_VERSION,
   faction: "humans",
   shipType: "spitfire",
+  pilotName: "",
   ...over,
 });
 
@@ -85,7 +86,7 @@ describe("BattleRoom integration", () => {
     "replicates a full AI-backfilled battle to a joining client",
     async () => {
       const room = await colyseus.createRoom(BATTLE_ROOM, {});
-      const client = await colyseus.connectTo(room, joinOpts());
+      const client = await colyseus.connectTo(room, joinOpts({ pilotName: "Maverick" }));
       // Wait for the first replicated patch to reach the client.
       expect(await waitUntil(() => (client.state?.ships?.size ?? 0) > 0)).toBe(true);
 
@@ -115,7 +116,23 @@ describe("BattleRoom integration", () => {
       expect(humanSeats[0].shipType).toBe("spitfire");
       expect([...room.state.ships.values()].filter((s) => !s.isAI)).toHaveLength(1);
 
+      // Callsigns: the human seat wears the typed pilot name; every AI seat
+      // carries a generated designation (nobody flies anonymous).
+      expect(humanSeats[0].callsign).toBe("Maverick");
+      expect(
+        [...room.state.ships.values()].every((s) => s.callsign !== ""),
+      ).toBe(true);
+      const humanSeatId = humanSeats[0].id;
+
       await client.leave();
+      // The seat hands back to AI and resumes its generated callsign — the
+      // departed human's name must not linger on a bot (honesty rule).
+      expect(
+        await waitUntil(() => {
+          const s = room.state.ships.get(humanSeatId);
+          return s !== undefined && s.isAI && s.callsign !== "Maverick" && s.callsign !== "";
+        }),
+      ).toBe(true);
     },
     TEST_TIMEOUT,
   );

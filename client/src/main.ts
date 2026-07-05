@@ -11,6 +11,7 @@ import { applyDifficulty, loadSavedDifficulty } from "./game/Difficulty";
 import {
   hasSavedLoadout,
   hasSeenIntro,
+  loadPilotName,
   loadSavedLoadout,
   markIntroSeen,
 } from "./game/Loadout";
@@ -198,7 +199,10 @@ function startGame(mode: LaunchMode): void {
  * On failure (server down, protocol mismatch) the splash stays up with a
  * readable reason on the button that was pressed — PLAY SOLO always works.
  */
-async function startOnline(loadout: ReturnType<typeof loadSavedLoadout>): Promise<void> {
+async function startOnline(base: ReturnType<typeof loadSavedLoadout>): Promise<void> {
+  // The persisted pilot name rides the join as the seat's callsign (the
+  // loadout menu's field saves per keystroke; quick play reads the same key).
+  const loadout = { ...base, pilotName: loadPilotName() };
   // Status lands where the player is looking: the loadout's online CTA when
   // the menu is up, else the quick-play primary button.
   const setStatus = (text: string | null): void => {

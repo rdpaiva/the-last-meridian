@@ -1,6 +1,12 @@
-import { GameConfig, type ShipTypeId } from "@space-duel/shared";
+import { GameConfig, PILOT_NAME_MAX, type ShipTypeId } from "@space-duel/shared";
 import { FACTION_THEME, opposing, type Faction } from "@space-duel/shared";
-import { loadSavedLoadout, saveLoadout, type PlayerLoadout } from "./Loadout";
+import {
+  loadPilotName,
+  loadSavedLoadout,
+  saveLoadout,
+  savePilotName,
+  type PlayerLoadout,
+} from "./Loadout";
 import {
   MAPS,
   loadSavedMapSelection,
@@ -459,6 +465,11 @@ export class LoadoutMenu {
       <div class="loadout-row${this.activeRow === "difficulty" ? " active" : ""}" id="loadout-difficulty">${diffCards}</div>
       <div class="loadout-subheading">Arena</div>
       <div class="loadout-row${this.activeRow === "map" ? " active" : ""}" id="loadout-maps">${mapCards}</div>
+      <div class="pilot-name-row">
+        <label for="pilot-name">CALLSIGN</label>
+        <input id="pilot-name" type="text" maxlength="${PILOT_NAME_MAX}"
+          placeholder="squadron callsign" autocomplete="off" spellcheck="false">
+      </div>
       <div class="loadout-step">STEP 2 OF 2</div>
       <div class="loadout-actions">
         <button id="loadout-back" class="loadout-back">◂ BACK</button>
@@ -510,6 +521,17 @@ export class LoadoutMenu {
     this.root
       .querySelector<HTMLButtonElement>("#loadout-online")
       ?.addEventListener("click", () => this.onPlay("online"));
+
+    // Pilot-name field (page 2): value set as a PROPERTY (never interpolated
+    // into the innerHTML above — no markup injection), persisted per
+    // keystroke so PLAY/quick-play/Enter all read the same storage. The menu
+    // keydown handler already ignores focused inputs, so typing never drives
+    // the card rows.
+    const nameInput = this.root.querySelector<HTMLInputElement>("#pilot-name");
+    if (nameInput) {
+      nameInput.value = loadPilotName();
+      nameInput.addEventListener("input", () => savePilotName(nameInput.value));
+    }
 
     // Play the portrait video for the selected faction from the start.
     // Non-selected faction videos stay paused on frame 0.

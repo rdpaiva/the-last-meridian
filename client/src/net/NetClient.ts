@@ -4,6 +4,7 @@ import {
   BATTLE_ROOM,
   GameConfig,
   PROTOCOL_VERSION,
+  sanitizePilotName,
   type JoinOptions,
   type Faction,
   type ShipTypeId,
@@ -13,6 +14,8 @@ import {
 export interface NetLoadout {
   faction: Faction;
   shipType: ShipTypeId;
+  /** Pilot name for the seat's callsign ("" = server keeps the AI callsign). */
+  pilotName?: string;
 }
 
 /**
@@ -85,6 +88,7 @@ export class NetClient {
       protocolVersion: PROTOCOL_VERSION,
       faction: loadout.faction,
       shipType: loadout.shipType,
+      pilotName: sanitizePilotName(loadout.pilotName ?? ""),
     };
   }
 

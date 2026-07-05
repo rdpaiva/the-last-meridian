@@ -35,6 +35,10 @@ export const ShipSchema = schema(
     launching: "boolean",
     /** AI-flown seat (honesty rule: HUD + radar tag bots). */
     isAI: "boolean",
+    /** Pilot identity for nameplates: the occupant's sanitized name while a
+     *  human flies this seat, else the seat's generated AI callsign
+     *  (Callsigns.ts). Swaps with isAI on join/leave. */
+    callsign: "string",
     /** RCS bits of the input the last sim tick applied — clients depict
      *  reverse/strafe plumes on FRIENDLY ships from these (offline parity:
      *  the wing's plumes ride each pilot's emitted input, the enemy's don't

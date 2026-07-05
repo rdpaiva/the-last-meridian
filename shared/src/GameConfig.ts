@@ -1589,6 +1589,28 @@ export const GameConfig = {
   },
 
   /**
+   * Ship nameplates (client view only): plain-DOM callsign labels projected
+   * under the ships each frame. Friendlies always show; enemies only while
+   * they're YOUR current missile-lock target (furball text clutter is the
+   * failure mode this avoids); your own ship never does (the own-ship marker
+   * ring is your cue). Human pilots wear their typed name, AI seats their
+   * generated scheme (Callsigns.ts) — styled visibly differently per the
+   * honesty rule. Works offline and online.
+   */
+  nameplates: {
+    /** Screen-space gap (px) between the ship's projected position and the
+     * top of its label. Positive = below the ship. */
+    offsetPx: 34,
+    /** Camera zoom factor (see camera.minZoom/maxZoom) where the labels
+     * start fading out — pulled back past this, text is clutter. */
+    zoomFadeStart: 1.7,
+    /** Camera zoom factor where the labels are fully gone. */
+    zoomFadeEnd: 2.3,
+    /** Peak label opacity (friendly plates; the CSS dims AI/enemy further). */
+    maxAlpha: 0.85,
+  },
+
+  /**
    * Scene lighting for the non-emissive surfaces — ship hulls, the motherships,
    * asteroids. (Emissive things — lasers, engines, the backdrop/nebulas — ignore
    * lights and are governed by their own emissive color + the GlowLayer.)

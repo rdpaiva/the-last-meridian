@@ -9,7 +9,7 @@ import type { InputState } from "./types";
  * message protocol or to GameConfig (balance lives in shared, so a tweak is a
  * both-sides deploy) — see docs/MULTIPLAYER.md → Decisions (protocol version).
  */
-export const PROTOCOL_VERSION = 13;
+export const PROTOCOL_VERSION = 14;
 
 /** Room name registered on the server + asked for by the client. */
 export const BATTLE_ROOM = "battle";
@@ -22,6 +22,9 @@ export interface JoinOptions {
   protocolVersion: number;
   faction: Faction;
   shipType: ShipTypeId;
+  /** Player-entered pilot name (sanitizePilotName runs on both sides; ""
+   *  falls back to the seat's AI callsign so no ship flies anonymous). */
+  pilotName: string;
 }
 
 /**

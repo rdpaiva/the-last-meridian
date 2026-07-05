@@ -914,6 +914,47 @@ video.faction-portrait-video {
   color: #cdd6f4;
 }
 
+/* Pilot callsign field (page 2) — a field, not a menu: one labelled input
+   above the action row. The name persists per keystroke (Loadout.ts) and
+   rides the online join as the seat's callsign. */
+.pilot-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.pilot-name-row label {
+  font-size: 9px;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: #5b6680;
+}
+
+.pilot-name-row input {
+  width: 220px;
+  padding: 8px 12px;
+  background: rgba(11, 13, 22, 0.6);
+  border: 1px solid rgba(120, 140, 200, 0.3);
+  border-radius: 4px;
+  color: #cdd6f4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.pilot-name-row input:focus {
+  border-color: rgba(180, 196, 240, 0.55);
+}
+
+.pilot-name-row input::placeholder {
+  color: #4a5470;
+  letter-spacing: 0.08em;
+}
+
 /* "STEP n OF 2" — quiet page indicator above the action button. */
 .loadout-step {
   text-align: center;
@@ -1063,6 +1104,53 @@ body {
 #hud .label {
   color: #7f8aa6;
   margin-right: 6px;
+}
+
+/* Ship nameplates (Nameplates.ts) — callsign labels projected under the
+   ships each frame. FIXED full-viewport layer: the #hud parent is a small
+   top-left panel, so absolute positioning would anchor to it — fixed
+   anchors to the viewport instead (no transformed ancestors above #hud).
+   Zoom fade lands on the container's opacity, per-plate transforms on the
+   children. */
+#nameplates {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+#nameplates .nameplate {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+/* Human pilots wear their typed name: bright + haloed — the same
+   "human = white halo" language the radar blips use. */
+#nameplates .nameplate.human {
+  color: #f4f7ff;
+  font-weight: 600;
+  text-shadow: 0 0 6px rgba(255, 255, 255, 0.55);
+}
+
+/* AI callsigns read visibly machine-roster (honesty rule: a generated
+   callsign must never pass as a person): dimmer, lighter, faction-tinted. */
+#nameplates .nameplate.ai {
+  font-weight: 400;
+  opacity: 0.7;
+}
+
+#nameplates .nameplate.ai.humans {
+  color: #9fc0e8;
+}
+
+#nameplates .nameplate.ai.machines {
+  color: #e89f96;
 }
 
 /* Dev netcode readout (NetDebugOverlay) — Backquote toggles it, online only.
