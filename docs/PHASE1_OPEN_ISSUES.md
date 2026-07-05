@@ -1,10 +1,93 @@
 # Phase 1/2 — status + handoff notes
 
-Snapshot for resuming the multiplayer work. Branch: **`feat/phase1-multiplayer`**
-(not yet merged to `main`). Everything builds + typechecks; the full test suite
-is **14/14 green** (`npm test`). PROTOCOL_VERSION is **10** — stale tabs get a
-clean join rejection (rendered as "NEW VERSION — refresh"), so always
-reload after pulling.
+Snapshot for resuming the multiplayer work. Phases 1–2 core are MERGED to
+`main` (`6c119ec`, 2026-07-05, owner-accepted); the netcode TOOLING and
+SENSOR-FILTERED REPLICATION below live on **`feat/phase2-net-tools`**.
+Everything builds + typechecks; the full test suite is **18/18 green**
+(`npm test`). PROTOCOL_VERSION is **12** — stale tabs get a clean join
+rejection (rendered as "NEW VERSION — refresh"), so always reload after
+pulling.
+
+## FIXED + OWNER-VERIFIED 2026-07-05 — MP parity: dock cue + jump ripple
+
+Two owner playtest findings against this branch, both online-only gaps vs
+Game.tick, fixed in `28dac09` and re-verified by the owner in-browser:
+
+- **Dock cue**: NetworkGame never called `Hud.setServiceStatus` — the
+  server refuelled fine (authoritative), the HUD just never said so. Now
+  mirrors the offline gate over the predicted ship; SERVICING/DOCKED
+  derives from replicated hp/ammo vs the type caps (no client serviceTick).
+- **Jump ripple**: only the DEPARTURE ripple spawned, and the own-jump
+  camera snaps to the arrival — the effect was always off-screen. Now both
+  endpoints (offline parity) + the missing `arrivalTrauma` kick.
+
+The owner's pass on this branch otherwise came back clean.
+
+## DONE 2026-07-05 — sensor-filtered replication (the anti-wallhack gate)
+
+Nebula stealth + sensor range now filter the WIRE, not just the radar. With
+both Phase 2 tail items landed, what's left before Phase 3 is only the
+`[human]` feel pass.
+
+- **Server**: `BattleState.ships` is view-tagged (`view: true`); every
+  client gets a Colyseus `StateView` in `onJoin` — all FRIENDLY ships
+  permanently, ENEMY ships diffed in/out each tick by
+  `BattleRoom.syncClientViews` from `sim.sensors.isTracked` (the same
+  fresh-track rule the server AI flies on; a spooling jump drive
+  force-detects, so runners still telegraph). Death drops the entry
+  (explosion arrives as the unfiltered shipDied event, like offline).
+- **Events are unfiltered but self-contained** (a shooter may never have
+  replicated to a given client): `laserFired` carries shooter faction+type,
+  `missileFired` carries faction + launch pose (depiction falls back to it
+  when the shooter is hidden — the round is visible even when the ship
+  isn't), `shipDied` carries victim faction+type for the kill board. Pilot
+  counts are unfiltered root fields (`pilotHumans`/`pilotBots`).
+- **Client**: `ShadowShip.present` mirrors map membership. Absence freezes
+  the stub at its last rendered pose, pulls it from the sensor rosters,
+  hides the view + engine glow (trail is unparented — gotcha #4), and wipes
+  the snapshot buffer so reappearance can't interpolate across the hidden
+  gap. The shared `SensorSystem` sweep now clears freshness for ships
+  absent from the opposing roster (a no-op for stable offline/server
+  rosters — smoke baseline untouched), which is what ages a de-replicated
+  enemy into an honest last-known-position radar ghost.
+- **Proven over a real transport** (tests/server/battleRoom.test.ts): a
+  first-patch client receives ONLY its own fleet (the parked enemy fleet is
+  off the wire); an enemy dragged into AWACS range appears; a killed enemy
+  leaves the map; a killed friendly stays (alive=false).
+- **Known deliberate quirks**: no hidden-enemy ship meshes on screen even
+  inside the visual nebula (eyeball `visualRange` keeps knife-fights
+  replicated); bolts can emerge from empty space when a concealed ship
+  fires from beyond visual range — that's the stealth fantasy, not a bug;
+  the DETECTED/HIDDEN cue is the client's mirror and can briefly disagree
+  with the server picture for hidden observers.
+
+## DONE 2026-07-05 — netcode tooling (network-condition simulator + debug overlay)
+
+The Phase 2 tail's tooling pair, built so the `[human]` feel-tuning loop can
+run on localhost:
+
+- **Netsim** (`GameConfig.net.sim` — dev section, OFF by default; flip
+  `enabled` and reload): `latencyMs` is the simulated ROUND TRIP (half
+  applied to each direction), `jitterMs` adds 0..j per-message randomness.
+  Outbound: `NetClient.send` holds input/ready sends (monotonic release —
+  TCP never reorders). Inbound: `NetworkGame` holds arriving state patches
+  and `MSG.events` batches in `DelayQueue`s (client/src/net/DelayQueue.ts,
+  unit-tested) drained at the top of the tick — patches are CLONED at
+  arrival (`cloneNetState`) because Colyseus decodes into the same live
+  object. Direct-state reads (carrier HP, phase, winner) stay realtime;
+  slow-changing, not feel-relevant. It cannot run silently: console banner
+  on join + a pinned amber NETSIM badge for the whole match.
+- **Netcode overlay** (`NetDebugOverlay`, plain DOM): press **Backquote**
+  in an online match (offline that key is god mode) for a top-right
+  readout — clock offset, configured interp delay, own-ship snapshot
+  buffer depth + HEADROOM (newest sample minus render time; ≤0 = buffer
+  starvation, the interp-delay smoking gun), pending inputs + ack lag
+  (`inputSeq − acked seq`), correction offset magnitude (units + degrees),
+  fx-queue depth, ships tracked, netsim status. Stats are gathered in
+  `NetworkGame.tick` only while visible; the panel rewrites at 5Hz.
+
+Next: the `[human]` feel pass at 40/80/120ms ± jitter — knob→symptom map
+and anchors are in `docs/AGENT_KICKOFF.md`.
 
 ## How to run / reproduce
 

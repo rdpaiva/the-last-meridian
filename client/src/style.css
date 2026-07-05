@@ -1065,6 +1065,46 @@ body {
   margin-right: 6px;
 }
 
+/* Dev netcode readout (NetDebugOverlay) — Backquote toggles it, online only.
+   Top-right: the HUD owns top-left, the radar owns bottom-right. */
+#netdebug {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  padding: 10px 14px;
+  background: rgba(11, 13, 22, 0.75);
+  border: 1px solid rgba(120, 140, 200, 0.18);
+  border-radius: 6px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  letter-spacing: 0.02em;
+  color: #cdd6f4;
+  white-space: pre;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* NETSIM badge — pinned whenever the network-condition simulator
+   (GameConfig.net.sim) is enabled, independent of the readout panel, so
+   artificial latency can never be mistaken for real netcode feel. */
+#netsim-badge {
+  position: fixed;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  background: rgba(40, 26, 8, 0.8);
+  border: 1px solid rgba(250, 179, 135, 0.6);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #fab387;
+  pointer-events: none;
+  user-select: none;
+}
+
 .launch-overlay {
   position: fixed;
   inset: 0;

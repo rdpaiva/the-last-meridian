@@ -1,4 +1,5 @@
 import { Room, type Client, ServerError } from "colyseus";
+import { StateView } from "@colyseus/schema";
 
 import {
   BattleSim,
@@ -96,6 +97,20 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     humans: null,
     machines: null,
   };
+  /** Live sim Ship → its Seat (event relay lookups: ship type on the wire). */
+  private readonly seatByShip = new Map<Ship, Seat>();
+  /**
+   * Per-client replication view (sensor-filtered replication, Phase 2): the
+   * `ships` map is view-tagged, so a client receives exactly the entries in
+   * its StateView. Friendlies are added once at join and never leave; enemy
+   * ships are diffed in/out each tick by syncClientViews from the sim's own
+   * sensor picture (`visibleEnemies` mirrors the view's enemy content — the
+   * StateView API has no cheap membership query).
+   */
+  private readonly clientViews = new Map<
+    string,
+    { view: StateView; faction: Faction; visibleEnemies: Set<Seat> }
+  >();
 
   override onCreate(): void {
     this.setState(new BattleState());
@@ -123,6 +138,8 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     this.state.winner = "";
     this.state.tick = 0;
     this.state.timeMs = 0;
+    this.state.pilotHumans = 0;
+    this.state.pilotBots = this.seats.length;
 
     this.maxClients = this.seats.length;
 
@@ -175,6 +192,23 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     seat.schema.isAI = false;
     seat.schema.owner = client.sessionId; // lets that client find its own ship
     this.seatBySession.set(client.sessionId, seat);
+
+    // Sensor-filtered replication: this client's view starts with every
+    // FRIENDLY ship (always replicated — the radar shows friendly truth) and
+    // whatever enemies its faction currently tracks; syncClientViews keeps
+    // the enemy half honest from here on.
+    const view = new StateView();
+    for (const s of this.seats) {
+      if (s.faction === seat.faction) view.add(s.schema);
+    }
+    client.view = view;
+    this.clientViews.set(client.sessionId, {
+      view,
+      faction: seat.faction,
+      visibleEnemies: new Set(),
+    });
+    this.syncClientViews();
+
     this.retaskLeader(seat.faction);
   }
 
@@ -182,6 +216,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     const seat = this.seatBySession.get(client.sessionId);
     if (!seat) return;
     this.seatBySession.delete(client.sessionId);
+    this.clientViews.delete(client.sessionId);
     // Hand the seat back to its AI brain so the match stays balanced.
     seat.occupant = null;
     seat.combatant.controller = seat.ai;
@@ -236,6 +271,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
       seat.lastInputSeq = Math.max(seat.lastInputSeq, seat.net.lastConsumedSeq);
     }
     this.syncState();
+    this.syncClientViews();
     if (this.pendingEvents.length > 0) {
       const msg: EventsMessage = { t: this.simTimeMs, events: [...this.pendingEvents] };
       this.broadcast(MSG.events, msg);
@@ -255,18 +291,35 @@ export class BattleRoom extends Room<{ state: BattleState }> {
       (ship && this.shipIds.get(ship)) || "";
     const targetId = (t: DamageTarget | null): string =>
       t instanceof Ship ? id(t) : "";
+    // Shooter faction/type + launch pose ride the events because the shooter
+    // itself may be sensor-hidden from a given client (filtered replication):
+    // its bolts/rounds are still visible objects, so their depiction can't
+    // depend on the client holding the shooter's replicated metadata.
+    const typeOf = (ship: Ship): ShipTypeId =>
+      this.seatByShip.get(ship)?.typeId ?? "spitfire";
     ev.on("shipFiredLaser", ({ ship, muzzles }) =>
       this.pendingEvents.push({
         k: "laserFired",
         ship: id(ship),
+        f: ship.faction,
+        st: typeOf(ship),
         rot: ship.rotationY,
         mx: muzzles.map((m) => m.x),
         mz: muzzles.map((m) => m.z),
       }),
     );
-    ev.on("missileFired", ({ ship, target }) =>
-      this.pendingEvents.push({ k: "missileFired", ship: id(ship), target: id(target) }),
-    );
+    ev.on("missileFired", ({ ship, target }) => {
+      const off = GameConfig.missile.spawnOffset;
+      this.pendingEvents.push({
+        k: "missileFired",
+        ship: id(ship),
+        f: ship.faction,
+        target: id(target),
+        x: ship.position.x + Math.sin(ship.rotationY) * off,
+        z: ship.position.z + Math.cos(ship.rotationY) * off,
+        rot: ship.rotationY,
+      });
+    });
     // Kill attribution: remember the last shooter to land a hit on each ship;
     // shipDied consumes it. Ships only (both ids non-empty) — carrier and
     // turret damage doesn't feed the fighter kill board.
@@ -318,6 +371,8 @@ export class BattleRoom extends Room<{ state: BattleState }> {
         x: ship.position.x,
         z: ship.position.z,
         by: this.lastHitBy.get(victim) ?? "",
+        vf: ship.faction,
+        vt: typeOf(ship),
       });
       this.lastHitBy.delete(victim); // a respawned ship starts a fresh ledger
     });
@@ -443,6 +498,36 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     this.state.winner = this.sim.winner ?? "";
     this.state.tick++;
     this.state.timeMs = this.simTimeMs;
+    this.state.pilotHumans = this.seatBySession.size;
+    this.state.pilotBots = this.seats.length - this.seatBySession.size;
+  }
+
+  /**
+   * The anti-wallhack gate (sensor-filtered replication, docs/MULTIPLAYER.md
+   * Phase 2): diff each client's StateView against its faction's live sensor
+   * picture. An enemy ship replicates while the faction holds a FRESH track
+   * on it (`SensorSystem.isTracked` — the same rule the server AI flies on
+   * and the client HUD mirrors for its DETECTED/HIDDEN cue; a spooling jump
+   * drive force-detects, so runners still telegraph) and drops off the wire
+   * the sweep it goes stale — nebula stealth hides the ship from packet
+   * sniffing, not just from the radar. Death removes it too (isTracked
+   * requires isAlive); the explosion still reaches everyone as the shipDied
+   * EVENT, which is deliberately unfiltered (observable, like offline).
+   */
+  private syncClientViews(): void {
+    for (const cv of this.clientViews.values()) {
+      for (const seat of this.seats) {
+        if (seat.faction === cv.faction) continue; // friendlies never leave
+        const tracked = this.sim.sensors.isTracked(cv.faction, seat.combatant.ship);
+        if (tracked && !cv.visibleEnemies.has(seat)) {
+          cv.view.add(seat.schema);
+          cv.visibleEnemies.add(seat);
+        } else if (!tracked && cv.visibleEnemies.has(seat)) {
+          cv.view.remove(seat.schema);
+          cv.visibleEnemies.delete(seat);
+        }
+      }
+    }
   }
 
   // ─── Scenario assembly ──────────────────────────────────────────────────────
@@ -478,7 +563,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
         const schema = this.makeShipSchema(faction, entry.type, `${faction}-${index}`);
         this.state.ships.set(schema.id, schema);
         this.shipIds.set(ship, schema.id);
-        this.seats.push({
+        const seat: Seat = {
           id: schema.id,
           faction,
           typeId: entry.type,
@@ -488,7 +573,9 @@ export class BattleRoom extends Room<{ state: BattleState }> {
           occupant: null,
           schema,
           lastInputSeq: 0,
-        });
+        };
+        this.seats.push(seat);
+        this.seatByShip.set(ship, seat);
         pilots.push({ ship, ai });
       }
     }

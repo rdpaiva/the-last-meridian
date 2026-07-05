@@ -57,6 +57,8 @@ import { JumpRipple } from "./JumpRipple";
 import { SoundSystem } from "./SoundSystem";
 import { EngineGlow } from "./EngineGlow";
 import { SecondaryThrusters } from "./SecondaryThrusters";
+import { NetDebugOverlay } from "./NetDebugOverlay";
+import { DelayQueue } from "../net/DelayQueue";
 import type { NetClient } from "../net/NetClient";
 
 /** The shape of a replicated ship (decoded from the server schema). */
@@ -99,6 +101,14 @@ class ShadowShip {
   readonly position = new Vector3();
   rotationY = 0;
   isAlive = false;
+  /**
+   * In the replicated ships map RIGHT NOW. With sensor-filtered replication
+   * the server drops enemies our faction has no fresh track on; an absent
+   * stub freezes at its last rendered pose (the client SensorSystem ages the
+   * frozen track into a radar ghost) and leaves the sensor rosters + scene.
+   * Friendlies always replicate, so they're absent only before first sight.
+   */
+  present = false;
   /** Wall-clock ms the drive started spooling, or null when idle. */
   spoolStartMs: number | null = null;
 
@@ -142,6 +152,21 @@ interface NetRock {
   visualRadius: number;
   squashX: number;
   squashY: number;
+}
+
+/**
+ * A plain-object copy of one arriving state patch, held by the netsim's
+ * inbound delay queue (GameConfig.net.sim). It MUST be a copy: Colyseus
+ * decodes every patch into the same live state object, so a held reference
+ * would read FUTURE data by its release time. Shape duck-types what
+ * recordSnapshot reads (Map.forEach matches the schema map's forEach).
+ */
+interface DelayedState {
+  timeMs: number;
+  /** Absent when the arriving patch had no such map — recordSnapshot's
+   *  presence checks must see the same shape they'd see on the live state. */
+  ships?: Map<string, NetShip>;
+  asteroids?: Map<string, NetRock>;
 }
 
 /** One timestamped server sample of a ship's pose (SERVER sim clock, ms). */
@@ -236,6 +261,8 @@ export class NetworkGame {
    * This offset maps render wall time onto that sim timeline.
    */
   private clockOffsetMs: number | null = null;
+  /** Per-patch scratch: keys present in the replicated map (absence sweep). */
+  private readonly seenKeys = new Set<string>();
   private readonly meta = new Map<string, { faction: Faction; shipType: ShipTypeId }>();
   private readonly views = new Map<string, ShipView>();
   /**
@@ -314,6 +341,14 @@ export class NetworkGame {
   private readonly rockObstacles: AsteroidSim[] = [];
   /** Server FX facts awaiting their sim time on the render clock. */
   private readonly fxQueue: Array<{ t: number; e: NetEvent }> = [];
+
+  // ─── Dev tooling: netsim inbound delay + netcode overlay ───
+  /** Netsim-held state patches (cloned at arrival — see DelayedState). */
+  private readonly delayedSnaps = new DelayQueue<DelayedState>();
+  /** Netsim-held FX batches (fresh decoded objects — safe by reference). */
+  private readonly delayedEvents = new DelayQueue<EventsMessage>();
+  /** Backquote-toggled netcode readout (+ the pinned NETSIM badge). */
+  private readonly netDebug = new NetDebugOverlay();
   /** Stable per-ship stubs for SoundSystem's jump-drive clip tracking. */
   private readonly jumpSoundKeys = new Map<string, Ship>();
   private readonly fxVec = new Vector3();
@@ -497,25 +532,28 @@ export class NetworkGame {
       this.bestScore = 0; // storage unavailable — best just won't persist
     }
 
-    // Queue server FX facts; the tick plays each at its sim time. EXCEPT our
-    // own weapon fire: that is depicted PREDICTIVELY at the keypress
-    // (updatePrediction) — the server echo would double-render it, and even
-    // an immediately-applied echo trails a thrusting ship by a round trip.
+    // Queue server FX facts; the tick plays each at its sim time (see
+    // ingestEvents for the own-fire exception). With the dev netsim on, both
+    // inbound channels are first held for half the simulated RTT + jitter —
+    // the tick drains them, so ingest is just LATER (everything already rides
+    // state.timeMs / msg.t, never arrival time). Direct-state reads (carrier
+    // HP, phase, winner) stay realtime — slow-changing, not feel-relevant.
     this.net.room.onMessage(MSG.events, (msg: EventsMessage) => {
-      for (const e of msg.events) {
-        if (
-          this.predictionActive &&
-          (e.k === "laserFired" || e.k === "missileFired") &&
-          e.ship === this.myKey
-        ) {
-          continue;
-        }
-        this.fxQueue.push({ t: msg.t, e });
+      if (GameConfig.net.sim.enabled) {
+        this.delayedEvents.push(msg, performance.now(), this.netSimDelayMs());
+      } else {
+        this.ingestEvents(msg);
       }
     });
 
     // Buffer a timestamped pose for every ship on each server patch.
-    this.net.room.onStateChange((state) => this.recordSnapshot(state));
+    this.net.room.onStateChange((state) => {
+      if (GameConfig.net.sim.enabled) {
+        this.delayedSnaps.push(this.cloneNetState(state), performance.now(), this.netSimDelayMs());
+      } else {
+        this.recordSnapshot(state);
+      }
+    });
     this.net.room.onLeave(() => {
       this.connectionLost = true;
     });
@@ -585,23 +623,28 @@ export class NetworkGame {
       this.clockOffsetMs += (offsetSample - this.clockOffsetMs) * 0.05;
     }
 
-    let pilotHumans = 0;
-    let pilotBots = 0;
+    this.seenKeys.clear();
     s.ships.forEach((ship, key) => {
+      this.seenKeys.add(key);
       if (!this.meta.has(key)) {
         this.meta.set(key, { faction: ship.faction, shipType: ship.shipType });
-        const stub = new ShadowShip(ship.faction);
-        this.shadows.set(key, stub);
+        this.shadows.set(key, new ShadowShip(ship.faction));
+      }
+      const stub = this.shadows.get(key)!;
+      if (!stub.present) {
+        // (Re)entered our replicated picture — rejoin the sensor rosters and
+        // flush the exhaust trail (it isn't parented to the root; bridging
+        // the hidden gap would streak it across the map).
+        stub.present = true;
         this.shadowStubs[ship.faction].push(stub);
+        this.visuals.get(key)?.glow?.resetTrails();
       }
       // Honesty bookkeeping: seats swap human↔AI at runtime (join/leave), so
-      // the halo set and the pilot counts re-derive from every patch.
+      // the halo set re-derives from every patch.
       if (ship.isAI) {
-        pilotBots++;
-        this.humanPiloted.delete(this.shadows.get(key)! as unknown as Ship);
+        this.humanPiloted.delete(stub as unknown as Ship);
       } else {
-        pilotHumans++;
-        this.humanPiloted.add(this.shadows.get(key)! as unknown as Ship);
+        this.humanPiloted.add(stub as unknown as Ship);
       }
       if (ship.owner === this.net.sessionId) this.myKey = key;
       if (key === this.myKey) {
@@ -656,14 +699,132 @@ export class NetworkGame {
       buf.push({ t, x: ship.x, z: ship.z, rot: ship.rotationY, bank: ship.bankAngle, alive: ship.alive, rev: ship.reverse, sl: ship.strafeLeft, sr: ship.strafeRight });
       if (buf.length > 40) buf.shift(); // ~2s of history at 20Hz
     });
-    this.hud.setPilotCounts(pilotHumans, pilotBots);
+
+    // Absence sweep (sensor-filtered replication): a ship that left the
+    // replicated map is one our faction lost track of — freeze its stub
+    // (the client sensors age the frozen track into a radar ghost), pull it
+    // from the sensor rosters, hide its depiction, and wipe its snapshot
+    // buffer so reappearance starts fresh instead of interpolating across
+    // the hidden gap. Pilot counts ride root state now, not this roster.
+    for (const [key, stub] of this.shadows) {
+      if (!stub.present || this.seenKeys.has(key)) continue;
+      stub.present = false;
+      const roster = this.shadowStubs[stub.faction];
+      const i = roster.indexOf(stub);
+      if (i >= 0) roster.splice(i, 1);
+      const buf = this.snaps.get(key);
+      if (buf) buf.length = 0;
+      // Root disable hides the hull + parented plumes; the engine glow's
+      // trail is NOT parented (gotcha #4) and needs its own hide.
+      this.views.get(key)?.root.setEnabled(false);
+      this.visuals.get(key)?.glow?.hide();
+    }
   }
+
+  /**
+   * Queue a server FX batch for playback at its sim time. EXCEPT our own
+   * weapon fire: that is depicted PREDICTIVELY at the keypress
+   * (updatePrediction) — the server echo would double-render it, and even an
+   * immediately-applied echo trails a thrusting ship by a round trip.
+   */
+  private ingestEvents(msg: EventsMessage): void {
+    for (const e of msg.events) {
+      if (
+        this.predictionActive &&
+        (e.k === "laserFired" || e.k === "missileFired") &&
+        e.ship === this.myKey
+      ) {
+        continue;
+      }
+      this.fxQueue.push({ t: msg.t, e });
+    }
+  }
+
+  /** One inbound message's simulated delay: half the RTT + uniform jitter. */
+  private netSimDelayMs(): number {
+    const sim = GameConfig.net.sim;
+    return sim.latencyMs / 2 + Math.random() * sim.jitterMs;
+  }
+
+  /** Copy an arriving patch into plain objects for the netsim delay queue —
+   *  the live schema object mutates in place, so it can't be held. */
+  private cloneNetState(state: unknown): DelayedState {
+    const s = state as {
+      timeMs?: number;
+      ships?: { forEach: (cb: (v: NetShip, k: string) => void) => void };
+      asteroids?: { forEach: (cb: (v: NetRock, k: string) => void) => void };
+    };
+    const out: DelayedState = { timeMs: s.timeMs ?? 0 };
+    if (s.ships) {
+      const ships = new Map<string, NetShip>();
+      out.ships = ships;
+      s.ships.forEach((v, k) => {
+        ships.set(k, {
+          owner: v.owner,
+          faction: v.faction,
+          shipType: v.shipType,
+          x: v.x,
+          z: v.z,
+          vx: v.vx,
+          vz: v.vz,
+          rotationY: v.rotationY,
+          bankAngle: v.bankAngle,
+          hp: v.hp,
+          alive: v.alive,
+          launching: v.launching,
+          isAI: v.isAI,
+          cannonAmmo: v.cannonAmmo,
+          missileAmmo: v.missileAmmo,
+          lastInputSeq: v.lastInputSeq,
+          reverse: v.reverse,
+          strafeLeft: v.strafeLeft,
+          strafeRight: v.strafeRight,
+        });
+      });
+    }
+    if (s.asteroids) {
+      const asteroids = new Map<string, NetRock>();
+      out.asteroids = asteroids;
+      s.asteroids.forEach((v, k) => {
+        asteroids.set(k, {
+          t0: v.t0,
+          x: v.x,
+          z: v.z,
+          rotX: v.rotX,
+          rotY: v.rotY,
+          rotZ: v.rotZ,
+          driftX: v.driftX,
+          driftZ: v.driftZ,
+          spinX: v.spinX,
+          spinY: v.spinY,
+          spinZ: v.spinZ,
+          visualRadius: v.visualRadius,
+          squashX: v.squashX,
+          squashY: v.squashY,
+        });
+      });
+    }
+    return out;
+  }
+
+  /** Netsim drain targets (bound once — no per-frame closure allocation). */
+  private readonly consumeDelayedSnap = (s: DelayedState): void => this.recordSnapshot(s);
+  private readonly consumeDelayedEvents = (m: EventsMessage): void => this.ingestEvents(m);
 
   private readonly tick = (): void => {
     const dt = Math.min(this.engine.getDeltaTime() / 1000, GameConfig.scene.maxDeltaSeconds);
 
+    // 0. Dev netsim: release inbound messages whose simulated delay elapsed.
+    if (GameConfig.net.sim.enabled) {
+      const drainNow = performance.now();
+      this.delayedSnaps.drain(drainNow, this.consumeDelayedSnap);
+      this.delayedEvents.drain(drainNow, this.consumeDelayedEvents);
+    }
+
     // 1. Sample + send local input, throttled to the server tick rate.
     this.input.update();
+    // Backquote: the netcode readout (offline the key is god mode; free in MP).
+    if (this.input.consumeDebugToggle()) this.netDebug.toggle();
     // Audio unlock rides the first real input gesture (mirrors Game.tick).
     const held = this.input.state;
     if (held.thrust || held.reverse || held.rotateLeft || held.rotateRight || held.fire) {
@@ -809,7 +970,15 @@ export class NetworkGame {
       machinesMothership?: { hp: number; maxHp: number };
       phase?: string;
       winner?: string;
+      pilotHumans?: number;
+      pilotBots?: number;
     };
+    // Pilot counts are root fields — the ships map is sensor-filtered, so
+    // counting replicated entries would miss every hidden enemy seat.
+    // (Undefined until the first patch: keep the HUD row hidden till then.)
+    if (state?.pilotHumans !== undefined) {
+      this.hud.setPilotCounts(state.pilotHumans, state.pilotBots ?? 0);
+    }
     if (state?.humansMothership && state.machinesMothership) {
       // Carrier sims mirror the replicated HP: the radar diamond drops and the
       // sensors lose their AWACS sweep when a carrier dies, like offline.
@@ -846,6 +1015,25 @@ export class NetworkGame {
     );
 
     if (this.predicted && myStub) {
+      // Carrier-service cue (offline parity — Game.tick's dock block): the
+      // same gate the server applies, mirrored over the predicted ship —
+      // loitering inside the HOME carrier's service bubble. SERVICING vs
+      // DOCKED derives from the replicated hp/ammo; serviceTick itself never
+      // runs here (refills are authoritative and already ride the schema).
+      const ship = this.predicted;
+      const home = this.carrierSims[this.playerFaction];
+      const myType = GameConfig.shipTypes[this.meta.get(this.myKey!)!.shipType];
+      const docked =
+        this.myAlive &&
+        home.isAlive &&
+        ship.speed <= GameConfig.service.loiterMaxSpeed &&
+        home.serviceZoneContains(ship.position.x, ship.position.z);
+      const needsService =
+        ship.hp < ship.maxHp ||
+        ship.cannonAmmo < myType.cannonAmmo ||
+        ship.missileAmmo < myType.missileAmmo;
+      this.hud.setServiceStatus(docked ? (needsService ? "servicing" : "docked") : null);
+
       // Stealth cue: does the ENEMY's picture hold a fresh track on us?
       const signature = this.sensors.isTracked(
         this.enemyFaction,
@@ -882,6 +1070,24 @@ export class NetworkGame {
         nowMs,
         this.humanPiloted,
       );
+    }
+
+    // Netcode readout — stats gathered only while the panel is showing (the
+    // one dev-path allocation; the overlay itself rewrites at 5Hz).
+    if (this.netDebug.visible) {
+      const myBuf = this.myKey !== null ? this.snaps.get(this.myKey) : undefined;
+      this.netDebug.update(nowMs, {
+        clockOffsetMs: this.clockOffsetMs,
+        bufferDepth: myBuf?.length ?? 0,
+        bufferHeadroomMs:
+          myBuf && myBuf.length > 0 ? myBuf[myBuf.length - 1].t - renderT : 0,
+        pendingInputs: this.pendingInputs.length,
+        ackLagInputs: this.inputSeq - this.myServer.seq,
+        correctionUnits: Math.hypot(this.correctionPos.x, this.correctionPos.z),
+        correctionDeg: (Math.abs(this.correctionRot) * 180) / Math.PI,
+        fxQueueDepth: this.fxQueue.length,
+        shipsTracked: this.snaps.size,
+      });
     }
 
     this.scene.render();
@@ -937,36 +1143,42 @@ export class NetworkGame {
     const shake = GameConfig.shake;
     switch (e.k) {
       case "laserFired": {
-        const meta = this.meta.get(e.ship);
-        if (!meta || e.mx.length === 0) return;
-        const type = GameConfig.shipTypes[meta.shipType];
+        // Depiction rides the event's faction/type (`f`/`st`): a sensor-hidden
+        // shooter never replicated to us, but its bolts are visible objects.
+        if (e.mx.length === 0) return;
+        const type = GameConfig.shipTypes[e.st];
         for (let i = 0; i < e.mx.length; i++) {
           this.fxVec.set(e.mx[i], 0, e.mz[i]);
-          this.cosmeticLasers[meta.faction].spawn(this.fxVec, e.rot, null, 0, false, 0, type.heavy);
+          this.cosmeticLasers[e.f].spawn(this.fxVec, e.rot, null, 0, false, 0, type.heavy);
         }
         this.fxVec.set(e.mx[0], 0, e.mz[0]);
         this.sound.playFireSound(type.fireSound, e.ship === this.myKey ? undefined : this.fxVec);
         return;
       }
       case "missileFired": {
-        const meta = this.meta.get(e.ship);
-        const pose = this.poseOf(e.ship);
-        if (!meta || !pose) return;
         // The cosmetic round homes on the TARGET's shadow (the lock ship id
         // rides the event), so its depiction tracks the interpolated pose;
         // the missileHit event still detonates it at the server's truth.
-        // Same nose offset as Ship.tryFireMissile — the server's round leaves
-        // from ahead of the hull, not the ship's center.
+        // Launch point: the shooter's interpolated pose (nose offset — same
+        // as Ship.tryFireMissile) so the round leaves the rendered ship; a
+        // sensor-hidden shooter has no pose, so fall back to the event's
+        // launch coordinates (the round is visible even when the ship isn't).
+        const pose = this.poseOf(e.ship);
         const target = e.target !== "" ? (this.shadows.get(e.target) ?? null) : null;
         const off = GameConfig.missile.spawnOffset;
-        this.fxVec.set(
-          pose.position.x + Math.sin(pose.rotationY) * off,
-          0,
-          pose.position.z + Math.cos(pose.rotationY) * off,
-        );
-        this.cosmeticMissiles[meta.faction].spawn(
+        const rot = pose?.rotationY ?? e.rot;
+        if (pose) {
+          this.fxVec.set(
+            pose.position.x + Math.sin(rot) * off,
+            0,
+            pose.position.z + Math.cos(rot) * off,
+          );
+        } else {
+          this.fxVec.set(e.x, 0, e.z);
+        }
+        this.cosmeticMissiles[e.f].spawn(
           this.fxVec,
-          pose.rotationY,
+          rot,
           target ? (target as unknown as Ship) : null,
           null,
         );
@@ -1016,8 +1228,14 @@ export class NetworkGame {
         // Destroyed mid-spool: cut its jump-drive clip (no-op otherwise).
         this.sound.stopJumpDrive(this.jumpKey(e.ship));
         const stub = this.shadows.get(e.ship);
-        if (stub) stub.spoolStartMs = null;
-        this.recordKill(e.ship, e.by);
+        if (stub) {
+          stub.spoolStartMs = null;
+          // Death is observable (this explosion) — mark the stub dead even
+          // when the ship is sensor-hidden (absent stubs get no snapshots),
+          // so the client sensors drop its track instead of ghosting it.
+          stub.isAlive = false;
+        }
+        this.recordKill(e);
         this.explosions.spawn(this.fxVec);
         this.sound.playExplosion(this.fxVec);
         this.cameraRig.addTrauma(
@@ -1064,9 +1282,13 @@ export class NetworkGame {
         // gauge + the sensors' signature-spike rule all read it.
         const stub = this.shadows.get(e.ship);
         if (stub) stub.spoolStartMs = performance.now();
+        // A sensor-hidden spooler has no pose yet (the spool spike makes the
+        // server replicate it within a sweep) — starting the clip poseless
+        // would play it NON-SPATIAL, i.e. as loud as our own drive. Skip it.
+        if (e.ship !== this.myKey && !pose) return;
         this.sound.startJumpDrive(
           this.jumpKey(e.ship),
-          e.ship === this.myKey || !pose ? null : pose.position.clone(),
+          e.ship === this.myKey ? null : pose!.position.clone(),
         );
         return;
       }
@@ -1102,13 +1324,18 @@ export class NetworkGame {
         this.visuals.get(e.ship)?.glow?.resetTrails();
         const from = new Vector3(e.fromX, 0, e.fromZ);
         const to = new Vector3(e.toX, 0, e.toZ);
+        // BSG "FTL crack" at BOTH ends (offline parity): flash + shockwave
+        // where the ship left AND where it arrived — for our OWN jump the
+        // camera snaps to the arrival, so the `to` ripple is the one we see.
         this.jumpFlashes.spawn(from);
         this.jumpFlashes.spawn(to);
         this.jumpRipple.spawn(from);
+        this.jumpRipple.spawn(to);
         if (e.ship === this.myKey) {
           // Our own teleport: hard-snap the camera across the discontinuity
           // (mirrors offline) and zero the velocity lead so it doesn't whip.
           this.cameraRig.snapTo(to);
+          this.cameraRig.addTrauma(GameConfig.jump.arrivalTrauma);
           this.lastPlayerPos.copyFrom(to);
           this.camVel.set(0, 0, 0);
           if (this.predicted && this.predictionActive) {
@@ -1391,13 +1618,16 @@ export class NetworkGame {
    * Tally a shipDied event onto the kill/score board (mirrors Game.recordKill:
    * only enemy fighters count; only OUR OWN kills score + roll the shared
    * persistent best; other friendly shooters — human or AI — tally as wing).
+   * Victim identity rides the event (`vf`/`vt`) — under sensor-filtered
+   * replication the victim may never have replicated to this client (a wing
+   * kill deep in enemy territory), so `meta` can't be relied on.
    */
-  private recordKill(victimId: string, shooterId: string): void {
-    const victim = this.meta.get(victimId);
-    if (!victim || victim.faction !== this.enemyFaction || shooterId === "") return;
+  private recordKill(e: { by: string; vf: Faction; vt: ShipTypeId }): void {
+    const shooterId = e.by;
+    if (e.vf !== this.enemyFaction || shooterId === "") return;
     if (shooterId === this.myKey) {
       this.playerKills++;
-      this.score += GameConfig.shipTypes[victim.shipType].maxHp;
+      this.score += GameConfig.shipTypes[e.vt].maxHp;
       if (this.score > this.bestScore) {
         this.bestScore = this.score;
         try {
@@ -1617,6 +1847,7 @@ export class NetworkGame {
 
   dispose(): void {
     window.removeEventListener("keydown", this.onKeyDown);
+    this.netDebug.dispose();
     this.input.detach();
     void this.net.leave();
     this.engine.stopRenderLoop();

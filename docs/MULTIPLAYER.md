@@ -351,15 +351,36 @@ so tuning passes don't need code changes.
       `shipDied` event's `by` attribution (server keeps a last-hit-by
       ledger per ship); missiles carry their lock target id so the
       cosmetic round homes and the RWR hears seekers on YOU.
-- [ ] **Sensor-filtered replication**: server only replicates contacts
+- [x] **Sensor-filtered replication**: server only replicates contacts
       the player's faction `SensorSystem` can see (nebula stealth
       becomes anti-wallhack, not just UI). Friendlies always replicate.
-- [ ] **Clock sync + debug overlay**: RTT estimate, server-time offset,
+      DONE 2026-07-05 — `BattleState.ships` is view-tagged; each client
+      gets a Colyseus `StateView` (friendlies permanent, enemies diffed
+      per tick from `sim.sensors.isTracked` in
+      `BattleRoom.syncClientViews`). FX events stay unfiltered but are
+      self-contained (shooter faction/type, missile launch pose, victim
+      identity on shipDied); pilot counts moved to unfiltered root
+      fields. Client: `ShadowShip.present` + absence sweep (hide view,
+      freeze stub → radar ghost via the SensorSystem roster-exclusion
+      sweep rule, wipe snap buffer). Proven by integration test over a
+      real transport.
+- [x] **Clock sync + debug overlay**: RTT estimate, server-time offset,
       snapshot age, prediction error — on a hotkey, dev builds only.
-- [ ] **Network-condition simulator**: artificial latency/jitter/loss
+      DONE 2026-07-05 — `NetDebugOverlay` (plain DOM, Backquote toggles
+      online; the key is god mode offline only): clock offset, interp
+      delay, snapshot buffer depth + headroom vs render time, pending
+      inputs + ack lag, correction magnitude, fx-queue depth, netsim
+      status. Stats gathered in `NetworkGame.tick` only while visible.
+- [x] **Network-condition simulator**: artificial latency/jitter/loss
       injected on the local connection (dev-only flag), so most feel
       tuning can happen on localhost instead of needing a deployed
-      remote server.
+      remote server. DONE 2026-07-05 — `GameConfig.net.sim`
+      (enabled/latencyMs = RTT halved per direction/jitterMs): NetClient
+      delays outgoing sends, NetworkGame holds arriving patches (CLONED —
+      the schema object mutates in place) + event batches in monotonic
+      `DelayQueue`s (order preserved, like TCP; no loss — the transport
+      is a WebSocket, "loss" manifests as delay). Cannot run silently:
+      console banner + pinned amber NETSIM badge.
 - [ ] `[human]` **Feel-tuning loops**: play under simulated (then real)
       latency, adjust the exposed tunables, repeat until remote ships
       are smooth and your own ship feels immediate. Cloud sessions

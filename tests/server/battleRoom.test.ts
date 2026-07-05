@@ -89,11 +89,22 @@ describe("BattleRoom integration", () => {
       // Wait for the first replicated patch to reach the client.
       expect(await waitUntil(() => (client.state?.ships?.size ?? 0) > 0)).toBe(true);
 
-      // Both fleets present (AI backfill) and replicated to the client.
+      // Both fleets present server-side (AI backfill)…
       expect(room.state.ships.size).toBe(TOTAL_SHIPS);
-      expect(client.state.ships.size).toBe(TOTAL_SHIPS);
+      // …but the CLIENT receives only its own faction plus tracked enemies:
+      // at match start the enemy fleet sits parked at its carrier, outside
+      // every human sensor (sensor-filtered replication — anti-wallhack).
+      expect(client.state.ships.size).toBe(fleetCount("humans"));
+      expect(
+        [...client.state.ships.values()].every((s) => s.faction === "humans"),
+      ).toBe(true);
       expect(client.state.humansMothership.maxHp).toBeGreaterThan(0);
       expect(client.state.machinesMothership.maxHp).toBeGreaterThan(0);
+
+      // Pilot counts ride unfiltered root fields (the client can't count the
+      // filtered map): one human seat, every other seat a bot.
+      expect(await waitUntil(() => client.state.pilotHumans === 1)).toBe(true);
+      expect(client.state.pilotBots).toBe(TOTAL_SHIPS - 1);
 
       // The joining human took exactly one AI seat on humans, of the requested
       // type; every other seat stays AI (the honesty flag).
@@ -245,6 +256,78 @@ describe("BattleRoom integration", () => {
       ).toBe(true);
     },
     TEST_TIMEOUT,
+  );
+
+  it(
+    "sensor-filters enemy replication (anti-wallhack), friendlies always on the wire",
+    async () => {
+      const room = await colyseus.createRoom(BATTLE_ROOM, {});
+      const client = await colyseus.connectTo(room, joinOpts()); // humans seat
+      const inner = room as unknown as {
+        seats: Array<{
+          faction: string;
+          occupant: string | null;
+          schema: { id: string };
+          combatant: {
+            ship: {
+              position: { set(x: number, y: number, z: number): void };
+              debugInvulnerable: boolean;
+              takeDamage(n: number): void;
+            };
+          };
+        }>;
+      };
+      expect(await waitUntil(() => (client.state?.ships?.size ?? 0) > 0)).toBe(true);
+
+      // Baseline: the parked enemy fleet is outside every human sensor —
+      // nothing of it may reach this client's wire.
+      expect(
+        [...client.state.ships.values()].filter((s) => s.faction === "machines"),
+      ).toHaveLength(0);
+
+      client.send(MSG.ready, {});
+      expect(await waitUntil(() => room.state.phase === "playing")).toBe(true);
+
+      // Drag one enemy into the humans carrier's AWACS bubble (re-pinned each
+      // poll against its AI): a fresh track must put it on the client's wire.
+      const enemy = inner.seats.find((s) => s.faction === "machines")!;
+      enemy.combatant.ship.debugInvulnerable = true; // carrier turrets fire on it here
+      const enemyId = enemy.schema.id;
+      expect(
+        await waitUntil(() => {
+          enemy.combatant.ship.position.set(200, 0, GameConfig.mothership.playerZ + 100);
+          return client.state.ships.has(enemyId);
+        }),
+        "tracked enemy never replicated to the client",
+      ).toBe(true);
+
+      // Kill it: death drops the track instantly (the explosion is the
+      // observable), and its respawn at the far carrier stays hidden — the
+      // entry must LEAVE the client's map.
+      enemy.combatant.ship.debugInvulnerable = false;
+      enemy.combatant.ship.takeDamage(1e9);
+      expect(
+        await waitUntil(() => !client.state.ships.has(enemyId)),
+        "dead/hidden enemy stayed on the wire",
+      ).toBe(true);
+
+      // Friendlies are never filtered: a killed humans ship stays replicated
+      // (alive=false) instead of vanishing.
+      const friendly = inner.seats.find(
+        (s) => s.faction === "humans" && s.occupant === null,
+      )!;
+      friendly.combatant.ship.takeDamage(1e9);
+      expect(
+        await waitUntil(
+          () => client.state.ships.get(friendly.schema.id)?.alive === false,
+        ),
+        "friendly death never replicated",
+      ).toBe(true);
+      expect(client.state.ships.has(friendly.schema.id)).toBe(true);
+
+      await client.leave();
+    },
+    60_000,
   );
 
   it(

@@ -97,6 +97,8 @@ export class SensorSystem {
   concealmentZones: ReadonlyArray<ConcealmentZone> = [];
 
   private nextSweepMs = 0;
+  /** Sweep scratch: the current opposing roster as a set (reused, throttled). */
+  private readonly rosterScratch = new Set<Ship>();
 
   constructor(private readonly motherships: Record<Faction, Mothership>) {}
 
@@ -140,6 +142,20 @@ export class SensorSystem {
     const friendlies = shipsByFaction[faction];
 
     if (sweep) {
+      // A ship no longer on the opposing roster can't be detected — clear its
+      // freshness so its track ages into a last-known-position ghost. Sim
+      // rosters are stable (this is a no-op offline and on the server); it
+      // matters for the CLIENT mirror under sensor-filtered replication,
+      // where a hidden enemy leaves the replicated roster entirely and its
+      // stub freezes at the last rendered pose (which would otherwise hold a
+      // stale "fresh" track alive forever).
+      if (table.size > 0) {
+        this.rosterScratch.clear();
+        for (const t of targets) this.rosterScratch.add(t);
+        for (const [ship, contact] of table) {
+          if (!this.rosterScratch.has(ship)) contact.fresh = false;
+        }
+      }
       for (const target of targets) {
         if (!target.isAlive) continue; // dead ships handled in the prune below
         let contact = table.get(target);

@@ -2,6 +2,7 @@ import { Client, type Room } from "@colyseus/sdk";
 
 import {
   BATTLE_ROOM,
+  GameConfig,
   PROTOCOL_VERSION,
   type JoinOptions,
   type Faction,
@@ -41,8 +42,25 @@ export function inviteRoomId(): string | null {
 export class NetClient {
   readonly room: Room;
 
+  /**
+   * Netsim (GameConfig.net.sim) outbound release clock: monotonic, so a
+   * lightly-jittered message never overtakes an earlier heavily-jittered one
+   * (the simulated transport is TCP — delay, never reorder).
+   */
+  private lastSimSendAt = 0;
+
   private constructor(room: Room) {
     this.room = room;
+    const sim = GameConfig.net.sim;
+    if (sim.enabled) {
+      // The netsim must be impossible to leave on silently — this banner plus
+      // the NetDebugOverlay's pinned NETSIM badge are the safeguards.
+      console.warn(
+        `[NETSIM] Artificial network conditions ON — ${sim.latencyMs}ms RTT ` +
+          `±${sim.jitterMs}ms jitter per message, both directions ` +
+          `(GameConfig.net.sim — disable before judging real feel).`,
+      );
+    }
   }
 
   /** Quick match: join (or create) a battle room with the chosen loadout. */
@@ -79,9 +97,27 @@ export class NetClient {
     return this.room.roomId;
   }
 
-  /** Send a message to the server (e.g. the per-frame InputState). */
+  /**
+   * Send a message to the server (e.g. the per-frame InputState). With the
+   * dev netsim on (GameConfig.net.sim) the send is held for half the
+   * simulated RTT plus jitter — inbound delay is the NetworkGame's half.
+   */
   send(type: string | number, payload: unknown): void {
-    this.room.send(type as never, payload as never);
+    const sim = GameConfig.net.sim;
+    if (!sim.enabled) {
+      this.room.send(type as never, payload as never);
+      return;
+    }
+    const now = performance.now();
+    const at = Math.max(now + sim.latencyMs / 2 + Math.random() * sim.jitterMs, this.lastSimSendAt);
+    this.lastSimSendAt = at;
+    setTimeout(() => {
+      try {
+        this.room.send(type as never, payload as never);
+      } catch {
+        /* room left/closed while the message was "in flight" — drop it */
+      }
+    }, at - now);
   }
 
   async leave(): Promise<void> {
