@@ -101,6 +101,14 @@ class ShadowShip {
   readonly position = new Vector3();
   rotationY = 0;
   isAlive = false;
+  /**
+   * In the replicated ships map RIGHT NOW. With sensor-filtered replication
+   * the server drops enemies our faction has no fresh track on; an absent
+   * stub freezes at its last rendered pose (the client SensorSystem ages the
+   * frozen track into a radar ghost) and leaves the sensor rosters + scene.
+   * Friendlies always replicate, so they're absent only before first sight.
+   */
+  present = false;
   /** Wall-clock ms the drive started spooling, or null when idle. */
   spoolStartMs: number | null = null;
 
@@ -253,6 +261,8 @@ export class NetworkGame {
    * This offset maps render wall time onto that sim timeline.
    */
   private clockOffsetMs: number | null = null;
+  /** Per-patch scratch: keys present in the replicated map (absence sweep). */
+  private readonly seenKeys = new Set<string>();
   private readonly meta = new Map<string, { faction: Faction; shipType: ShipTypeId }>();
   private readonly views = new Map<string, ShipView>();
   /**
@@ -613,23 +623,28 @@ export class NetworkGame {
       this.clockOffsetMs += (offsetSample - this.clockOffsetMs) * 0.05;
     }
 
-    let pilotHumans = 0;
-    let pilotBots = 0;
+    this.seenKeys.clear();
     s.ships.forEach((ship, key) => {
+      this.seenKeys.add(key);
       if (!this.meta.has(key)) {
         this.meta.set(key, { faction: ship.faction, shipType: ship.shipType });
-        const stub = new ShadowShip(ship.faction);
-        this.shadows.set(key, stub);
+        this.shadows.set(key, new ShadowShip(ship.faction));
+      }
+      const stub = this.shadows.get(key)!;
+      if (!stub.present) {
+        // (Re)entered our replicated picture — rejoin the sensor rosters and
+        // flush the exhaust trail (it isn't parented to the root; bridging
+        // the hidden gap would streak it across the map).
+        stub.present = true;
         this.shadowStubs[ship.faction].push(stub);
+        this.visuals.get(key)?.glow?.resetTrails();
       }
       // Honesty bookkeeping: seats swap human↔AI at runtime (join/leave), so
-      // the halo set and the pilot counts re-derive from every patch.
+      // the halo set re-derives from every patch.
       if (ship.isAI) {
-        pilotBots++;
-        this.humanPiloted.delete(this.shadows.get(key)! as unknown as Ship);
+        this.humanPiloted.delete(stub as unknown as Ship);
       } else {
-        pilotHumans++;
-        this.humanPiloted.add(this.shadows.get(key)! as unknown as Ship);
+        this.humanPiloted.add(stub as unknown as Ship);
       }
       if (ship.owner === this.net.sessionId) this.myKey = key;
       if (key === this.myKey) {
@@ -684,7 +699,26 @@ export class NetworkGame {
       buf.push({ t, x: ship.x, z: ship.z, rot: ship.rotationY, bank: ship.bankAngle, alive: ship.alive, rev: ship.reverse, sl: ship.strafeLeft, sr: ship.strafeRight });
       if (buf.length > 40) buf.shift(); // ~2s of history at 20Hz
     });
-    this.hud.setPilotCounts(pilotHumans, pilotBots);
+
+    // Absence sweep (sensor-filtered replication): a ship that left the
+    // replicated map is one our faction lost track of — freeze its stub
+    // (the client sensors age the frozen track into a radar ghost), pull it
+    // from the sensor rosters, hide its depiction, and wipe its snapshot
+    // buffer so reappearance starts fresh instead of interpolating across
+    // the hidden gap. Pilot counts ride root state now, not this roster.
+    for (const [key, stub] of this.shadows) {
+      if (!stub.present || this.seenKeys.has(key)) continue;
+      stub.present = false;
+      const roster = this.shadowStubs[stub.faction];
+      const i = roster.indexOf(stub);
+      if (i >= 0) roster.splice(i, 1);
+      const buf = this.snaps.get(key);
+      if (buf) buf.length = 0;
+      // Root disable hides the hull + parented plumes; the engine glow's
+      // trail is NOT parented (gotcha #4) and needs its own hide.
+      this.views.get(key)?.root.setEnabled(false);
+      this.visuals.get(key)?.glow?.hide();
+    }
   }
 
   /**
@@ -936,7 +970,15 @@ export class NetworkGame {
       machinesMothership?: { hp: number; maxHp: number };
       phase?: string;
       winner?: string;
+      pilotHumans?: number;
+      pilotBots?: number;
     };
+    // Pilot counts are root fields — the ships map is sensor-filtered, so
+    // counting replicated entries would miss every hidden enemy seat.
+    // (Undefined until the first patch: keep the HUD row hidden till then.)
+    if (state?.pilotHumans !== undefined) {
+      this.hud.setPilotCounts(state.pilotHumans, state.pilotBots ?? 0);
+    }
     if (state?.humansMothership && state.machinesMothership) {
       // Carrier sims mirror the replicated HP: the radar diamond drops and the
       // sensors lose their AWACS sweep when a carrier dies, like offline.
@@ -1082,36 +1124,42 @@ export class NetworkGame {
     const shake = GameConfig.shake;
     switch (e.k) {
       case "laserFired": {
-        const meta = this.meta.get(e.ship);
-        if (!meta || e.mx.length === 0) return;
-        const type = GameConfig.shipTypes[meta.shipType];
+        // Depiction rides the event's faction/type (`f`/`st`): a sensor-hidden
+        // shooter never replicated to us, but its bolts are visible objects.
+        if (e.mx.length === 0) return;
+        const type = GameConfig.shipTypes[e.st];
         for (let i = 0; i < e.mx.length; i++) {
           this.fxVec.set(e.mx[i], 0, e.mz[i]);
-          this.cosmeticLasers[meta.faction].spawn(this.fxVec, e.rot, null, 0, false, 0, type.heavy);
+          this.cosmeticLasers[e.f].spawn(this.fxVec, e.rot, null, 0, false, 0, type.heavy);
         }
         this.fxVec.set(e.mx[0], 0, e.mz[0]);
         this.sound.playFireSound(type.fireSound, e.ship === this.myKey ? undefined : this.fxVec);
         return;
       }
       case "missileFired": {
-        const meta = this.meta.get(e.ship);
-        const pose = this.poseOf(e.ship);
-        if (!meta || !pose) return;
         // The cosmetic round homes on the TARGET's shadow (the lock ship id
         // rides the event), so its depiction tracks the interpolated pose;
         // the missileHit event still detonates it at the server's truth.
-        // Same nose offset as Ship.tryFireMissile — the server's round leaves
-        // from ahead of the hull, not the ship's center.
+        // Launch point: the shooter's interpolated pose (nose offset — same
+        // as Ship.tryFireMissile) so the round leaves the rendered ship; a
+        // sensor-hidden shooter has no pose, so fall back to the event's
+        // launch coordinates (the round is visible even when the ship isn't).
+        const pose = this.poseOf(e.ship);
         const target = e.target !== "" ? (this.shadows.get(e.target) ?? null) : null;
         const off = GameConfig.missile.spawnOffset;
-        this.fxVec.set(
-          pose.position.x + Math.sin(pose.rotationY) * off,
-          0,
-          pose.position.z + Math.cos(pose.rotationY) * off,
-        );
-        this.cosmeticMissiles[meta.faction].spawn(
+        const rot = pose?.rotationY ?? e.rot;
+        if (pose) {
+          this.fxVec.set(
+            pose.position.x + Math.sin(rot) * off,
+            0,
+            pose.position.z + Math.cos(rot) * off,
+          );
+        } else {
+          this.fxVec.set(e.x, 0, e.z);
+        }
+        this.cosmeticMissiles[e.f].spawn(
           this.fxVec,
-          pose.rotationY,
+          rot,
           target ? (target as unknown as Ship) : null,
           null,
         );
@@ -1161,8 +1209,14 @@ export class NetworkGame {
         // Destroyed mid-spool: cut its jump-drive clip (no-op otherwise).
         this.sound.stopJumpDrive(this.jumpKey(e.ship));
         const stub = this.shadows.get(e.ship);
-        if (stub) stub.spoolStartMs = null;
-        this.recordKill(e.ship, e.by);
+        if (stub) {
+          stub.spoolStartMs = null;
+          // Death is observable (this explosion) — mark the stub dead even
+          // when the ship is sensor-hidden (absent stubs get no snapshots),
+          // so the client sensors drop its track instead of ghosting it.
+          stub.isAlive = false;
+        }
+        this.recordKill(e);
         this.explosions.spawn(this.fxVec);
         this.sound.playExplosion(this.fxVec);
         this.cameraRig.addTrauma(
@@ -1209,9 +1263,13 @@ export class NetworkGame {
         // gauge + the sensors' signature-spike rule all read it.
         const stub = this.shadows.get(e.ship);
         if (stub) stub.spoolStartMs = performance.now();
+        // A sensor-hidden spooler has no pose yet (the spool spike makes the
+        // server replicate it within a sweep) — starting the clip poseless
+        // would play it NON-SPATIAL, i.e. as loud as our own drive. Skip it.
+        if (e.ship !== this.myKey && !pose) return;
         this.sound.startJumpDrive(
           this.jumpKey(e.ship),
-          e.ship === this.myKey || !pose ? null : pose.position.clone(),
+          e.ship === this.myKey ? null : pose!.position.clone(),
         );
         return;
       }
@@ -1536,13 +1594,16 @@ export class NetworkGame {
    * Tally a shipDied event onto the kill/score board (mirrors Game.recordKill:
    * only enemy fighters count; only OUR OWN kills score + roll the shared
    * persistent best; other friendly shooters — human or AI — tally as wing).
+   * Victim identity rides the event (`vf`/`vt`) — under sensor-filtered
+   * replication the victim may never have replicated to this client (a wing
+   * kill deep in enemy territory), so `meta` can't be relied on.
    */
-  private recordKill(victimId: string, shooterId: string): void {
-    const victim = this.meta.get(victimId);
-    if (!victim || victim.faction !== this.enemyFaction || shooterId === "") return;
+  private recordKill(e: { by: string; vf: Faction; vt: ShipTypeId }): void {
+    const shooterId = e.by;
+    if (e.vf !== this.enemyFaction || shooterId === "") return;
     if (shooterId === this.myKey) {
       this.playerKills++;
-      this.score += GameConfig.shipTypes[victim.shipType].maxHp;
+      this.score += GameConfig.shipTypes[e.vt].maxHp;
       if (this.score > this.bestScore) {
         this.bestScore = this.score;
         try {

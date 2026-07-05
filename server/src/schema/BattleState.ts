@@ -98,11 +98,22 @@ export type MothershipSchema = SchemaType<typeof MothershipSchema>;
  */
 export const BattleState = schema(
   {
-    ships: { map: ShipSchema },
+    /**
+     * VIEW-FILTERED (sensor-filtered replication, docs/MULTIPLAYER.md Phase
+     * 2): entries reach a client only through its StateView. BattleRoom keeps
+     * every FRIENDLY ship in the client's view permanently and diffs ENEMY
+     * ships in/out per tick from the sim's SensorSystem (fresh track = in) —
+     * nebula stealth and sensor range are anti-wallhack, not just UI.
+     */
+    ships: { map: ShipSchema, view: true },
     /** Live rocks by id — spawn states only (see AsteroidSchema). */
     asteroids: { map: AsteroidSchema },
     humansMothership: { type: MothershipSchema },
     machinesMothership: { type: MothershipSchema },
+    /** Seat occupancy for the HUD's pilots row — root fields because the
+     *  ships map is view-filtered (a client can't count what it can't see). */
+    pilotHumans: "number",
+    pilotBots: "number",
     /** "launching" | "playing" | "ended" */
     phase: "string",
     /** "" | "humans" | "machines" */

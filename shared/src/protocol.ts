@@ -9,7 +9,7 @@ import type { InputState } from "./types";
  * message protocol or to GameConfig (balance lives in shared, so a tweak is a
  * both-sides deploy) — see docs/MULTIPLAYER.md → Decisions (protocol version).
  */
-export const PROTOCOL_VERSION = 11;
+export const PROTOCOL_VERSION = 12;
 
 /** Room name registered on the server + asked for by the client. */
 export const BATTLE_ROOM = "battle";
@@ -44,19 +44,28 @@ export interface InputMessage {
  * batch's sim time, so FX line up with the (delayed) interpolated ship poses.
  */
 export type NetEvent =
-  /** `rot` = shooter heading; `mx`/`mz` = world muzzle positions (one bolt each). */
-  | { k: "laserFired"; ship: string; rot: number; mx: number[]; mz: number[] }
+  /** `rot` = shooter heading; `mx`/`mz` = world muzzle positions (one bolt
+   *  each). `f`/`st` = shooter faction + ship type: with sensor-filtered
+   *  replication the shooter may never have replicated to this client, so
+   *  the depiction (bolt color, heavy tint, fire sound) can't rely on the
+   *  client having its metadata — the fired-from-a-nebula case. */
+  | { k: "laserFired"; ship: string; f: Faction; st: ShipTypeId; rot: number; mx: number[]; mz: number[] }
   /** `target` = ship id the round homes on ("" = ballistic) — steers the
-   *  client's cosmetic round and lets the RWR hear a seeker on YOU. */
-  | { k: "missileFired"; ship: string; target: string }
+   *  client's cosmetic round and lets the RWR hear a seeker on YOU.
+   *  `f` = shooter faction; `x`/`z`/`rot` = the launch pose (nose offset
+   *  included) — the depiction fallback when the shooter is sensor-hidden
+   *  (the round is a visible object even when its shooter isn't). */
+  | { k: "missileFired"; ship: string; f: Faction; target: string; x: number; z: number; rot: number }
   /** `target`/`shooter` are ship ids, or "" when not a ship (carrier, turret…). */
   | { k: "laserHit"; x: number; y: number; z: number; target: string; shooter: string }
   | { k: "missileHit"; x: number; y: number; z: number; target: string; shooter: string }
   | { k: "missileIntercepted"; x: number; y: number; z: number }
   | { k: "shipLaunched"; ship: string }
   /** `by` = ship id of the last shooter to damage the victim ("" = environment
-   *  kill: asteroid ram, turret, unattributed) — the client's kill/score HUD. */
-  | { k: "shipDied"; ship: string; x: number; z: number; by: string }
+   *  kill: asteroid ram, turret, unattributed) — the client's kill/score HUD.
+   *  `vf`/`vt` = victim faction + ship type (kill-board bookkeeping must not
+   *  depend on the victim ever having replicated to this client). */
+  | { k: "shipDied"; ship: string; x: number; z: number; by: string; vf: Faction; vt: ShipTypeId }
   | { k: "mothershipDied"; faction: Faction }
   | { k: "turretFired"; faction: Faction; rot: number; x: number; y: number; z: number }
   | { k: "turretDestroyed"; x: number; y: number; z: number }
