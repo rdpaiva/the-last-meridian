@@ -1128,6 +1128,13 @@ body {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
   letter-spacing: 0.08em;
+  /* Dark backing pill: the plate sits screen-below the ship, exactly where
+     the engine exhaust streams when flying up-screen — bare text drowns in
+     the bloomed plume (owner finding 2026-07-05). Same tone as the HUD
+     panel. */
+  padding: 1px 7px;
+  background: rgba(11, 13, 22, 0.62);
+  border-radius: 8px;
 }
 
 /* Human pilots wear their typed name: bright + haloed — the same
@@ -1139,18 +1146,20 @@ body {
 }
 
 /* AI callsigns read visibly machine-roster (honesty rule: a generated
-   callsign must never pass as a person): dimmer, lighter, faction-tinted. */
+   callsign must never pass as a person): dimmer, lighter, faction-tinted.
+   The dimming lives in the TEXT color alpha, not element opacity — element
+   opacity would fade the backing pill too, and the pill is what keeps the
+   label readable over a bloomed exhaust plume. */
 #nameplates .nameplate.ai {
   font-weight: 400;
-  opacity: 0.7;
 }
 
 #nameplates .nameplate.ai.humans {
-  color: #9fc0e8;
+  color: rgba(159, 192, 232, 0.82);
 }
 
 #nameplates .nameplate.ai.machines {
-  color: #e89f96;
+  color: rgba(232, 159, 150, 0.82);
 }
 
 /* Dev netcode readout (NetDebugOverlay) — Backquote toggles it, online only.
