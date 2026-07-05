@@ -30,6 +30,10 @@ jobs:
       - run: npm ci && npm run build
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          # The client workspace's build output (the npm-workspace
+          # restructure moved it from ./dist — root `npm run build` runs
+          # the @space-duel/client build). When the MP server is hosted,
+          # add VITE_SERVER_URL (wss://…) as an env on the build step.
+          path: client/dist
       - id: deployment
         uses: actions/deploy-pages@v4
