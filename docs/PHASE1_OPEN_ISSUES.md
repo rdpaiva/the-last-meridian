@@ -9,9 +9,13 @@ Everything builds + typechecks; the full test suite is **18/18 green**
 rejection (rendered as "NEW VERSION — refresh"), so always reload after
 pulling.
 
-## DONE 2026-07-05 — identity slice (awaiting owner playtest)
+## DONE + OWNER-VERIFIED 2026-07-05 — identity slice
 
-Both owner asks from the 2026-07-05 session, on `feat/own-ship-marker`:
+Both owner asks from the 2026-07-05 session, built on `feat/own-ship-marker`
+and accepted in-browser the same day after three owner review rounds:
+ring → TEAL ENGINE TINT (owner call), numbered callsigns → TWO-WORD handles
+(owner call), and a dark backing pill so plates read over exhaust plumes
+(owner finding, `b54d7a4`):
 
 - **Own-ship engine tint** (owner-decided 2026-07-05, replacing the ring
   marker first built as `4fba536`): the ship YOU fly burns TEAL exhaust —

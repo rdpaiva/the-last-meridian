@@ -10,10 +10,9 @@ editing instead of searching.
 
 ---
 
-Continue the multiplayer work. The identity slice is CODE-COMPLETE on
-`feat/own-ship-marker` (2026-07-05): own-ship marker ring AND
-callsigns + nameplates. If that branch is merged, branch off `main`;
-otherwise continue on it.
+Continue the multiplayer work. The identity slice (own-ship engine tint +
+callsigns/nameplates) is MERGED to `main` and OWNER-VERIFIED (2026-07-05).
+Branch off `main`.
 
 **Read `docs/PHASE1_OPEN_ISSUES.md` first and trust it** — do NOT re-survey
 the codebase; that doc's Architecture notes + the anchors below are accurate.
@@ -31,16 +30,14 @@ handles ("Blue Fox") vs Novari choir names ("Silent Psalm");
 loadout page 2 → `lastMeridian_pilotName` → `JoinOptions.pilotName`;
 `Nameplates.ts` pooled DOM labels, zoom-faded, friendlies-always +
 enemies-only-when-lock-targeted + never your own, launch-gated, human names
-haloed vs dimmer faction-tinted AI callsigns). PROTOCOL_VERSION 15.
-Typecheck + 18/18 tests green (join test now also proves the callsign
-lifecycle over the wire). NONE of this session's work is owner-playtested
-yet, and the netsim feel pass is STILL pending.
+haloed vs dimmer faction-tinted AI callsigns, dark backing pill so labels
+read over exhaust plumes). PROTOCOL_VERSION 15. Typecheck + 18/18 tests
+green (join test now also proves the callsign lifecycle over the wire).
+The identity slice is OWNER-VERIFIED; the netsim feel pass is STILL
+pending — that's the headline task.
 
-**My playtest findings**: <fill in — (a) fly at netsim 40/80/120ms ± jitter
-and report what feels wrong, with overlay numbers when something spikes;
-(b) eyeball the new marker + nameplates offline AND in a two-tab match:
-ring readable but subtle? plates clutter-free in a furball? names styled
-clearly human-vs-AI?>
+**My playtest findings**: <fill in — fly at netsim 40/80/120ms ± jitter
+and report what feels wrong, with overlay numbers when something spikes>
 
 **Work order**:
 
@@ -61,17 +58,13 @@ clearly human-vs-AI?>
    `client/src/net/NetClient.ts` `send` + `client/src/net/DelayQueue.ts`
    (the netsim halves). Pure retunes of `GameConfig.net` numbers still
    bump PROTOCOL_VERSION (GameConfig is shared).
-2. **`[human]` identity-slice acceptance** (this session's work): own-ship
-   tint + nameplates offline and two-tab; retune from my report. Anchors:
-   `GameConfig.ownShipTint` (idle/hot exhaust colors) +
-   `GameConfig.nameplates` (offset/zoom fade); styling in
-   `client/src/style.css` (`#nameplates`, `.pilot-name-row`); scheme
-   wording in `shared/src/Callsigns.ts`; depiction wiring in
-   `client/src/game/EngineGlow.ts` (palette param) / `Nameplates.ts` /
-   `NetworkGame.ts` (tint in `makeView`; plate loop before the netdebug
-   block; stub fields fed in `recordSnapshot`) / `Game.ts` (tinted
-   `engineGlow` construction; plate loop before `setLaunchOverlay`).
-3. **Reconnection** (Phase 3): `allowReconnection` in
+   (Identity-slice retune anchors, if playtests surface polish:
+   `GameConfig.ownShipTint` / `GameConfig.nameplates`; styling in
+   `client/src/style.css` (`#nameplates`, `.pilot-name-row`); word lists in
+   `shared/src/Callsigns.ts`; wiring in `EngineGlow.ts` (palette param) /
+   `Nameplates.ts` / `NetworkGame.ts` (tint in `makeView`; plate loop) /
+   `Game.ts` (tinted `engineGlow`; plate loop).)
+2. **Reconnection** (Phase 3): `allowReconnection` in
    `BattleRoom.onLeave` — AI takes the seat meanwhile (the seat handback
    already exists there: controller/isAI/owner/callsign), reclaim restores
    occupant + name; `retaskLeader` runs on both edges; note `Room` already
@@ -79,7 +72,7 @@ clearly human-vs-AI?>
    survives). Client side: `NetClient.leave`/error path +
    `NetworkGame.connectionLost` is the resume seam. Integration test like
    the leave-handback one in `tests/server/battleRoom.test.ts`.
-4. Then the rest of Phase 3 (separate sessions): room lifecycle/rematch,
+3. Then the rest of Phase 3 (separate sessions): room lifecycle/rematch,
    hosting + `VITE_SERVER_URL`.
 
 **Rules of the road** (already true in code — don't relearn them):
