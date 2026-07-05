@@ -5,7 +5,7 @@ tail (netsim + overlay + sensor-filtered replication) are MERGED to `main`
 (`0667a72`, 2026-07-05, owner-accepted); the IDENTITY slice below (own-ship
 marker + callsigns/nameplates) lives on **`feat/own-ship-marker`**.
 Everything builds + typechecks; the full test suite is **18/18 green**
-(`npm test`). PROTOCOL_VERSION is **14** — stale tabs get a clean join
+(`npm test`). PROTOCOL_VERSION is **15** — stale tabs get a clean join
 rejection (rendered as "NEW VERSION — refresh"), so always reload after
 pulling.
 
@@ -13,12 +13,15 @@ pulling.
 
 Both owner asks from the 2026-07-05 session, on `feat/own-ship-marker`:
 
-- **Own-ship marker** (`4fba536`): `OwnShipMarker.ts` — a flat gold torus
-  ring under the ship YOU fly (gold = outside both faction palettes), slow
-  breathing pulse, offline + online, nothing on the wire. Excluded from the
-  GlowLayer, so it depth-tests normally (no bleed through the carrier hull
-  in the launch tube) and inherits death/respawn visibility from the ship
-  root. Counter-banks per frame to stay flat. Knobs: `GameConfig.ownMarker`.
+- **Own-ship engine tint** (owner-decided 2026-07-05, replacing the ring
+  marker first built as `4fba536`): the ship YOU fly burns TEAL exhaust —
+  every other burn is ember-to-orange, RCS plumes are blue-white, so
+  nothing else on the field wears this color. `EngineGlow` grew an optional
+  idle/hot palette param; the player's own glow (offline `Game`, online the
+  `myKey` view in `NetworkGame.makeView`) passes `GameConfig.ownShipTint`,
+  everyone else defaults. Wingmen flying the SAME model keep orange. Known
+  trade (owner accepted): the cue fades while coasting and hides in the
+  launch tube — it's a burn, not a beacon.
 - **Callsigns + nameplates** (`ebfed8d`): `shared/src/Callsigns.ts` names
   AI seats deterministically per (faction, seat index) — Commonwealth
   squadron flights ("Saber 1"…) vs Novari choir voices ("Cantor-01"…), per

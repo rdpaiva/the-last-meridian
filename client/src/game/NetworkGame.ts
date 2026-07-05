@@ -56,7 +56,6 @@ import { JumpFlashSystem } from "./JumpFlashSystem";
 import { JumpRipple } from "./JumpRipple";
 import { SoundSystem } from "./SoundSystem";
 import { EngineGlow } from "./EngineGlow";
-import { OwnShipMarker } from "./OwnShipMarker";
 import { Nameplates } from "./Nameplates";
 import { SecondaryThrusters } from "./SecondaryThrusters";
 import { NetDebugOverlay } from "./NetDebugOverlay";
@@ -293,8 +292,6 @@ export class NetworkGame {
     }
   >();
   private myKey: string | null = null;
-  /** The "this one is you" ring on our own view (see OwnShipMarker). */
-  private ownMarker: OwnShipMarker | null = null;
   /** Projected callsign labels (shadow-roster fed — see the plate loop). */
   private readonly nameplates: Nameplates;
 
@@ -934,9 +931,6 @@ export class NetworkGame {
         havePlayer = true;
       }
     }
-    // Own-ship ring: idle pulse + bank cancel. Visibility rides the view
-    // root (ShipView disables it while dead), so no life gate needed here.
-    this.ownMarker?.update(dt);
 
     // 3. Camera follows our ship. Velocity feeds the lead offset — when the
     // prediction flies, pass the SIM velocity like offline Game.tick does:
@@ -1099,7 +1093,7 @@ export class NetworkGame {
 
     // Nameplates off the shadow roster: friendly pilots always, an enemy's
     // only while it's the lock target, never our own ship (the own-ship
-    // marker ring is that cue). Human names vs AI callsigns style
+    // engine tint is that cue). Human names vs AI callsigns style
     // differently (honesty rule); launch-gated like offline (a DOM label
     // would float over the carrier hull — DOM ignores occlusion).
     this.nameplates.begin(this.cameraRig.currentZoom);
@@ -1786,25 +1780,19 @@ export class NetworkGame {
     // the fallback for models that author no markers.
     const hasTemplate = (this.templates.get(m.shipType) ?? null) !== null;
     const nozzles = this.thrusterMarkers(view.root);
-    // Our own seat gets the own-ship marker ring (client-only depiction —
-    // remote peers never see it). myKey is always known by now: it's set
-    // while the patch that first carries our ship ingests, and views are
-    // only built afterwards, in the render pass over that patch's snapshots.
-    if (key === this.myKey && this.ownMarker === null) {
-      this.ownMarker = new OwnShipMarker(
-        this.scene,
-        view.root,
-        this.glowLayer,
-        GameConfig.shipTypes[m.shipType].hitRadius,
-      );
-    }
     this.visuals.set(key, {
+      // Our own seat's burn wears the own-ship tint (teal vs everyone
+      // else's orange — client-only depiction, remote peers never see it).
+      // myKey is always known by now: it's set while the patch that first
+      // carries our ship ingests, and views are only built afterwards, in
+      // the render pass over that patch's snapshots.
       glow: hasTemplate
         ? new EngineGlow(
             this.scene,
             view.root,
             this.glowLayer,
             nozzles.length > 0 ? nozzles : this.rearEmitters(view.root),
+            key === this.myKey ? GameConfig.ownShipTint : undefined,
           )
         : null,
       // RCS plumes ride the replicated reverse/strafe bits — FRIENDLY ships

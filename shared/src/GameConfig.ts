@@ -1557,43 +1557,29 @@ export const GameConfig = {
   },
 
   /**
-   * Own-ship marker (client view only): a persistent flat ring under the hull
-   * of the ship YOU are flying, so you never lose track of yourself in a
-   * furball (owner ask 2026-07-05). Purely a depiction — offline it sits on
-   * the player root, online on the `myKey` view; nothing rides the wire.
-   * Warm gold on purpose: distinct from both faction palettes (humans
-   * pink/blue, machines crimson/green) and from the friendly/hostile radar
-   * language, so it reads as "me", not "my side".
+   * Own-ship engine tint (client view only): the ship YOU are flying burns a
+   * distinct exhaust color so you can re-acquire yourself at a glance in a
+   * furball (owner ask 2026-07-05; owner picked the tint over a hull-ring
+   * marker). Purely a depiction — offline it lands on the player's
+   * EngineGlow, online on the `myKey` view's; nothing rides the wire.
+   * Teal on purpose: every other burn in the game is ember-to-orange, RCS
+   * plumes are blue-white, and the faction laser palettes are pink/blue vs
+   * crimson/green — nothing else on the field burns this color.
    */
-  ownMarker: {
-    /** Ring radius = ship hitRadius × this, so gunships get a wider ring
-     * than fighters without a per-type table. */
-    radiusScale: 2.0,
-    /** Tube thickness of the torus (world units). Thin = understated. */
-    thickness: 0.09,
-    /** Local Y of the ring below the hull (ships fly the y=0 plane). */
-    yOffset: -0.45,
-    /** Emissive ring colour — soft gold. The mesh is EXCLUDED from the
-     * GlowLayer (no bloom, no bleed through the carrier hull during launch),
-     * so components stay ≤ 1. */
-    color: { r: 1.0, g: 0.82, b: 0.38 },
-    /** Resting opacity. Subtle: a cue you find when you look for it, not a
-     * beacon that fights the combat FX. */
-    baseAlpha: 0.38,
-    /** Alpha swing of the slow breathing pulse (peak = base + depth). */
-    pulseDepth: 0.14,
-    /** Full breathing cycle duration. Slow — a calm idle pulse, not an alarm. */
-    pulsePeriodMs: 1800,
-    /** Torus segment count — smooth enough at gameplay zoom. */
-    tessellation: 48,
+  ownShipTint: {
+    /** Idle/coasting exhaust color (dim — mirrors the standard ember). */
+    idle: { r: 0.08, g: 0.3, b: 0.26 },
+    /** Full-burn exhaust color. Components > 1 bloom via the GlowLayer,
+     * matching the standard hot orange's punch. */
+    hot: { r: 0.45, g: 1.75, b: 1.45 },
   },
 
   /**
    * Ship nameplates (client view only): plain-DOM callsign labels projected
    * under the ships each frame. Friendlies always show; enemies only while
    * they're YOUR current missile-lock target (furball text clutter is the
-   * failure mode this avoids); your own ship never does (the own-ship marker
-   * ring is your cue). Human pilots wear their typed name, AI seats their
+   * failure mode this avoids); your own ship never does (the own-ship engine
+   * tint is your cue). Human pilots wear their typed name, AI seats their
    * generated scheme (Callsigns.ts) — styled visibly differently per the
    * honesty rule. Works offline and online.
    */

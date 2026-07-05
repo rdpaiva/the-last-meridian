@@ -44,7 +44,6 @@ import { JumpRipple } from "./JumpRipple";
 import { SoundSystem } from "./SoundSystem";
 import { MusicSystem } from "./MusicSystem";
 import { DamageFlash } from "./DamageFlash";
-import { OwnShipMarker } from "./OwnShipMarker";
 import { Nameplates } from "./Nameplates";
 import { Mothership } from "@space-duel/shared";
 import { MothershipSection } from "@space-duel/shared";
@@ -225,7 +224,6 @@ export class Game {
   private engineGlow: EngineGlow | null = null;
   private secondaryThrusters: SecondaryThrusters | null = null;
   private playerDamageFlash: DamageFlash | null = null;
-  private ownShipMarker: OwnShipMarker | null = null;
   private nameplates: Nameplates | null = null;
   /** AI callsigns by ship (Callsigns.ts schemes) — the nameplate labels. */
   private readonly shipCallsigns = new Map<Ship, string>();
@@ -779,11 +777,15 @@ export class Game {
       this.shipCallsigns.set(ship, aiCallsign(this.playerFaction, i));
     }
 
+    // The player's own burn wears the own-ship tint (teal vs the fleet's
+    // orange) — the "this one is you" cue. Wingmen flying the same model
+    // keep the standard palette (constructed above, no palette arg).
     this.engineGlow = new EngineGlow(
       this.scene,
       loaded.root,
       this.glowLayer,
       markers.thrusters,
+      GameConfig.ownShipTint,
     );
     this.secondaryThrusters = new SecondaryThrusters(
       this.scene,
@@ -792,14 +794,6 @@ export class Game {
       markers.rcs,
     );
     this.playerDamageFlash = new DamageFlash(this.scene, loaded.root, this.glowLayer);
-    // Own-ship marker: the persistent "this one is you" ring. Parented to the
-    // player root, so death/respawn visibility comes along for free.
-    this.ownShipMarker = new OwnShipMarker(
-      this.scene,
-      loaded.root,
-      this.glowLayer,
-      playerType.hitRadius,
-    );
 
     this.playerCombatant = {
       ship: this.playerShip,
@@ -1964,9 +1958,6 @@ export class Game {
     }
     this.playerDamageFlash?.update();
     for (const flash of this.aiDamageFlashes.values()) flash.update();
-    // The own-ship ring's idle pulse runs through hitstop like the damage
-    // flash — it's a UI cue, not a simulated object.
-    this.ownShipMarker?.update(deltaSeconds);
 
     const engineIntensity =
       this.playerShip && this.playerShip.isAlive
@@ -2032,7 +2023,7 @@ export class Game {
     }
     // Nameplates: wing callsigns always, an enemy's only while it's the
     // current missile-lock target, never the player's own (the own-ship
-    // marker is that cue). Launch-gated — a plate for a ship still in the
+    // engine tint is that cue). Launch-gated — a plate for a ship still in the
     // tube would float over the carrier hull (DOM ignores occlusion).
     if (this.nameplates && this.playerShip) {
       this.nameplates.begin(this.cameraRig.currentZoom);

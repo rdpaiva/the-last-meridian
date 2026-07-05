@@ -21,16 +21,16 @@ the codebase; that doc's Architecture notes + the anchors below are accurate.
 **State**: online co-op is playable and feels close to single-player on
 LOCALHOST; the Phase 2 tail (netsim + NetDebugOverlay + sensor-filtered
 replication) is merged to `main` and owner-verified clean. This session
-added, on `feat/own-ship-marker`: the **own-ship marker** (`OwnShipMarker.ts`
-— persistent gold ring under YOUR hull, offline + online, glow-excluded so
-it can't bleed in the launch tube, `GameConfig.ownMarker`) and
+added, on `feat/own-ship-marker`: the **own-ship engine tint** (YOUR ship
+burns teal exhaust vs everyone's orange — owner picked this over a hull
+ring; `EngineGlow` palette param + `GameConfig.ownShipTint`) and
 **callsigns + nameplates** (`shared/src/Callsigns.ts` schemes from the story
 bible — Commonwealth squadron flights vs Novari choir voices;
 `ShipSchema.callsign` swaps with `isAI` on join/leave; CALLSIGN field on
 loadout page 2 → `lastMeridian_pilotName` → `JoinOptions.pilotName`;
 `Nameplates.ts` pooled DOM labels, zoom-faded, friendlies-always +
 enemies-only-when-lock-targeted + never your own, launch-gated, human names
-haloed vs dimmer faction-tinted AI callsigns). PROTOCOL_VERSION 14.
+haloed vs dimmer faction-tinted AI callsigns). PROTOCOL_VERSION 15.
 Typecheck + 18/18 tests green (join test now also proves the callsign
 lifecycle over the wire). NONE of this session's work is owner-playtested
 yet, and the netsim feel pass is STILL pending.
@@ -60,15 +60,16 @@ clearly human-vs-AI?>
    `client/src/net/NetClient.ts` `send` + `client/src/net/DelayQueue.ts`
    (the netsim halves). Pure retunes of `GameConfig.net` numbers still
    bump PROTOCOL_VERSION (GameConfig is shared).
-2. **`[human]` identity-slice acceptance** (this session's work): marker +
-   nameplates offline and two-tab; retune from my report. Anchors:
-   `GameConfig.ownMarker` (ring size/alpha/pulse) + `GameConfig.nameplates`
-   (offset/zoom fade); styling in `client/src/style.css` (`#nameplates`,
-   `.pilot-name-row`); scheme wording in `shared/src/Callsigns.ts`;
-   depiction wiring in `client/src/game/OwnShipMarker.ts` /
-   `Nameplates.ts` / `NetworkGame.ts` (plate loop before the netdebug
-   block; stub fields fed in `recordSnapshot`) / `Game.ts` (plate loop
-   before `setLaunchOverlay`).
+2. **`[human]` identity-slice acceptance** (this session's work): own-ship
+   tint + nameplates offline and two-tab; retune from my report. Anchors:
+   `GameConfig.ownShipTint` (idle/hot exhaust colors) +
+   `GameConfig.nameplates` (offset/zoom fade); styling in
+   `client/src/style.css` (`#nameplates`, `.pilot-name-row`); scheme
+   wording in `shared/src/Callsigns.ts`; depiction wiring in
+   `client/src/game/EngineGlow.ts` (palette param) / `Nameplates.ts` /
+   `NetworkGame.ts` (tint in `makeView`; plate loop before the netdebug
+   block; stub fields fed in `recordSnapshot`) / `Game.ts` (tinted
+   `engineGlow` construction; plate loop before `setLaunchOverlay`).
 3. **Reconnection** (Phase 3): `allowReconnection` in
    `BattleRoom.onLeave` — AI takes the seat meanwhile (the seat handback
    already exists there: controller/isAI/owner/callsign), reclaim restores
