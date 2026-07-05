@@ -24,7 +24,8 @@ Both owner asks from the 2026-07-05 session, on `feat/own-ship-marker`:
   launch tube — it's a burn, not a beacon.
 - **Callsigns + nameplates** (`ebfed8d`): `shared/src/Callsigns.ts` names
   AI seats deterministically per (faction, seat index) — Commonwealth
-  squadron flights ("Saber 1"…) vs Novari choir voices ("Cantor-01"…), per
+  pilot handles ("Blue Fox", "Iron Wolf"…) vs Novari choir names
+  ("Silent Psalm", "Glass Hymn"…) — two-word, no numbers (owner call), per
   the story bible; the offline Game names its wing/fleet with the SAME
   generator. Humans wear a typed pilot name: CALLSIGN field on loadout
   page 2 → `lastMeridian_pilotName` → `JoinOptions.pilotName` (sanitized

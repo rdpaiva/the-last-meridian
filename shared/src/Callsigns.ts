@@ -3,16 +3,17 @@ import type { Faction } from "./Faction";
 /**
  * AI pilot callsigns — the naming canon lives in
  * docs/The-Last-Meridian-Story-Bible.md; these schemes are derived from it
- * so bots aren't anonymous (owner ask 2026-07-05):
+ * so bots aren't anonymous (owner ask 2026-07-05). Owner direction
+ * (2026-07-05 review): two-word handles, NO numbers.
  *
- *   humans   — Commonwealth squadron style: flights of four under a gritty
- *              squadron name ("Saber 1" … "Saber 4", then "Dagger 1" …).
- *              Old-school military radio discipline, per the bible's
- *              "human courage, instinct, and old-school military grit".
- *   machines — Novari choir voices: the Choirship "does not simply command,
- *              it harmonizes", so its pilots are named as voices in the
- *              choir, machine-styled with a dash and a zero-padded index
- *              ("Cantor-01" … "Cantor-04", then "Descant-01" …).
+ *   humans   — Commonwealth pilot handles: [gritty adjective] + [animal /
+ *              cavalry noun] — "Blue Fox", "Iron Hawk", "Storm Jackal".
+ *              Old-school military radio energy, per the bible's "human
+ *              courage, instinct, and old-school military grit".
+ *   machines — Novari choir names: [cold/still adjective] + [choral term] —
+ *              "Silent Psalm", "Glass Hymn", "Winter Chord". The Choirship
+ *              "does not simply command, it harmonizes"; "Thread" is the
+ *              canon Novari neural architecture.
  *
  * HONESTY RULE (docs/MULTIPLAYER.md): these are for AI seats only. Human
  * pilots wear the name they typed, and the client styles the two visibly
@@ -23,37 +24,79 @@ import type { Faction } from "./Faction";
  * beyond the resulting string.
  */
 
-const HUMAN_SQUADRONS = [
-  "Saber",
-  "Dagger",
-  "Anvil",
-  "Talon",
-  "Longbow",
-  "Vanguard",
+const HUMAN_FIRST = [
+  "Blue",
+  "Iron",
+  "Storm",
+  "Ghost",
+  "Lucky",
+  "Black",
+  "Copper",
+  "Wild",
+  "Steel",
+  "Dust",
 ] as const;
 
-const MACHINE_VOICES = [
-  "Cantor",
-  "Descant",
+const HUMAN_SECOND = [
+  "Fox",
+  "Wolf",
+  "Hawk",
+  "Mustang",
+  "Bulldog",
+  "Raven",
+  "Jackal",
+  "Boar",
+  "Stag",
+  "Arrow",
+] as const;
+
+const MACHINE_FIRST = [
+  "Silent",
+  "Pale",
+  "Hollow",
+  "Glass",
+  "Silver",
+  "Winter",
+  "Still",
+  "Mirror",
+  "Faint",
+  "Thread",
+] as const;
+
+const MACHINE_SECOND = [
+  "Hymn",
+  "Psalm",
+  "Chord",
+  "Bell",
+  "Cadence",
   "Vesper",
+  "Refrain",
+  "Descant",
   "Antiphon",
-  "Chorale",
   "Motet",
 ] as const;
 
-/** Pilots per squadron/voice block before the next name starts. */
-const FLIGHT_SIZE = 4;
+/**
+ * Pair the two lists on a shifted diagonal: consecutive seats change BOTH
+ * words ("Blue Fox", "Iron Wolf", "Storm Hawk" — never "Blue Fox",
+ * "Blue Wolf"), and every combo stays unique until first×second seats
+ * (10×10 = 100; a fleet fields ~10 per side).
+ */
+function pair(
+  first: readonly string[],
+  second: readonly string[],
+  index: number,
+): string {
+  const a = index % first.length;
+  const b = (index + Math.floor(index / first.length)) % second.length;
+  return `${first[a]} ${second[b]}`;
+}
 
 /** The AI callsign for seat `index` (0-based, per faction) of `faction`. */
 export function aiCallsign(faction: Faction, index: number): string {
-  const block = Math.floor(index / FLIGHT_SIZE);
-  const member = (index % FLIGHT_SIZE) + 1;
-  if (faction === "humans") {
-    const squadron = HUMAN_SQUADRONS[block % HUMAN_SQUADRONS.length];
-    return `${squadron} ${member}`;
-  }
-  const voice = MACHINE_VOICES[block % MACHINE_VOICES.length];
-  return `${voice}-${String(member).padStart(2, "0")}`;
+  return faction === "humans"
+    ? pair(HUMAN_FIRST, HUMAN_SECOND, index)
+    : pair(MACHINE_FIRST, MACHINE_SECOND, index);
 }
 
 /** Longest name a human pilot can wear (HUD nameplates stay one short line). */

@@ -25,7 +25,8 @@ added, on `feat/own-ship-marker`: the **own-ship engine tint** (YOUR ship
 burns teal exhaust vs everyone's orange — owner picked this over a hull
 ring; `EngineGlow` palette param + `GameConfig.ownShipTint`) and
 **callsigns + nameplates** (`shared/src/Callsigns.ts` schemes from the story
-bible — Commonwealth squadron flights vs Novari choir voices;
+bible — two-word handles, no numbers (owner call): Commonwealth pilot
+handles ("Blue Fox") vs Novari choir names ("Silent Psalm");
 `ShipSchema.callsign` swaps with `isAI` on join/leave; CALLSIGN field on
 loadout page 2 → `lastMeridian_pilotName` → `JoinOptions.pilotName`;
 `Nameplates.ts` pooled DOM labels, zoom-faded, friendlies-always +
