@@ -56,6 +56,7 @@ import { JumpFlashSystem } from "./JumpFlashSystem";
 import { JumpRipple } from "./JumpRipple";
 import { SoundSystem } from "./SoundSystem";
 import { EngineGlow } from "./EngineGlow";
+import { OwnShipMarker } from "./OwnShipMarker";
 import { SecondaryThrusters } from "./SecondaryThrusters";
 import { NetDebugOverlay } from "./NetDebugOverlay";
 import { DelayQueue } from "../net/DelayQueue";
@@ -282,6 +283,8 @@ export class NetworkGame {
     }
   >();
   private myKey: string | null = null;
+  /** The "this one is you" ring on our own view (see OwnShipMarker). */
+  private ownMarker: OwnShipMarker | null = null;
 
   // ─── Local-ship prediction (Phase 2) ───
   /** The locally simulated own ship (shared Ship math = server parity). */
@@ -912,6 +915,9 @@ export class NetworkGame {
         havePlayer = true;
       }
     }
+    // Own-ship ring: idle pulse + bank cancel. Visibility rides the view
+    // root (ShipView disables it while dead), so no life gate needed here.
+    this.ownMarker?.update(dt);
 
     // 3. Camera follows our ship. Velocity feeds the lead offset — when the
     // prediction flies, pass the SIM velocity like offline Game.tick does:
@@ -1739,6 +1745,18 @@ export class NetworkGame {
     // the fallback for models that author no markers.
     const hasTemplate = (this.templates.get(m.shipType) ?? null) !== null;
     const nozzles = this.thrusterMarkers(view.root);
+    // Our own seat gets the own-ship marker ring (client-only depiction —
+    // remote peers never see it). myKey is always known by now: it's set
+    // while the patch that first carries our ship ingests, and views are
+    // only built afterwards, in the render pass over that patch's snapshots.
+    if (key === this.myKey && this.ownMarker === null) {
+      this.ownMarker = new OwnShipMarker(
+        this.scene,
+        view.root,
+        this.glowLayer,
+        GameConfig.shipTypes[m.shipType].hitRadius,
+      );
+    }
     this.visuals.set(key, {
       glow: hasTemplate
         ? new EngineGlow(

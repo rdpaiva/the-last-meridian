@@ -1557,6 +1557,38 @@ export const GameConfig = {
   },
 
   /**
+   * Own-ship marker (client view only): a persistent flat ring under the hull
+   * of the ship YOU are flying, so you never lose track of yourself in a
+   * furball (owner ask 2026-07-05). Purely a depiction — offline it sits on
+   * the player root, online on the `myKey` view; nothing rides the wire.
+   * Warm gold on purpose: distinct from both faction palettes (humans
+   * pink/blue, machines crimson/green) and from the friendly/hostile radar
+   * language, so it reads as "me", not "my side".
+   */
+  ownMarker: {
+    /** Ring radius = ship hitRadius × this, so gunships get a wider ring
+     * than fighters without a per-type table. */
+    radiusScale: 2.0,
+    /** Tube thickness of the torus (world units). Thin = understated. */
+    thickness: 0.09,
+    /** Local Y of the ring below the hull (ships fly the y=0 plane). */
+    yOffset: -0.45,
+    /** Emissive ring colour — soft gold. The mesh is EXCLUDED from the
+     * GlowLayer (no bloom, no bleed through the carrier hull during launch),
+     * so components stay ≤ 1. */
+    color: { r: 1.0, g: 0.82, b: 0.38 },
+    /** Resting opacity. Subtle: a cue you find when you look for it, not a
+     * beacon that fights the combat FX. */
+    baseAlpha: 0.38,
+    /** Alpha swing of the slow breathing pulse (peak = base + depth). */
+    pulseDepth: 0.14,
+    /** Full breathing cycle duration. Slow — a calm idle pulse, not an alarm. */
+    pulsePeriodMs: 1800,
+    /** Torus segment count — smooth enough at gameplay zoom. */
+    tessellation: 48,
+  },
+
+  /**
    * Scene lighting for the non-emissive surfaces — ship hulls, the motherships,
    * asteroids. (Emissive things — lasers, engines, the backdrop/nebulas — ignore
    * lights and are governed by their own emissive color + the GlowLayer.)

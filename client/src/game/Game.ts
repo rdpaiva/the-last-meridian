@@ -44,6 +44,7 @@ import { JumpRipple } from "./JumpRipple";
 import { SoundSystem } from "./SoundSystem";
 import { MusicSystem } from "./MusicSystem";
 import { DamageFlash } from "./DamageFlash";
+import { OwnShipMarker } from "./OwnShipMarker";
 import { Mothership } from "@space-duel/shared";
 import { MothershipSection } from "@space-duel/shared";
 import { Turret } from "@space-duel/shared";
@@ -223,6 +224,7 @@ export class Game {
   private engineGlow: EngineGlow | null = null;
   private secondaryThrusters: SecondaryThrusters | null = null;
   private playerDamageFlash: DamageFlash | null = null;
+  private ownShipMarker: OwnShipMarker | null = null;
   /** Hit-confirm flash for every non-player ship (enemies + wingmen). */
   private readonly aiDamageFlashes = new Map<Ship, DamageFlash>();
 
@@ -782,6 +784,14 @@ export class Game {
       markers.rcs,
     );
     this.playerDamageFlash = new DamageFlash(this.scene, loaded.root, this.glowLayer);
+    // Own-ship marker: the persistent "this one is you" ring. Parented to the
+    // player root, so death/respawn visibility comes along for free.
+    this.ownShipMarker = new OwnShipMarker(
+      this.scene,
+      loaded.root,
+      this.glowLayer,
+      playerType.hitRadius,
+    );
 
     this.playerCombatant = {
       ship: this.playerShip,
@@ -1945,6 +1955,9 @@ export class Game {
     }
     this.playerDamageFlash?.update();
     for (const flash of this.aiDamageFlashes.values()) flash.update();
+    // The own-ship ring's idle pulse runs through hitstop like the damage
+    // flash — it's a UI cue, not a simulated object.
+    this.ownShipMarker?.update(deltaSeconds);
 
     const engineIntensity =
       this.playerShip && this.playerShip.isAlive
