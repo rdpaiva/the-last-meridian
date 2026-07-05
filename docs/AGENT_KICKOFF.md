@@ -10,25 +10,32 @@ editing instead of searching.
 
 ---
 
-Continue the multiplayer work. The Phase 2 netcode tooling is DONE on
-`feat/phase2-net-tools` (2026-07-05) — network-condition simulator +
-netcode debug overlay, built for the `[human]` feel-tuning loop. If that
-branch is merged, branch off `main`; otherwise continue on it.
+Continue the multiplayer work. The Phase 2 tail is CODE-COMPLETE on
+`feat/phase2-net-tools` (2026-07-05): netcode tooling (network-condition
+simulator + debug overlay) AND sensor-filtered replication (the
+anti-wallhack gate). If that branch is merged, branch off `main`;
+otherwise continue on it.
 
 **Read `docs/PHASE1_OPEN_ISSUES.md` first and trust it** — do NOT re-survey
 the codebase; that doc's Architecture notes + the anchors below are accurate.
 
 **State**: online co-op is playable and feels close to single-player on
-LOCALHOST. NEW this session: `GameConfig.net.sim` (dev netsim —
+LOCALHOST. This session added: `GameConfig.net.sim` (dev netsim —
 enabled/latencyMs = simulated RTT, half per direction/jitterMs; flip
-`enabled` + reload; console banner + pinned amber NETSIM badge while on)
-and `NetDebugOverlay` (Backquote in an online match: clock offset, snap
+`enabled` + reload; console banner + pinned amber NETSIM badge while on),
+`NetDebugOverlay` (Backquote in an online match: clock offset, snap
 buffer depth/headroom, pending inputs + ack lag, correction magnitude, fx
-queue). PROTOCOL_VERSION 11. Typecheck + 17/17 tests green. Feel has NOT
-yet been judged under simulated latency — that's the next step.
+queue), and server-side sensor-filtered replication (hidden enemies are
+absent from the wire; presence = fresh faction track; radar ghosts +
+view hiding handled client-side). PROTOCOL_VERSION 12. Typecheck + 18/18
+tests green. NEITHER the feel under simulated latency NOR the filtering
+has been owner-playtested yet.
 
-**My playtest findings**: <fill in — fly at netsim 40/80/120ms ± jitter and
-report what feels wrong; include the overlay numbers when something spikes>
+**My playtest findings**: <fill in — solo-online first: enemies should pop
+onto radar+screen when tracked and vanish honestly into nebulas (ghost
+rings age out, no frozen "statue" ships, no trail streaks on reappear);
+then fly at netsim 40/80/120ms ± jitter and report what feels wrong,
+with overlay numbers when something spikes>
 
 **Work order**:
 
@@ -49,19 +56,15 @@ report what feels wrong; include the overlay numbers when something spikes>
    `client/src/net/NetClient.ts` `send` + `client/src/net/DelayQueue.ts`
    (the netsim halves). Pure retunes of `GameConfig.net` numbers still
    bump PROTOCOL_VERSION (GameConfig is shared).
-2. **Sensor-filtered replication** (pre-deploy anti-wallhack gate): server
-   replicates to each client only what that client's faction sensor picture
-   can see. Seam: `server/src/rooms/BattleRoom.ts` → `syncState` writes
-   every ship into one shared schema map today — per-client filtering wants
-   Colyseus `StateView`/filtered collections or per-seat visibility flags
-   driven by the sim's `SensorSystem` (the server AI already flies on it).
-   The client degrades gracefully (radar already runs on its own client-side
-   SensorSystem over `ShadowShip` stubs); expect to handle ships POPPING
-   in/out of the replicated map (view/visuals lifecycle in `NetworkGame` —
-   `makeView`/`visuals`/`snaps` cleanup for departed keys).
+2. **Fix what the playtest of the filtering surfaces** (it shipped
+   untested in-browser). Anchors: `BattleRoom.syncClientViews` (the server
+   diff), `NetworkGame.recordSnapshot` (presence transitions + absence
+   sweep at its tail), `ShadowShip.present`, `SensorSystem.updateFaction`
+   (the roster-exclusion sweep rule that makes client ghosts age).
 3. Then Phase 3 (separate sessions): reconnection via `allowReconnection`
    (AI takes the seat meanwhile — `BattleRoom.retaskLeader` is the
-   join/leave seam), room lifecycle/rematch, hosting + `VITE_SERVER_URL`.
+   join/leave seam; note `Room` already copies `client.view` across a
+   reconnection), room lifecycle/rematch, hosting + `VITE_SERVER_URL`.
 
 **Rules of the road** (already true in code — don't relearn them):
 

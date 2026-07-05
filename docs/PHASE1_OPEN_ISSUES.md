@@ -1,11 +1,50 @@
 # Phase 1/2 — status + handoff notes
 
 Snapshot for resuming the multiplayer work. Phases 1–2 core are MERGED to
-`main` (`6c119ec`, 2026-07-05, owner-accepted); the netcode TOOLING below
-lives on **`feat/phase2-net-tools`**. Everything builds + typechecks; the
-full test suite is **17/17 green** (`npm test`). PROTOCOL_VERSION is **11**
-— stale tabs get a clean join rejection (rendered as "NEW VERSION —
-refresh"), so always reload after pulling.
+`main` (`6c119ec`, 2026-07-05, owner-accepted); the netcode TOOLING and
+SENSOR-FILTERED REPLICATION below live on **`feat/phase2-net-tools`**.
+Everything builds + typechecks; the full test suite is **18/18 green**
+(`npm test`). PROTOCOL_VERSION is **12** — stale tabs get a clean join
+rejection (rendered as "NEW VERSION — refresh"), so always reload after
+pulling.
+
+## DONE 2026-07-05 — sensor-filtered replication (the anti-wallhack gate)
+
+Nebula stealth + sensor range now filter the WIRE, not just the radar. With
+both Phase 2 tail items landed, what's left before Phase 3 is only the
+`[human]` feel pass.
+
+- **Server**: `BattleState.ships` is view-tagged (`view: true`); every
+  client gets a Colyseus `StateView` in `onJoin` — all FRIENDLY ships
+  permanently, ENEMY ships diffed in/out each tick by
+  `BattleRoom.syncClientViews` from `sim.sensors.isTracked` (the same
+  fresh-track rule the server AI flies on; a spooling jump drive
+  force-detects, so runners still telegraph). Death drops the entry
+  (explosion arrives as the unfiltered shipDied event, like offline).
+- **Events are unfiltered but self-contained** (a shooter may never have
+  replicated to a given client): `laserFired` carries shooter faction+type,
+  `missileFired` carries faction + launch pose (depiction falls back to it
+  when the shooter is hidden — the round is visible even when the ship
+  isn't), `shipDied` carries victim faction+type for the kill board. Pilot
+  counts are unfiltered root fields (`pilotHumans`/`pilotBots`).
+- **Client**: `ShadowShip.present` mirrors map membership. Absence freezes
+  the stub at its last rendered pose, pulls it from the sensor rosters,
+  hides the view + engine glow (trail is unparented — gotcha #4), and wipes
+  the snapshot buffer so reappearance can't interpolate across the hidden
+  gap. The shared `SensorSystem` sweep now clears freshness for ships
+  absent from the opposing roster (a no-op for stable offline/server
+  rosters — smoke baseline untouched), which is what ages a de-replicated
+  enemy into an honest last-known-position radar ghost.
+- **Proven over a real transport** (tests/server/battleRoom.test.ts): a
+  first-patch client receives ONLY its own fleet (the parked enemy fleet is
+  off the wire); an enemy dragged into AWACS range appears; a killed enemy
+  leaves the map; a killed friendly stays (alive=false).
+- **Known deliberate quirks**: no hidden-enemy ship meshes on screen even
+  inside the visual nebula (eyeball `visualRange` keeps knife-fights
+  replicated); bolts can emerge from empty space when a concealed ship
+  fires from beyond visual range — that's the stealth fantasy, not a bug;
+  the DETECTED/HIDDEN cue is the client's mirror and can briefly disagree
+  with the server picture for hidden observers.
 
 ## DONE 2026-07-05 — netcode tooling (network-condition simulator + debug overlay)
 

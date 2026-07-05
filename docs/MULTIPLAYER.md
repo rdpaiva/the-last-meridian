@@ -351,9 +351,19 @@ so tuning passes don't need code changes.
       `shipDied` event's `by` attribution (server keeps a last-hit-by
       ledger per ship); missiles carry their lock target id so the
       cosmetic round homes and the RWR hears seekers on YOU.
-- [ ] **Sensor-filtered replication**: server only replicates contacts
+- [x] **Sensor-filtered replication**: server only replicates contacts
       the player's faction `SensorSystem` can see (nebula stealth
       becomes anti-wallhack, not just UI). Friendlies always replicate.
+      DONE 2026-07-05 — `BattleState.ships` is view-tagged; each client
+      gets a Colyseus `StateView` (friendlies permanent, enemies diffed
+      per tick from `sim.sensors.isTracked` in
+      `BattleRoom.syncClientViews`). FX events stay unfiltered but are
+      self-contained (shooter faction/type, missile launch pose, victim
+      identity on shipDied); pilot counts moved to unfiltered root
+      fields. Client: `ShadowShip.present` + absence sweep (hide view,
+      freeze stub → radar ghost via the SensorSystem roster-exclusion
+      sweep rule, wipe snap buffer). Proven by integration test over a
+      real transport.
 - [x] **Clock sync + debug overlay**: RTT estimate, server-time offset,
       snapshot age, prediction error — on a hotkey, dev builds only.
       DONE 2026-07-05 — `NetDebugOverlay` (plain DOM, Backquote toggles
