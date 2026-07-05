@@ -42,9 +42,14 @@ the hosting work: Pages is HTTPS, so the socket must be `wss://` ⇒
 subdomain + TLS reverse proxy (Caddy or the VM's existing nginx) in front
 of `localhost:2567`; the client bakes the endpoint at build time via
 `VITE_SERVER_URL` (`client/src/net/NetClient.ts`). Deploy client + server
-from the SAME commit (protocol check refuses mismatches). NOTE: local
-`main` was ~53 commits ahead of `origin/main` at session end — the owner
-pushes himself; the Pages build is stale until then.
+from the SAME commit (protocol check refuses mismatches). NOTE —
+DELIBERATE, do not suggest pushing: local `main` is ~54 commits ahead of
+`origin/main` and stays that way until the MP server is hosted. The
+deployed Pages build is the owner's LIVE single-player test channel
+(friends are actively playtesting it); pushing main would ship a client
+with online entry points and no server behind them. Backup-without-deploy
+option if wanted: push to a side branch (e.g. `origin/dev`) — Pages only
+tracks main.
 
 **My playtest findings**: <fill in — fly at netsim 40/80/120ms ± jitter
 and report what feels wrong, with overlay numbers when something spikes>
