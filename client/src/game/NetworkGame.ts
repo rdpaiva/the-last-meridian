@@ -57,6 +57,8 @@ import { JumpRipple } from "./JumpRipple";
 import { SoundSystem } from "./SoundSystem";
 import { EngineGlow } from "./EngineGlow";
 import { SecondaryThrusters } from "./SecondaryThrusters";
+import { NetDebugOverlay } from "./NetDebugOverlay";
+import { DelayQueue } from "../net/DelayQueue";
 import type { NetClient } from "../net/NetClient";
 
 /** The shape of a replicated ship (decoded from the server schema). */
@@ -142,6 +144,21 @@ interface NetRock {
   visualRadius: number;
   squashX: number;
   squashY: number;
+}
+
+/**
+ * A plain-object copy of one arriving state patch, held by the netsim's
+ * inbound delay queue (GameConfig.net.sim). It MUST be a copy: Colyseus
+ * decodes every patch into the same live state object, so a held reference
+ * would read FUTURE data by its release time. Shape duck-types what
+ * recordSnapshot reads (Map.forEach matches the schema map's forEach).
+ */
+interface DelayedState {
+  timeMs: number;
+  /** Absent when the arriving patch had no such map — recordSnapshot's
+   *  presence checks must see the same shape they'd see on the live state. */
+  ships?: Map<string, NetShip>;
+  asteroids?: Map<string, NetRock>;
 }
 
 /** One timestamped server sample of a ship's pose (SERVER sim clock, ms). */
@@ -314,6 +331,14 @@ export class NetworkGame {
   private readonly rockObstacles: AsteroidSim[] = [];
   /** Server FX facts awaiting their sim time on the render clock. */
   private readonly fxQueue: Array<{ t: number; e: NetEvent }> = [];
+
+  // ─── Dev tooling: netsim inbound delay + netcode overlay ───
+  /** Netsim-held state patches (cloned at arrival — see DelayedState). */
+  private readonly delayedSnaps = new DelayQueue<DelayedState>();
+  /** Netsim-held FX batches (fresh decoded objects — safe by reference). */
+  private readonly delayedEvents = new DelayQueue<EventsMessage>();
+  /** Backquote-toggled netcode readout (+ the pinned NETSIM badge). */
+  private readonly netDebug = new NetDebugOverlay();
   /** Stable per-ship stubs for SoundSystem's jump-drive clip tracking. */
   private readonly jumpSoundKeys = new Map<string, Ship>();
   private readonly fxVec = new Vector3();
@@ -497,25 +522,28 @@ export class NetworkGame {
       this.bestScore = 0; // storage unavailable — best just won't persist
     }
 
-    // Queue server FX facts; the tick plays each at its sim time. EXCEPT our
-    // own weapon fire: that is depicted PREDICTIVELY at the keypress
-    // (updatePrediction) — the server echo would double-render it, and even
-    // an immediately-applied echo trails a thrusting ship by a round trip.
+    // Queue server FX facts; the tick plays each at its sim time (see
+    // ingestEvents for the own-fire exception). With the dev netsim on, both
+    // inbound channels are first held for half the simulated RTT + jitter —
+    // the tick drains them, so ingest is just LATER (everything already rides
+    // state.timeMs / msg.t, never arrival time). Direct-state reads (carrier
+    // HP, phase, winner) stay realtime — slow-changing, not feel-relevant.
     this.net.room.onMessage(MSG.events, (msg: EventsMessage) => {
-      for (const e of msg.events) {
-        if (
-          this.predictionActive &&
-          (e.k === "laserFired" || e.k === "missileFired") &&
-          e.ship === this.myKey
-        ) {
-          continue;
-        }
-        this.fxQueue.push({ t: msg.t, e });
+      if (GameConfig.net.sim.enabled) {
+        this.delayedEvents.push(msg, performance.now(), this.netSimDelayMs());
+      } else {
+        this.ingestEvents(msg);
       }
     });
 
     // Buffer a timestamped pose for every ship on each server patch.
-    this.net.room.onStateChange((state) => this.recordSnapshot(state));
+    this.net.room.onStateChange((state) => {
+      if (GameConfig.net.sim.enabled) {
+        this.delayedSnaps.push(this.cloneNetState(state), performance.now(), this.netSimDelayMs());
+      } else {
+        this.recordSnapshot(state);
+      }
+    });
     this.net.room.onLeave(() => {
       this.connectionLost = true;
     });
@@ -659,11 +687,110 @@ export class NetworkGame {
     this.hud.setPilotCounts(pilotHumans, pilotBots);
   }
 
+  /**
+   * Queue a server FX batch for playback at its sim time. EXCEPT our own
+   * weapon fire: that is depicted PREDICTIVELY at the keypress
+   * (updatePrediction) — the server echo would double-render it, and even an
+   * immediately-applied echo trails a thrusting ship by a round trip.
+   */
+  private ingestEvents(msg: EventsMessage): void {
+    for (const e of msg.events) {
+      if (
+        this.predictionActive &&
+        (e.k === "laserFired" || e.k === "missileFired") &&
+        e.ship === this.myKey
+      ) {
+        continue;
+      }
+      this.fxQueue.push({ t: msg.t, e });
+    }
+  }
+
+  /** One inbound message's simulated delay: half the RTT + uniform jitter. */
+  private netSimDelayMs(): number {
+    const sim = GameConfig.net.sim;
+    return sim.latencyMs / 2 + Math.random() * sim.jitterMs;
+  }
+
+  /** Copy an arriving patch into plain objects for the netsim delay queue —
+   *  the live schema object mutates in place, so it can't be held. */
+  private cloneNetState(state: unknown): DelayedState {
+    const s = state as {
+      timeMs?: number;
+      ships?: { forEach: (cb: (v: NetShip, k: string) => void) => void };
+      asteroids?: { forEach: (cb: (v: NetRock, k: string) => void) => void };
+    };
+    const out: DelayedState = { timeMs: s.timeMs ?? 0 };
+    if (s.ships) {
+      const ships = new Map<string, NetShip>();
+      out.ships = ships;
+      s.ships.forEach((v, k) => {
+        ships.set(k, {
+          owner: v.owner,
+          faction: v.faction,
+          shipType: v.shipType,
+          x: v.x,
+          z: v.z,
+          vx: v.vx,
+          vz: v.vz,
+          rotationY: v.rotationY,
+          bankAngle: v.bankAngle,
+          hp: v.hp,
+          alive: v.alive,
+          launching: v.launching,
+          isAI: v.isAI,
+          cannonAmmo: v.cannonAmmo,
+          missileAmmo: v.missileAmmo,
+          lastInputSeq: v.lastInputSeq,
+          reverse: v.reverse,
+          strafeLeft: v.strafeLeft,
+          strafeRight: v.strafeRight,
+        });
+      });
+    }
+    if (s.asteroids) {
+      const asteroids = new Map<string, NetRock>();
+      out.asteroids = asteroids;
+      s.asteroids.forEach((v, k) => {
+        asteroids.set(k, {
+          t0: v.t0,
+          x: v.x,
+          z: v.z,
+          rotX: v.rotX,
+          rotY: v.rotY,
+          rotZ: v.rotZ,
+          driftX: v.driftX,
+          driftZ: v.driftZ,
+          spinX: v.spinX,
+          spinY: v.spinY,
+          spinZ: v.spinZ,
+          visualRadius: v.visualRadius,
+          squashX: v.squashX,
+          squashY: v.squashY,
+        });
+      });
+    }
+    return out;
+  }
+
+  /** Netsim drain targets (bound once — no per-frame closure allocation). */
+  private readonly consumeDelayedSnap = (s: DelayedState): void => this.recordSnapshot(s);
+  private readonly consumeDelayedEvents = (m: EventsMessage): void => this.ingestEvents(m);
+
   private readonly tick = (): void => {
     const dt = Math.min(this.engine.getDeltaTime() / 1000, GameConfig.scene.maxDeltaSeconds);
 
+    // 0. Dev netsim: release inbound messages whose simulated delay elapsed.
+    if (GameConfig.net.sim.enabled) {
+      const drainNow = performance.now();
+      this.delayedSnaps.drain(drainNow, this.consumeDelayedSnap);
+      this.delayedEvents.drain(drainNow, this.consumeDelayedEvents);
+    }
+
     // 1. Sample + send local input, throttled to the server tick rate.
     this.input.update();
+    // Backquote: the netcode readout (offline the key is god mode; free in MP).
+    if (this.input.consumeDebugToggle()) this.netDebug.toggle();
     // Audio unlock rides the first real input gesture (mirrors Game.tick).
     const held = this.input.state;
     if (held.thrust || held.reverse || held.rotateLeft || held.rotateRight || held.fire) {
@@ -882,6 +1009,24 @@ export class NetworkGame {
         nowMs,
         this.humanPiloted,
       );
+    }
+
+    // Netcode readout — stats gathered only while the panel is showing (the
+    // one dev-path allocation; the overlay itself rewrites at 5Hz).
+    if (this.netDebug.visible) {
+      const myBuf = this.myKey !== null ? this.snaps.get(this.myKey) : undefined;
+      this.netDebug.update(nowMs, {
+        clockOffsetMs: this.clockOffsetMs,
+        bufferDepth: myBuf?.length ?? 0,
+        bufferHeadroomMs:
+          myBuf && myBuf.length > 0 ? myBuf[myBuf.length - 1].t - renderT : 0,
+        pendingInputs: this.pendingInputs.length,
+        ackLagInputs: this.inputSeq - this.myServer.seq,
+        correctionUnits: Math.hypot(this.correctionPos.x, this.correctionPos.z),
+        correctionDeg: (Math.abs(this.correctionRot) * 180) / Math.PI,
+        fxQueueDepth: this.fxQueue.length,
+        shipsTracked: this.snaps.size,
+      });
     }
 
     this.scene.render();
@@ -1617,6 +1762,7 @@ export class NetworkGame {
 
   dispose(): void {
     window.removeEventListener("keydown", this.onKeyDown);
+    this.netDebug.dispose();
     this.input.detach();
     void this.net.leave();
     this.engine.stopRenderLoop();

@@ -2359,6 +2359,23 @@ export const GameConfig = {
      * — one reconciliation blip instead of creeping input lag.
      */
     inputBacklogMax: 2,
+    /**
+     * DEV-ONLY network-condition simulator (like `debug` — not part of play):
+     * artificial delay on every message BOTH ways (client→server input/ready
+     * sends; server→client state patches + FX event batches), so netcode feel
+     * is tunable on localhost at realistic latencies. Message ORDER is
+     * preserved (WebSocket = TCP; a jittered message never overtakes an
+     * earlier one). Flip `enabled` here and reload. It cannot run silently:
+     * NetClient prints a console banner and NetDebugOverlay pins an on-screen
+     * NETSIM badge for the whole match.
+     */
+    sim: {
+      enabled: false,
+      /** Simulated ROUND-TRIP time (ms) — half is applied to each direction. */
+      latencyMs: 80,
+      /** Uniform-random extra delay (ms), 0..jitterMs per message, each way. */
+      jitterMs: 0,
+    },
   },
 
   /** Dev/test only — not part of normal play. */
