@@ -58,15 +58,37 @@ and report what feels wrong, with overlay numbers when something spikes>
    `client/src/net/NetClient.ts` `send` + `client/src/net/DelayQueue.ts`
    (the netsim halves). Pure retunes of `GameConfig.net` numbers still
    bump PROTOCOL_VERSION (GameConfig is shared).
-2. **Fix what the playtest of the filtering surfaces** (it shipped
-   untested in-browser). Anchors: `BattleRoom.syncClientViews` (the server
-   diff), `NetworkGame.recordSnapshot` (presence transitions + absence
-   sweep at its tail), `ShadowShip.present`, `SensorSystem.updateFaction`
-   (the roster-exclusion sweep rule that makes client ghosts age).
-3. Then Phase 3 (separate sessions): reconnection via `allowReconnection`
-   (AI takes the seat meanwhile — `BattleRoom.retaskLeader` is the
-   join/leave seam; note `Room` already copies `client.view` across a
-   reconnection), room lifecycle/rematch, hosting + `VITE_SERVER_URL`.
+2. **Own-ship marker** (owner ask 2026-07-05: in a dogfight it's easy to
+   lose track of which ship you're flying). CLIENT-ONLY depiction, works
+   offline AND online, no wire change: a persistent, subtle marker on the
+   player's own hull — ring/chevron under the ship or a distinct own-ship
+   engine-glow tint; readable at a half-second glance, unlike text.
+   Anchors: offline `Game` (the player ship root + `EngineGlow`
+   construction), online `NetworkGame.makeView` (`key === this.myKey`);
+   one new class per the style rules (e.g. `OwnShipMarker.ts`), knobs in a
+   new `GameConfig` section (config change ⇒ PROTOCOL_VERSION bump).
+   Don't conflate this with callsigns (item 3) — this is the fast fix for
+   the control-confusion problem; names are identity, not disambiguation.
+3. **Callsigns + nameplates** (Phase 3, sits with lobby polish — owner
+   ask, same date): every ship gets a callsign; humans enter/persist a
+   pilot name, AI pilots get a naming scheme so bots aren't anonymous.
+   NAMING CANON: draw AI callsign schemes from
+   `docs/The-Last-Meridian-Story-Bible.md` (squadron-style for humans'
+   side, choir/machine-flavored for machines). Honesty rule: style AI
+   callsigns visibly differently from human names (isAI already
+   replicates; radar already halos humans). Nameplates: plain-DOM labels
+   projected per frame, zoom/distance-faded, friendlies-always +
+   enemies-only-when-targeted (avoid furball text clutter). Wire/UX:
+   `callsign` on `ShipSchema` (set once), pilot name in `JoinOptions`
+   (`shared/src/protocol.ts` ⇒ bump), persisted next to the loadout
+   (`Loadout.ts` `lastMeridian_*` keys), one name input on the online
+   entry flow (`LoadoutMenu.onPlay` page — a field, not a menu; the
+   no-complex-menus ceiling stands).
+4. Then the rest of Phase 3 (separate sessions): reconnection via
+   `allowReconnection` (AI takes the seat meanwhile —
+   `BattleRoom.retaskLeader` is the join/leave seam; note `Room` already
+   copies `client.view` across a reconnection), room lifecycle/rematch,
+   hosting + `VITE_SERVER_URL`.
 
 **Rules of the road** (already true in code — don't relearn them):
 

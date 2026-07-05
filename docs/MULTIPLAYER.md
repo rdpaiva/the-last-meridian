@@ -396,6 +396,15 @@ so tuning passes don't need code changes.
 - [ ] **Reconnection**: Colyseus `allowReconnection` for brief drops.
 - [ ] **Lobby polish**: smooth out the Phase 1 join paths — connecting/
       error states, copy-invite-link button, rejoin-last-match prompt.
+- [ ] **Pilot identity — callsigns + nameplates** (owner ask 2026-07-05):
+      humans enter a persisted pilot name at the online entry (one input
+      field, not a menu); AI pilots get story-bible-canon callsigns
+      (docs/The-Last-Meridian-Story-Bible.md) so bots aren't anonymous,
+      styled visibly differently from human names (the honesty rule).
+      `callsign` replicates once on ShipSchema; nameplates are plain-DOM,
+      zoom/distance-faded, clutter-aware. The related-but-separate
+      OWN-SHIP MARKER (dogfight self-identification) is a client-only
+      depiction fix and is queued ahead of this in AGENT_KICKOFF.
 - [ ] **Hosting artifacts** (cloud-preparable): esbuild bundle config,
       systemd unit file, Caddyfile (`play.<domain> → reverse_proxy
       localhost:2567`), CORS config for the static-site origin, GitHub
