@@ -16,7 +16,7 @@ import type { AsteroidSim } from "./AsteroidSim";
 import { Hulk } from "./Hulk";
 import type { MothershipSection } from "./MothershipSection";
 import type { Turret } from "./Turret";
-import type { DamageTarget } from "../types";
+import type { DamageTarget, InputState } from "../types";
 import { SimEventBus } from "./SimEvents";
 import { LaunchSequence } from "../LaunchSequence";
 import { computeConcealmentZones } from "./CombatNebulaZones";
@@ -35,6 +35,11 @@ export interface SimCombatant {
   launch: LaunchSequence | null;
   bayIndex: number;
   cinematic: boolean;
+  /** The InputState the last sim tick applied (null before the first tick /
+   *  while the launch catapult suppresses the controller). The offline Game
+   *  drives its wing FX from the same fact; the server replicates the RCS
+   *  bits (reverse/strafe) from it so remote clients can depict the plumes. */
+  lastInput: InputState | null;
 }
 
 export type MatchState = "launching" | "playing" | "ended";
@@ -259,6 +264,7 @@ export class BattleSim {
       launch: null,
       bayIndex: c.bayIndex ?? 0,
       cinematic: c.cinematic ?? false,
+      lastInput: null,
     };
     this.combatants.push(entry);
     if (entry.cinematic && !this.primaryLaunch) this.primaryLaunch = entry;
@@ -350,6 +356,7 @@ export class BattleSim {
       // until it clears the bow.
       if (c.launch && !c.launch.isComplete) {
         if (ship.isAlive) {
+          c.lastInput = null; // catapult drives the ship; no pilot input to depict
           c.launch.update(dtSeconds, ship);
           if (c.launch.justLaunched) this.events.emit("shipLaunched", { ship });
           if (c.launch.isComplete) {
@@ -373,6 +380,7 @@ export class BattleSim {
         ship,
         this.worldByFaction[ship.faction],
       );
+      c.lastInput = input;
       ship.update(dtSeconds, input);
 
       if (ship.isAlive && input.fire) {

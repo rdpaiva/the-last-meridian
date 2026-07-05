@@ -2,7 +2,7 @@
 
 Snapshot for resuming the multiplayer work. Branch: **`feat/phase1-multiplayer`**
 (not yet merged to `main`). Everything builds + typechecks; the full test suite
-is **14/14 green** (`npm test`). PROTOCOL_VERSION is **9** — stale tabs get a
+is **14/14 green** (`npm test`). PROTOCOL_VERSION is **10** — stale tabs get a
 clean join rejection (rendered as "NEW VERSION — refresh"), so always
 reload after pulling.
 
@@ -19,6 +19,20 @@ bar; that URL is the WITH FRIENDS invite link.
 
 See `docs/PHASE1_TWOTAB_CHECKLIST.md` for the full acceptance checklist
 (rewritten 2026-07-04 for this build).
+
+## FIXED 2026-07-05 — remote RCS plumes (owner two-tab finding)
+
+Other players' reverse/strafe thrusters were invisible (only your own showed):
+RCS plumes depict INPUT, which wasn't replicated for remotes. Now the sim
+records the applied input per combatant (`SimCombatant.lastInput` — the same
+fact the offline Game drives its wing FX from), `ShipSchema` replicates the
+three RCS bits (`reverse`/`strafeLeft`/`strafeRight`, false while dead or in
+the tube), they ride the snapshot buffer like `alive` (discrete, interpolated
+with the pose), and FRIENDLY ships get `SecondaryThrusters` views driven from
+them — offline parity: your faction's wing shows plumes, the enemy fleet
+doesn't. Dead ships taper plumes to zero so a respawn can't re-enable a
+frozen glow. PROTOCOL_VERSION 9 → 10. Remote MAIN-engine glow still rides
+the speed proxy (thrust itself is deliberately not on the wire).
 
 ## STATE AS OF 2026-07-04 (second session — jitter fix + entry polish)
 

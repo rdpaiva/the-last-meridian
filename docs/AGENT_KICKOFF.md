@@ -13,16 +13,18 @@ editing instead of searching.
 Continue the multiplayer work on branch `feat/phase1-multiplayer`.
 
 **Read `docs/PHASE1_OPEN_ISSUES.md` first and trust it** — current as of
-commit `13cee3f` (2026-07-04, jitter fix + entry polish). Do NOT re-survey
-the codebase; that doc's Architecture notes + the anchors below are accurate.
+the remote-RCS-plume fix (2026-07-05; two-tab owner finding). Do NOT
+re-survey the codebase; that doc's Architecture notes + the anchors below
+are accurate.
 
 **State**: full-thrust judder root-caused and fixed (tick-aligned input
 queue + fixed-dt server steps + sim-velocity camera lead); online entry is
 buttons now — PLAY SOLO / PLAY ONLINE (quick-play screen + loadout page 2),
 `#join=<roomId>` invite links (the address bar IS the link), online
 Enter-restart, and AI escorts fly cover on joining humans (faction-leader
-retask). PROTOCOL_VERSION 9. Typecheck + 14/14 tests green.
-`?online` is GONE — don't reintroduce it.
+retask). Remote RCS plumes replicate (friendly ships depict reverse/strafe;
+schema bits ride the snapshot buffer). PROTOCOL_VERSION 10. Typecheck +
+14/14 tests green. `?online` is GONE — don't reintroduce it.
 
 **My playtest findings**: <fill in after running the checklist>
 

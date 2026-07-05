@@ -77,6 +77,10 @@ interface NetShip {
   cannonAmmo: number;
   missileAmmo: number;
   lastInputSeq: number;
+  /** RCS bits of the last applied input (friendly plume depiction). */
+  reverse: boolean;
+  strafeLeft: boolean;
+  strafeRight: boolean;
 }
 
 /**
@@ -116,6 +120,10 @@ interface MutablePose {
   rotationY: number;
   bankAngle: number;
   isAlive: boolean;
+  /** RCS bits riding the snapshot (discrete — sampled like `isAlive`). */
+  reverse: boolean;
+  strafeLeft: boolean;
+  strafeRight: boolean;
 }
 
 /** The shape of a replicated asteroid spawn state (see AsteroidSchema). */
@@ -144,6 +152,10 @@ interface Snap {
   rot: number;
   bank: number;
   alive: boolean;
+  /** RCS bits (reverse/strafe input applied that tick) — friendly plumes. */
+  rev: boolean;
+  sl: boolean;
+  sr: boolean;
 }
 
 // Netcode feel knobs (interp delay, teleport/correction thresholds, rates)
@@ -313,6 +325,9 @@ export class NetworkGame {
     rotationY: 0,
     bankAngle: 0,
     isAlive: true,
+    reverse: false,
+    strafeLeft: false,
+    strafeRight: false,
   };
   private readonly camPos = new Vector3();
   private readonly camVel = new Vector3();
@@ -633,12 +648,12 @@ export class NetworkGame {
       // the departure sample so interpolation POPS across the discontinuity
       // instead of streaking the ship across the map for a patch interval.
       if (prev && Math.hypot(ship.x - prev.x, ship.z - prev.z) > GameConfig.net.teleportSnapUnits) {
-        buf.push({ t: prev.t + 1, x: ship.x, z: ship.z, rot: ship.rotationY, bank: ship.bankAngle, alive: ship.alive });
+        buf.push({ t: prev.t + 1, x: ship.x, z: ship.z, rot: ship.rotationY, bank: ship.bankAngle, alive: ship.alive, rev: ship.reverse, sl: ship.strafeLeft, sr: ship.strafeRight });
         // The exhaust trail is NOT parented to the ship root — flush it or the
         // teleport (jump/respawn) drags a streak across the whole map.
         this.visuals.get(key)?.glow?.resetTrails();
       }
-      buf.push({ t, x: ship.x, z: ship.z, rot: ship.rotationY, bank: ship.bankAngle, alive: ship.alive });
+      buf.push({ t, x: ship.x, z: ship.z, rot: ship.rotationY, bank: ship.bankAngle, alive: ship.alive, rev: ship.reverse, sl: ship.strafeLeft, sr: ship.strafeRight });
       if (buf.length > 40) buf.shift(); // ~2s of history at 20Hz
     });
     this.hud.setPilotCounts(pilotHumans, pilotBots);
@@ -879,14 +894,14 @@ export class NetworkGame {
       out.position.set(last.x, 0, last.z);
       out.rotationY = last.rot;
       out.bankAngle = last.bank;
-      out.isAlive = last.alive;
+      this.sampleDiscrete(last, out);
       return;
     }
     if (t <= buf[0].t) {
       out.position.set(buf[0].x, 0, buf[0].z);
       out.rotationY = buf[0].rot;
       out.bankAngle = buf[0].bank;
-      out.isAlive = buf[0].alive;
+      this.sampleDiscrete(buf[0], out);
       return;
     }
     // Find the pair bracketing t (buffers are tiny — a linear scan is fine).
@@ -898,10 +913,18 @@ export class NetworkGame {
         out.position.set(lerp(a.x, b.x, f), 0, lerp(a.z, b.z, f));
         out.rotationY = a.rot + wrapAngle(b.rot - a.rot) * f;
         out.bankAngle = lerp(a.bank, b.bank, f);
-        out.isAlive = a.alive; // discrete; take the earlier sample's state
+        this.sampleDiscrete(a, out); // discrete; take the earlier sample's state
         return;
       }
     }
+  }
+
+  /** Copy a snap's discrete (non-lerpable) fields into the pose scratch. */
+  private sampleDiscrete(s: Snap, out: MutablePose): void {
+    out.isAlive = s.alive;
+    out.reverse = s.rev;
+    out.strafeLeft = s.sl;
+    out.strafeRight = s.sr;
   }
 
   /**
@@ -1159,10 +1182,13 @@ export class NetworkGame {
    * hold it — call right after view.update). Our own ship burns on REAL input
    * (predicted sim speed + held keys, RCS plumes included) and hides the glow
    * in the launch tube like offline (a lit glow bleeds through the carrier
-   * hull via the GlowLayer). Remotes have no replicated input, so intensity
-   * rides a speed estimate from pose deltas: above half throttle reads as
-   * burning, below as coasting. Dead ships are skipped — the disabled root
-   * hides the cores and the (unparented) trail collapses on its own.
+   * hull via the GlowLayer). Remote MAIN-engine intensity rides a speed
+   * estimate from pose deltas (thrust isn't on the wire): above half throttle
+   * reads as burning, below as coasting. Remote RCS plumes (friendly ships
+   * only — see makeView) DO ride the wire: the reverse/strafe bits of the
+   * applied input replicate per ship and interpolate with the pose. Dead
+   * ships taper the plumes to zero (the disabled root hides them, but a
+   * respawn would otherwise re-enable a frozen mid-glow plume).
    */
   private updateEngineFx(key: string, dt: number): void {
     const vis = this.visuals.get(key);
@@ -1183,6 +1209,9 @@ export class NetworkGame {
       // Clamp: a missed teleport-pop otherwise reads as a hypersonic burn.
       const speed = Math.min(raw, type.maxSpeed * 1.6);
       vis.glow?.update(dt, speed, type.maxSpeed, speed > type.maxSpeed * 0.5);
+      vis.thrusters?.update(dt, this.pose.reverse, this.pose.strafeLeft, this.pose.strafeRight);
+    } else {
+      vis.thrusters?.update(dt, false, false, false);
     }
     vis.lastX = this.pose.position.x;
     vis.lastZ = this.pose.position.z;
@@ -1223,14 +1252,6 @@ export class NetworkGame {
       this.correctionRot = 0;
       this.pendingInputs.length = 0;
       this.predictionActive = true;
-      // Our ship gets the RCS plumes (reverse/strafe are OUR held keys —
-      // remotes can't have them, their input isn't replicated). Config
-      // nozzle positions; MP templates don't expose the GLB rcs markers.
-      const vis = this.visuals.get(this.myKey!);
-      const view = this.views.get(this.myKey!);
-      if (vis && view && !vis.thrusters) {
-        vis.thrusters = new SecondaryThrusters(this.scene, view.root, this.glowLayer, {});
-      }
     }
     const ship = this.predicted!;
     ship.update(dt, this.input.state);
@@ -1497,7 +1518,14 @@ export class NetworkGame {
             nozzles.length > 0 ? nozzles : this.rearEmitters(view.root),
           )
         : null,
-      thrusters: null,
+      // RCS plumes ride the replicated reverse/strafe bits — FRIENDLY ships
+      // only, mirroring offline (the wing depicts its pilots' input; the
+      // enemy fleet doesn't). Config nozzle positions; MP templates don't
+      // expose the GLB rcs markers.
+      thrusters:
+        m.faction === this.playerFaction
+          ? new SecondaryThrusters(this.scene, view.root, this.glowLayer, {})
+          : null,
       lastX: 0,
       lastZ: 0,
     });

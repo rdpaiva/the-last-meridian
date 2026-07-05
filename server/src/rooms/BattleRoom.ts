@@ -429,6 +429,12 @@ export class BattleRoom extends Room<{ state: BattleState }> {
       s.missileAmmo = ship.missileAmmo;
       s.launching = seat.combatant.launch !== null;
       s.lastInputSeq = seat.lastInputSeq;
+      // RCS depiction bits: the input the tick actually applied (null while
+      // dead / catapulted, which correctly reads as engines-quiet).
+      const applied = ship.isAlive ? seat.combatant.lastInput : null;
+      s.reverse = applied?.reverse ?? false;
+      s.strafeLeft = applied?.strafeLeft ?? false;
+      s.strafeRight = applied?.strafeRight ?? false;
     }
     this.syncMothership(this.state.humansMothership, "humans");
     this.syncMothership(this.state.machinesMothership, "machines");
@@ -525,6 +531,9 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     ship.alive = true;
     ship.launching = true;
     ship.isAI = true;
+    ship.reverse = false;
+    ship.strafeLeft = false;
+    ship.strafeRight = false;
     return ship;
   }
 

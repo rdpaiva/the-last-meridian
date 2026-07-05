@@ -60,6 +60,9 @@ Two tabs (vs/with another human):
       `2 human`; each sees the other's white radar halo).
 - [ ] Each tab controls ITS OWN ship only; the other player's ship moves
       smoothly and fires visibly in both tabs.
+- [ ] The other player's RCS plumes show: when they reverse/strafe you see
+      their blue nozzle jets (friendly ships only — the enemy fleet doesn't
+      depict them, same as offline).
 - [ ] Closing a tab hands that ship back to the AI (isAI honesty: the halo
       drops, pilot count drops to 1) and escort leadership returns/moves.
 - [ ] A stale invite link (room gone — restart the server) falls back to a
