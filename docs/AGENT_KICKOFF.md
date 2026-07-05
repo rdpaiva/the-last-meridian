@@ -10,34 +10,36 @@ editing instead of searching.
 
 ---
 
-Continue the multiplayer work. The Phase 2 tail is CODE-COMPLETE on
-`feat/phase2-net-tools` (2026-07-05): netcode tooling (network-condition
-simulator + debug overlay) AND sensor-filtered replication (the
-anti-wallhack gate). If that branch is merged, branch off `main`;
+Continue the multiplayer work. The identity slice is CODE-COMPLETE on
+`feat/own-ship-marker` (2026-07-05): own-ship marker ring AND
+callsigns + nameplates. If that branch is merged, branch off `main`;
 otherwise continue on it.
 
 **Read `docs/PHASE1_OPEN_ISSUES.md` first and trust it** — do NOT re-survey
 the codebase; that doc's Architecture notes + the anchors below are accurate.
 
 **State**: online co-op is playable and feels close to single-player on
-LOCALHOST. This session added: `GameConfig.net.sim` (dev netsim —
-enabled/latencyMs = simulated RTT, half per direction/jitterMs; flip
-`enabled` + reload; console banner + pinned amber NETSIM badge while on),
-`NetDebugOverlay` (Backquote in an online match: clock offset, snap
-buffer depth/headroom, pending inputs + ack lag, correction magnitude, fx
-queue), and server-side sensor-filtered replication (hidden enemies are
-absent from the wire; presence = fresh faction track; radar ghosts +
-view hiding handled client-side). PROTOCOL_VERSION 12. Typecheck + 18/18
-tests green. NEITHER the feel under simulated latency NOR the filtering
-has been owner-playtested yet.
+LOCALHOST; the Phase 2 tail (netsim + NetDebugOverlay + sensor-filtered
+replication) is merged to `main` and owner-verified clean. This session
+added, on `feat/own-ship-marker`: the **own-ship marker** (`OwnShipMarker.ts`
+— persistent gold ring under YOUR hull, offline + online, glow-excluded so
+it can't bleed in the launch tube, `GameConfig.ownMarker`) and
+**callsigns + nameplates** (`shared/src/Callsigns.ts` schemes from the story
+bible — Commonwealth squadron flights vs Novari choir voices;
+`ShipSchema.callsign` swaps with `isAI` on join/leave; CALLSIGN field on
+loadout page 2 → `lastMeridian_pilotName` → `JoinOptions.pilotName`;
+`Nameplates.ts` pooled DOM labels, zoom-faded, friendlies-always +
+enemies-only-when-lock-targeted + never your own, launch-gated, human names
+haloed vs dimmer faction-tinted AI callsigns). PROTOCOL_VERSION 14.
+Typecheck + 18/18 tests green (join test now also proves the callsign
+lifecycle over the wire). NONE of this session's work is owner-playtested
+yet, and the netsim feel pass is STILL pending.
 
-**Owner playtest 2026-07-05 on this branch**: came back clean after two
-MP-parity fixes (dock cue + arrival-side jump ripple, `28dac09` — see
-PHASE1_OPEN_ISSUES). Still untested: the netsim feel pass at real
-latencies (work-order item 1).
-
-**My playtest findings**: <fill in — fly at netsim 40/80/120ms ± jitter
-and report what feels wrong, with overlay numbers when something spikes>
+**My playtest findings**: <fill in — (a) fly at netsim 40/80/120ms ± jitter
+and report what feels wrong, with overlay numbers when something spikes;
+(b) eyeball the new marker + nameplates offline AND in a two-tab match:
+ring readable but subtle? plates clutter-free in a furball? names styled
+clearly human-vs-AI?>
 
 **Work order**:
 
@@ -58,36 +60,24 @@ and report what feels wrong, with overlay numbers when something spikes>
    `client/src/net/NetClient.ts` `send` + `client/src/net/DelayQueue.ts`
    (the netsim halves). Pure retunes of `GameConfig.net` numbers still
    bump PROTOCOL_VERSION (GameConfig is shared).
-2. **Own-ship marker** (owner ask 2026-07-05: in a dogfight it's easy to
-   lose track of which ship you're flying). CLIENT-ONLY depiction, works
-   offline AND online, no wire change: a persistent, subtle marker on the
-   player's own hull — ring/chevron under the ship or a distinct own-ship
-   engine-glow tint; readable at a half-second glance, unlike text.
-   Anchors: offline `Game` (the player ship root + `EngineGlow`
-   construction), online `NetworkGame.makeView` (`key === this.myKey`);
-   one new class per the style rules (e.g. `OwnShipMarker.ts`), knobs in a
-   new `GameConfig` section (config change ⇒ PROTOCOL_VERSION bump).
-   Don't conflate this with callsigns (item 3) — this is the fast fix for
-   the control-confusion problem; names are identity, not disambiguation.
-3. **Callsigns + nameplates** (Phase 3, sits with lobby polish — owner
-   ask, same date): every ship gets a callsign; humans enter/persist a
-   pilot name, AI pilots get a naming scheme so bots aren't anonymous.
-   NAMING CANON: draw AI callsign schemes from
-   `docs/The-Last-Meridian-Story-Bible.md` (squadron-style for humans'
-   side, choir/machine-flavored for machines). Honesty rule: style AI
-   callsigns visibly differently from human names (isAI already
-   replicates; radar already halos humans). Nameplates: plain-DOM labels
-   projected per frame, zoom/distance-faded, friendlies-always +
-   enemies-only-when-targeted (avoid furball text clutter). Wire/UX:
-   `callsign` on `ShipSchema` (set once), pilot name in `JoinOptions`
-   (`shared/src/protocol.ts` ⇒ bump), persisted next to the loadout
-   (`Loadout.ts` `lastMeridian_*` keys), one name input on the online
-   entry flow (`LoadoutMenu.onPlay` page — a field, not a menu; the
-   no-complex-menus ceiling stands).
-4. Then the rest of Phase 3 (separate sessions): reconnection via
-   `allowReconnection` (AI takes the seat meanwhile —
-   `BattleRoom.retaskLeader` is the join/leave seam; note `Room` already
-   copies `client.view` across a reconnection), room lifecycle/rematch,
+2. **`[human]` identity-slice acceptance** (this session's work): marker +
+   nameplates offline and two-tab; retune from my report. Anchors:
+   `GameConfig.ownMarker` (ring size/alpha/pulse) + `GameConfig.nameplates`
+   (offset/zoom fade); styling in `client/src/style.css` (`#nameplates`,
+   `.pilot-name-row`); scheme wording in `shared/src/Callsigns.ts`;
+   depiction wiring in `client/src/game/OwnShipMarker.ts` /
+   `Nameplates.ts` / `NetworkGame.ts` (plate loop before the netdebug
+   block; stub fields fed in `recordSnapshot`) / `Game.ts` (plate loop
+   before `setLaunchOverlay`).
+3. **Reconnection** (Phase 3): `allowReconnection` in
+   `BattleRoom.onLeave` — AI takes the seat meanwhile (the seat handback
+   already exists there: controller/isAI/owner/callsign), reclaim restores
+   occupant + name; `retaskLeader` runs on both edges; note `Room` already
+   copies `client.view` across a reconnection (the sensor-filter StateView
+   survives). Client side: `NetClient.leave`/error path +
+   `NetworkGame.connectionLost` is the resume seam. Integration test like
+   the leave-handback one in `tests/server/battleRoom.test.ts`.
+4. Then the rest of Phase 3 (separate sessions): room lifecycle/rematch,
    hosting + `VITE_SERVER_URL`.
 
 **Rules of the road** (already true in code — don't relearn them):
@@ -102,5 +92,7 @@ and report what feels wrong, with overlay numbers when something spikes>
   way.
 - One acked input == one fixed 1/SIM_HZ tick (the judder fix invariant).
 - `GameConfig.net.sim` stays OFF in every commit (`enabled: false`).
+- Netsim state copies must carry EVERY replicated field — adding one to
+  `ShipSchema` means adding it to `NetShip` + `cloneNetState` too.
 - Verify with `npm run typecheck` + `npm test` only — I run the dev server
   and playtest myself. Commit each landed change like previous sessions.

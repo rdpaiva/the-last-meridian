@@ -1,12 +1,40 @@
 # Phase 1/2 — status + handoff notes
 
-Snapshot for resuming the multiplayer work. Phases 1–2 core are MERGED to
-`main` (`6c119ec`, 2026-07-05, owner-accepted); the netcode TOOLING and
-SENSOR-FILTERED REPLICATION below live on **`feat/phase2-net-tools`**.
+Snapshot for resuming the multiplayer work. Phases 1–2 core AND the Phase 2
+tail (netsim + overlay + sensor-filtered replication) are MERGED to `main`
+(`0667a72`, 2026-07-05, owner-accepted); the IDENTITY slice below (own-ship
+marker + callsigns/nameplates) lives on **`feat/own-ship-marker`**.
 Everything builds + typechecks; the full test suite is **18/18 green**
-(`npm test`). PROTOCOL_VERSION is **12** — stale tabs get a clean join
+(`npm test`). PROTOCOL_VERSION is **14** — stale tabs get a clean join
 rejection (rendered as "NEW VERSION — refresh"), so always reload after
 pulling.
+
+## DONE 2026-07-05 — identity slice (awaiting owner playtest)
+
+Both owner asks from the 2026-07-05 session, on `feat/own-ship-marker`:
+
+- **Own-ship marker** (`4fba536`): `OwnShipMarker.ts` — a flat gold torus
+  ring under the ship YOU fly (gold = outside both faction palettes), slow
+  breathing pulse, offline + online, nothing on the wire. Excluded from the
+  GlowLayer, so it depth-tests normally (no bleed through the carrier hull
+  in the launch tube) and inherits death/respawn visibility from the ship
+  root. Counter-banks per frame to stay flat. Knobs: `GameConfig.ownMarker`.
+- **Callsigns + nameplates** (`ebfed8d`): `shared/src/Callsigns.ts` names
+  AI seats deterministically per (faction, seat index) — Commonwealth
+  squadron flights ("Saber 1"…) vs Novari choir voices ("Cantor-01"…), per
+  the story bible; the offline Game names its wing/fleet with the SAME
+  generator. Humans wear a typed pilot name: CALLSIGN field on loadout
+  page 2 → `lastMeridian_pilotName` → `JoinOptions.pilotName` (sanitized
+  BOTH sides) → `ShipSchema.callsign`, which swaps with `isAI` on
+  join/leave (a leaver's name never lingers on the bot; integration-tested
+  over the transport). `Nameplates.ts`: pooled plain-DOM labels projected
+  per frame, zoom-faded (`GameConfig.nameplates`), friendlies-always +
+  enemies-only-while-lock-targeted + never your own ship, launch-gated
+  (DOM ignores occlusion); human names bright/haloed vs dimmer
+  faction-tinted AI callsigns (honesty rule). Online rides new ShadowShip
+  stub fields (`callsign`/`isHumanPilot`/`launching`) fed per patch —
+  and note `cloneNetState` (the netsim copy) must carry every new
+  `ShipSchema` field.
 
 ## FIXED + OWNER-VERIFIED 2026-07-05 — MP parity: dock cue + jump ripple
 
