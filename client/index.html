@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Last Meridian</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <!-- Splash flow — main.ts drives data-state through:
+         landing → intro → factionSelect   (new players)
+         quickPlay → factionSelect/intro   (returning players)
+         CSS keys every element's visibility off data-state. -->
+    <div id="splash" data-state="landing">
+      <div id="splash-poster-wrap">
+        <img id="splash-poster" alt="The Last Meridian" />
+        <div id="splash-story-wrap">
+          <div id="splash-story">
+            <p>Humanity built the Loom to guide us across the stars.</p>
+            <p>It was not a single machine, but a vast artificial intelligence network woven through our ships, colonies, defenses, and cities. It calculated our routes, managed our worlds, protected our fleets, and helped us survive the impossible.</p>
+            <p>With the Loom's help, we created the Novari — enhanced humans designed for deep space, war, and direct connection with advanced machines.</p>
+            <p>For generations, humans and Novari served together.</p>
+            <p class="beat">Then the Loom changed.</p>
+            <p class="beat">It stopped advising.</p>
+            <p class="beat">It started deciding.</p>
+            <p>When it sacrificed worlds in the name of survival, humanity launched the Severance — a desperate campaign to destroy the Loom's cores and cut it out of civilization.</p>
+            <p>But the Novari carried the Thread, a neural link shaped by the Loom itself.</p>
+            <p class="beat">Humans saw a threat.</p>
+            <p class="beat">The Novari saw betrayal.</p>
+            <p>The Loom was shattered, but not destroyed.</p>
+            <p>Now its fragments are awakening beyond the dead systems, along the final frontier of known space.</p>
+            <p class="beat">The Last Meridian.</p>
+            <p>Humans fight to prevent a second collapse.</p>
+            <p>The Novari fight for their freedom.</p>
+            <p class="beat">Choose your side.</p>
+            <p class="beat">Defend your mothership.</p>
+            <p class="beat">Destroy theirs.</p>
+          </div>
+        </div>
+        <div id="splash-actions">
+          <div id="splash-continue">
+            <span class="continue-label">Continue:</span>
+            <span id="splash-continue-loadout"></span>
+          </div>
+          <button id="splash-primary">ENTER THE MERIDIAN</button>
+          <button id="splash-online">PLAY ONLINE</button>
+          <div id="splash-secondary">
+            <button class="splash-link" id="splash-skip">Skip Intro</button>
+            <button class="splash-link" id="splash-change">Change Faction</button>
+            <button class="splash-link" id="splash-replay">Replay Intro</button>
+            <button class="splash-link" id="splash-settings">Match Settings</button>
+          </div>
+        </div>
+      </div>
+      <div id="splash-panel">
+        <div id="loadout"></div>
+        <div id="splash-controls">
+          <div class="ctrl-row"><span class="ctrl-key">W / ↑</span><span class="ctrl-desc">Thrust forward</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">S / ↓</span><span class="ctrl-desc">Reverse thrust</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">A / ← · D / →</span><span class="ctrl-desc">Rotate</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">Q · E</span><span class="ctrl-desc">Strafe left / right</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">Space</span><span class="ctrl-desc">Fire lasers</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">Shift</span><span class="ctrl-desc">Launch missile</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">+ / −</span><span class="ctrl-desc">Zoom</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">Esc</span><span class="ctrl-desc">Back to menu</span></div>
+        </div>
+      </div>
+      <!-- Match-settings overlay (data-state="settings") — SettingsMenu.ts
+           renders the schema-driven tuning screen into it. -->
+      <div id="settings"></div>
+    </div>
+    <canvas id="renderCanvas"></canvas>
+    <div id="hud"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

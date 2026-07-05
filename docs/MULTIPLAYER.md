@@ -234,53 +234,89 @@ timing).
 
 ## Phase 1 — Colyseus skeleton
 
-- [ ] **Restructure into workspaces** (first task of this phase): npm
+> **Status (2026-07-04, post-playtest + HUD slice): online client PLAYS WELL
+> solo** — smooth motion (sim-clock interpolation), ready-gated visible
+> launches from the GLB's real tubes, full combat FX/sound, predicted local
+> ship + own weapon fire (muzzle-true, steady cadence), engine
+> glow/trails/RCS, a replicated asteroid field with locally-predicted
+> collisions (no invisible walls), and the FULL HUD online: radar w/ sensor
+> picture + stealth + human halos, RWR, kills/score, lock/sig cues, pilot
+> counts, homing missile depiction, server-side human missile locks.
+> Branch `feat/phase1-multiplayer` (not yet merged); 10/10 tests green;
+> PROTOCOL_VERSION 8. Remaining before merge: PLAY ONLINE/invite entry,
+> friendly commander, the `[human]` two-tab acceptance pass + feel tuning.
+> **Resume notes: `docs/PHASE1_OPEN_ISSUES.md`.**
+
+- [x] **Restructure into workspaces** (first task of this phase): npm
       workspaces with `shared/` + `client/` + `server/` per the layout
-      in Decisions. `git mv src/game/sim → shared/src` etc. in a commit
-      with NO content changes (preserves history); add root
-      `tsconfig.base.json` the three packages extend; `shared`'s
-      `"exports"` → `./src/index.ts` (source, no build step); root
-      `npm run dev` / `npm run typecheck` keep working.
-- [ ] **Server app**: Colyseus + a `BattleRoom` running `advanceSim` on
-      `setSimulationInterval` (30Hz to start), delta clamp kept.
-- [ ] **State schema** (`@colyseus/schema`): ships (pose, hp, faction,
-      shipType, ammo), motherships (hp), match state. Patch rate
-      ~15Hz to start.
-- [ ] **Input messages**: client samples `LocalInputController` and
-      sends `InputState` per tick; server replays it into that player's
-      `Ship` (the `NetworkController` seam).
-- [ ] **AI fills empty seats**: room spawns `AIController` ships for
-      unfilled slots — solo join = today's single-player, server-side.
-      Backfill is a room option (`aiBackfill`), on for quick match.
-      Fleet size comes from the room-config formula
-      (`baseFleet + wingPerHuman × humans`, capped by `maxFleet`;
-      defaults extend `GameConfig.fleets` — see Decisions). Replicate an
-      `isAI` flag per ship; HUD shows human/AI counts and radar tags
-      bots (the honesty rule from Decisions).
+      in Decisions. `git mv src/game/sim → shared/src` etc. (history
+      preserved; only content change is client imports rewritten to
+      `@space-duel/shared`); added root `tsconfig.base.json` the three
+      packages extend; `shared`'s `"exports"` → `./src/index.ts` (source,
+      no build step, barrel public surface); root `npm run dev` (→ client)
+      / `npm run typecheck` (→ all workspaces + root tests) / `npm test`
+      keep working. Smoke baseline intact, typecheck + build green.
+- [x] **Server app**: Colyseus `Server` + `WebSocketTransport` + a
+      `BattleRoom` running `BattleSim.advance` on `setSimulationInterval`
+      (30Hz), GameConfig delta clamp kept. (Note: also did the Phase 0
+      collapse first — extracted the scene-free `shared/sim/BattleSim`
+      coordinator the room/harness/client all share, proven baseline-
+      identical, plus the asteroid sim/view split it required.)
+- [x] **State schema** (`@colyseus/schema`, decorator-free `defineTypes`):
+      ships MapSchema (pose, hp, faction, shipType, alive, launching,
+      isAI), two motherships (hp/alive), phase/winner/tick. Patch rate
+      15Hz.
+- [x] **Input messages**: client samples input and sends `InputState`
+      (`MSG.input`); the server replays it into that player's `Ship` via the
+      `NetworkController` seam (`shared/NetworkController.ts`). Proven by the
+      integration + unit tests (held `rotateRight` over the wire turns the
+      seat; `jumpPressed` is a one-shot edge). Client-side SAMPLING/sending
+      lands with the dumb-client-rendering task.
+- [x] **AI fills empty seats**: every seat starts AI-flown (solo join plays
+      the full battle), humans claim a free seat on their faction
+      (AI→`NetworkController`), `onLeave` hands it back; the `isAI` flag is
+      replicated (tested). Launch config is fixed-fleet (`GameConfig.fleets`
+      per side); the `baseFleet + wingPerHuman × humans` formula knob is a
+      later refinement (single preset at launch — see Decisions). Honesty
+      rule shipped 2026-07-04: HUD `pilots` row (N human · M ai) + white halo
+      rings on human-piloted radar blips, friend or foe.
 - [ ] **Friendly-side `FleetCommander`**: the player faction gets a
       commander (enemy side already has one) whose doctrine assigns the
       team's AI ships to human players as escort wings (`cover` w/ that
       human as leader, via `setOrder()`), re-distributing on human
       join/leave/death. Replaces the static per-wingman standing orders
       in multiplayer rooms.
-- [ ] **Dumb client rendering**: client builds `ShipView`s from room
-      state and snaps to raw server values. Laggy-feeling is expected
-      and fine at this phase — it proves the pipe.
-- [ ] **Protocol version gate**: a `protocolVersion` const in `shared`,
-      sent in join options; server rejects mismatches with a typed
-      error the client renders as "new version — refresh". Bump
-      manually on any breaking protocol/GameConfig change.
-- [ ] **Join flow**: splash menu gains PLAY SOLO / PLAY ONLINE; online
-      splits into QUICK MATCH (`joinOrCreate` with the chosen loadout as
-      join options — reuse `LoadoutMenu` unchanged) and WITH FRIENDS
-      (create room → show `#join=<roomId>` invite URL; arriving via the
-      URL auto-joins). No server browser (see Decisions). PLAY SOLO
-      stays fully offline.
+- [x] **Dumb client rendering**: `client/game/NetworkGame.ts` runs no sim —
+      reuses the single-player view stack, builds a `ShipView` per replicated
+      ship and snaps it to the raw server pose each frame (local ship found via
+      the `owner` schema field), and sends `InputState` at 30Hz. Carrier HP
+      bars + victory/defeat banner from state. Steppy/laggy as expected
+      (interpolation + prediction are Phase 2). Fighters are procedural meshes
+      for now (per-type GLBs = later polish); transient FX await Phase 2.
+- [x] **Protocol version gate**: `PROTOCOL_VERSION` in `shared/protocol.ts`,
+      sent in join options; the room rejects a mismatch with a typed
+      `ServerError(PROTOCOL_MISMATCH)` (tested). The client keys a dedicated
+      "NEW VERSION — refresh the page" splash string off the mismatch code
+      (anything else stays "server unavailable").
+- [~] **Join flow**: QUICK MATCH works — `?online` (or `#online`) routes the
+      existing splash/loadout flow into `joinOrCreate` with the loadout as join
+      options (`LoadoutMenu` reused unchanged); no flag = fully-offline PLAY
+      SOLO. REMAINING: promote it to explicit splash PLAY SOLO / PLAY ONLINE
+      buttons, and WITH FRIENDS (create room → `#join=<roomId>` invite URL +
+      auto-join). No server browser (by design).
+- [~] **Node integration tests**: DONE — `@colyseus/testing` boots the
+      BattleRoom in-process and asserts replication (AI-backfilled battle to
+      the client), server-side sim advance (launch→playing, ships move), input
+      replay over the wire, and protocol-mismatch rejection
+      (`tests/server/battleRoom.test.ts`); plus the `NetworkController→Ship`
+      unit test. Full suite green (9 tests). REMAINING: the `[human]`
+      checklist below.
 - [ ] `[human]` **Local two-tab acceptance test** — run server + client
       on localhost, two browser tabs in the same room: both ships
       visible and moving, inputs land, AI fills the rest, match plays
       to victory/defeat. This is the phase's real definition of done;
-      the Node integration tests get you to the doorstep.
+      the Node integration tests get you to the doorstep. **Checklist +
+      run instructions: `docs/PHASE1_TWOTAB_CHECKLIST.md`.**
 
 ## Phase 2 — Netcode feel
 
@@ -290,15 +326,31 @@ implementation. Every feel parameter (interpolation delay, smoothing
 rates, correction snap thresholds) must be a tunable, not a constant,
 so tuning passes don't need code changes.
 
-- [ ] **Interpolation buffer** for remote ships/missiles: render
+- [x] **Interpolation buffer** for remote ships/missiles: render
       ~100–150ms behind server time, lerp between snapshots (this is
       the `ShipPose` feeder that replaces the local sim for remotes).
-- [ ] **Client prediction + reconciliation** for the local ship: run the
+      DONE 2026-07-04 — on the SERVER SIM CLOCK (`state.timeMs`), not
+      arrival time: sim 30Hz vs patch 20Hz alias, so arrival-time
+      interpolation judders (the Phase 1 jitter bug). Teleports (jump/
+      respawn) pop across the discontinuity instead of streaking.
+- [x] **Client prediction + reconciliation** for the local ship: run the
       shared `Ship` sim locally on pending inputs, rewind/replay on
-      server correction. The fiddly part — budget real time.
-- [ ] **Event replication for FX**: laser fired / hit / explosion /
+      server correction. DONE 2026-07-04 — sequenced inputs acked via
+      `ShipSchema.lastInputSeq` (+ replicated vx/vz to rewind); residual
+      error absorbed into a decaying correction offset, hard snap past a
+      threshold; gated off during launch/death/respawn. Feel knobs in
+      `GameConfig.net` (awaiting the `[human]` tuning loop).
+- [x] **Event replication for FX**: laser fired / hit / explosion /
       missile launch events → client SFX, shake, hitstop, flashes
-      (reusing the Phase 0 event channel).
+      (reusing the Phase 0 event channel). DONE 2026-07-04 — BattleSim
+      owns a SimEventBus; BattleRoom broadcasts batched, sim-timestamped
+      NetEvents; NetworkGame plays each at its sim time on the render
+      clock (cosmetic projectile pools, explosions, jump FX, full
+      SoundSystem, distance-scaled trauma). No hitstop in MP (a frozen
+      render clock would desync interpolation). Kills/score ride the
+      `shipDied` event's `by` attribution (server keeps a last-hit-by
+      ledger per ship); missiles carry their lock target id so the
+      cosmetic round homes and the RWR hears seekers on YOU.
 - [ ] **Sensor-filtered replication**: server only replicates contacts
       the player's faction `SensorSystem` can see (nebula stealth
       becomes anti-wallhack, not just UI). Friendlies always replicate.
