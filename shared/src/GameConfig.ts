@@ -2370,7 +2370,7 @@ export const GameConfig = {
      * NETSIM badge for the whole match.
      */
     sim: {
-      enabled: true,
+      enabled: false,
       /** Simulated ROUND-TRIP time (ms) — half is applied to each direction. */
       latencyMs: 80,
       /** Uniform-random extra delay (ms), 0..jitterMs per message, each way. */
