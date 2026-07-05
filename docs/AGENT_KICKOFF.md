@@ -36,6 +36,16 @@ green (join test now also proves the callsign lifecycle over the wire).
 The identity slice is OWNER-VERIFIED; the netsim feel pass is STILL
 pending — that's the headline task.
 
+**Owner goal (2026-07-05)**: a friends playtest — GitHub Pages client +
+Colyseus on the owner's existing DigitalOcean VM. Constraint that shapes
+the hosting work: Pages is HTTPS, so the socket must be `wss://` ⇒
+subdomain + TLS reverse proxy (Caddy or the VM's existing nginx) in front
+of `localhost:2567`; the client bakes the endpoint at build time via
+`VITE_SERVER_URL` (`client/src/net/NetClient.ts`). Deploy client + server
+from the SAME commit (protocol check refuses mismatches). NOTE: local
+`main` was ~53 commits ahead of `origin/main` at session end — the owner
+pushes himself; the Pages build is stale until then.
+
 **My playtest findings**: <fill in — fly at netsim 40/80/120ms ± jitter
 and report what feels wrong, with overlay numbers when something spikes>
 
@@ -72,8 +82,13 @@ and report what feels wrong, with overlay numbers when something spikes>
    survives). Client side: `NetClient.leave`/error path +
    `NetworkGame.connectionLost` is the resume seam. Integration test like
    the leave-handback one in `tests/server/battleRoom.test.ts`.
-3. Then the rest of Phase 3 (separate sessions): room lifecycle/rematch,
-   hosting + `VITE_SERVER_URL`.
+3. **Hosting artifacts** (Phase 3, pulled forward by the friends-test
+   goal — see docs/MULTIPLAYER.md → Phase 3 "Hosting artifacts" for the
+   full list): esbuild server bundle, systemd unit, Caddyfile (or nginx
+   block — the owner's VM may already run nginx), deploy notes/workflow,
+   `VITE_SERVER_URL` build wiring. Then the `[human]` provisioning
+   checklist (DNS, certs, first deploy) is the owner's.
+4. Then the rest of Phase 3 (separate sessions): room lifecycle/rematch.
 
 **Rules of the road** (already true in code — don't relearn them):
 

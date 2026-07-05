@@ -532,14 +532,19 @@ implemented yet. Roughly ordered by gameplay value.
 - **Mothership defenses** — gun turrets DONE (see ✅ Done → "Carrier defense
   turrets"). Still on the table: **missile-launcher turrets** (same sub-emitter
   seam, firing into the per-faction MissileSystem instead of lasers).
-- **Multiplayer** — now a planned direction (not out of scope). The
-  Ship/`ShipController` spine is built for it: add a `NetworkController`
-  alongside `LocalInputController`/`AIController`; `InputState` is already a
-  boolean wire format. **Phase 0 (sim/view split) is COMPLETE** (2026-06-17):
-  sim and Babylon view are fully separated, `Game.advanceSim` is the
-  server-safe tick a Colyseus room will run, and a deterministic headless
-  smoke harness guards it. Phase 1 (npm-workspace restructure → Colyseus
-  skeleton) is next. Full phased plan + status: `docs/MULTIPLAYER.md`.
+- **Multiplayer** — IN PROGRESS, well along. **Phases 0–2 are COMPLETE and
+  merged** (2026-07-05): sim/view split, Colyseus server-authoritative
+  co-op (join/leave with AI backfill, invite links, full HUD/FX parity),
+  netcode feel (prediction + reconciliation, sim-clock interpolation,
+  netsim + debug overlay), sensor-filtered replication (anti-wallhack) —
+  plus the Phase 3 identity slice (own-ship teal engine tint, two-word AI
+  callsigns + nameplates, typed pilot name). Online co-op is PLAYABLE on
+  localhost. Remaining (Phase 3): the `[human]` netsim feel pass,
+  reconnection, room lifecycle, hosting artifacts + deploy (the GitHub
+  Pages client needs `wss://` ⇒ subdomain + reverse proxy in front of the
+  Colyseus process; owner plans to host on his DigitalOcean VM). Full
+  phased plan + status: `docs/MULTIPLAYER.md`; session handoff:
+  `docs/AGENT_KICKOFF.md`.
 
 > **Carry-over (FIXED in Phase 4):** the catapult launch is now oriented to the
 > carrier's facing. `Mothership.getLaunchForward()` + `getLaunchExitDistance()`
