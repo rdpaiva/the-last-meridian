@@ -97,6 +97,8 @@ export class BattleRoom extends Room<{ state: BattleState }> {
   private readonly shipIds = new Map<Ship, string>();
   /** Whether the opening fleet launch has been released (first MSG.ready). */
   private launchReleased = false;
+  /** Whether the end-of-match teardown (lock + delayed dispose) has run. */
+  private matchEnded = false;
   /** Live sim rock → its replicated id (diffed each tick in syncAsteroids). */
   private readonly rockIds = new Map<AsteroidSim, string>();
   private nextRockId = 0;
@@ -243,8 +245,10 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     seat.schema.callsign = seat.aiCallsign; // the bot resumes its designation
     this.retaskLeader(seat.faction);
 
-    if (code === CloseCode.CONSENTED) {
-      // Intentional exit (menu/leave(true)): the seat is free immediately.
+    if (code === CloseCode.CONSENTED || this.matchEnded) {
+      // Intentional exit (menu/leave(true)) — or any leave once the match is
+      // decided: there is nothing to reclaim a seat INTO, and a held
+      // reservation would only delay the ended room's disposal.
       this.clientViews.delete(client.sessionId);
       seat.pilotCallsign = "";
       return;
@@ -296,6 +300,25 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     this.sim.setLeader(faction, human ?? this.defaultLeader[faction]);
   }
 
+  /**
+   * End-of-match room lifecycle (Phase 3): a decided battle accepts no new
+   * pilots — lock() takes the room out of matchmaking immediately, so a
+   * rematch quick-match (joinOrCreate) creates a FRESH room and a stale
+   * `#join=` invite link falls back to one (the client already degrades a
+   * failed joinById to a quick match). The room then lingers just long
+   * enough for the players to read the end banner before disconnect()
+   * disposes it; leaves during the window skip the reconnection seat-hold
+   * (see onLeave) so an emptied room isn't kept alive by a reservation.
+   */
+  private onMatchEnded(): void {
+    this.matchEnded = true;
+    this.lock();
+    this.clock.setTimeout(
+      () => this.disconnect(),
+      GameConfig.net.endedRoomLingerSec * 1000,
+    );
+  }
+
   /** Restage the parked fleets with the real (short) pre-launch hold. */
   private releaseLaunch(): void {
     if (this.launchReleased) return;
@@ -324,6 +347,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     }
     this.syncState();
     this.syncClientViews();
+    if (this.sim.ended && !this.matchEnded) this.onMatchEnded();
     if (this.pendingEvents.length > 0) {
       const msg: EventsMessage = { t: this.simTimeMs, events: [...this.pendingEvents] };
       this.broadcast(MSG.events, msg);

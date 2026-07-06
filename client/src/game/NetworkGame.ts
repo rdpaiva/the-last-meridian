@@ -640,14 +640,26 @@ export class NetworkGame {
       this.hud.setMuted(this.sound.isMuted);
     }
     if (e.code === "Enter" && this.ended) {
-      // The flag's value is the relaunch MODE (main.ts): rejoin a match.
+      // The flag's value is the relaunch MODE (main.ts): rejoin a match. The
+      // invite hash must go first — it points at THIS room, which the server
+      // locked at match end; keeping it would make the reload try the dead
+      // room and burn a failed joinById before falling back to quick match.
+      this.clearInviteHash();
       sessionStorage.setItem(RESTART_FLAG, "online");
       window.location.reload();
     }
     if (e.code === "Escape") {
+      // Mid-match the hash stays: rejoining the still-live room from the
+      // splash is the invite-link flow working as intended.
+      if (this.ended) this.clearInviteHash();
       window.location.reload();
     }
   };
+
+  /** Drop the `#join=<roomId>` invite hash — the room it names is finished. */
+  private clearInviteHash(): void {
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
 
   /** Preload the ship GLBs, then start the render loop. */
   async start(): Promise<void> {
@@ -1929,6 +1941,11 @@ export class NetworkGame {
   }
 
   private updatePhase(phase: string, winner: string): void {
+    // Once the end banner is up, nothing may overwrite it: the server locks
+    // an ended room and disposes it after net.endedRoomLingerSec, so the
+    // connection dying underneath us here is EXPECTED — Enter (rematch) and
+    // Esc (menu) both keep working without the room.
+    if (this.ended) return;
     if (this.connectionLost) {
       this.hud.setLaunchOverlay("CONNECTION LOST · refresh to rejoin");
       return;
@@ -1938,16 +1955,14 @@ export class NetworkGame {
       return;
     }
     if (phase === "ended") {
-      if (!this.ended) {
-        this.ended = true;
-        this.hud.setLaunchOverlay(null);
-        this.hud.setEndBanner(
-          winner === this.playerFaction ? "victory" : "defeat",
-          `KILLS ${this.playerKills} · SCORE ${this.score}${
-            this.score > 0 && this.score >= this.bestScore ? " · NEW BEST" : ""
-          }`,
-        );
-      }
+      this.ended = true;
+      this.hud.setLaunchOverlay(null);
+      this.hud.setEndBanner(
+        winner === this.playerFaction ? "victory" : "defeat",
+        `KILLS ${this.playerKills} · SCORE ${this.score}${
+          this.score > 0 && this.score >= this.bestScore ? " · NEW BEST" : ""
+        }`,
+      );
       return;
     }
     this.hud.setLaunchOverlay(phase === "launching" ? "STAND BY" : null);
