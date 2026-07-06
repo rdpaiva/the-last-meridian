@@ -473,6 +473,7 @@ export class NetworkGame {
     this.starfield = new Starfield(this.scene, this.cameraRig.camera);
     this.hud = new Hud(hudRoot);
     this.hud.setLaunchOverlay("STAND BY");
+    this.hud.showInviteHint(); // the address bar is the WITH FRIENDS link
     this.nameplates = new Nameplates(this.scene, this.cameraRig.camera, hudRoot);
 
     this.input = new InputManager();
@@ -638,6 +639,18 @@ export class NetworkGame {
     if (e.code === "KeyM") {
       this.sound.toggleMute();
       this.hud.setMuted(this.sound.isMuted);
+    }
+    if (e.code === "KeyI" && !this.ended) {
+      // Copy the invite link (the address bar carries #join=<roomId>). After
+      // the end the room is locked — there is nothing to invite into.
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(window.location.href).then(
+          () => this.hud.flashInviteCopied(true),
+          () => this.hud.flashInviteCopied(false),
+        );
+      } else {
+        this.hud.flashInviteCopied(false); // insecure context — no clipboard
+      }
     }
     if (e.code === "Enter" && this.ended) {
       // The flag's value is the relaunch MODE (main.ts): rejoin a match. The
