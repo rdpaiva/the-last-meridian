@@ -42,6 +42,7 @@ import { Nebulas } from "./Nebulas";
 import { CapitalShips } from "./CapitalShips";
 import { Starfield } from "./Starfield";
 import { CameraRig } from "./CameraRig";
+import { buildPostPipeline } from "./PostPipeline";
 import { Hud } from "./Hud";
 import { InputManager } from "./InputManager";
 import { MouseSteering } from "./MouseSteering";
@@ -385,6 +386,17 @@ export class NetworkGame {
   private readonly camVel = new Vector3();
   private readonly lastPlayerPos = new Vector3();
   private cameraSnapped = false;
+  /**
+   * Opening-launch camera (mirrors solo's cinematic LaunchSequence.desiredZoom):
+   * hold the wide introZoom establishing shot while our seat waits in the
+   * launch tube, then smoothstep down to the default framing once our catapult
+   * fires. Latched off the room phase on the first tick with state — a
+   * mid-match join starts at "playing" and never sees the wide shot — and
+   * spent after the one ease, so respawn relaunches skip it like offline.
+   */
+  private openingShot: boolean | null = null;
+  /** Wall-clock ms when OUR catapult fired — starts the opening-shot zoom ease. */
+  private launchZoomEaseStartMs: number | null = null;
   private ended = false;
   private connectionLost = false;
   /** A resume attempt is in flight (unexpected drop, grace window open). */
@@ -480,6 +492,9 @@ export class NetworkGame {
     // so the server receives the mouse-commanded turn like any other input.
     this.mouse = new MouseSteering(this.cameraRig.camera);
     this.mouse.attach(canvas);
+    // ACES tone mapping + FXAA + vignette — the SAME full-frame grade as the
+    // offline Game (shared helper), so both modes render identical colors.
+    buildPostPipeline(this.scene, this.cameraRig.camera);
     this.starfield = new Starfield(this.scene, this.cameraRig.camera);
     this.hud = new Hud(hudRoot);
     this.hud.setLaunchOverlay("STAND BY");
@@ -1054,6 +1069,37 @@ export class NetworkGame {
       }
       this.lastPlayerPos.copyFrom(this.camPos);
     }
+    // Opening-launch camera (mirrors solo's LaunchSequence.desiredZoom): hold
+    // the wide introZoom establishing shot while our seat waits in the launch
+    // tube, then smoothstep down to the default framing — over the same
+    // duration as solo's 3-2-1 countdown — once our catapult fires.
+    if (this.openingShot === null) {
+      // Latch off the first replicated phase: a mid-match join arrives at
+      // "playing" and must never see the wide shot.
+      const p = (this.net.room.state as unknown as { phase?: string }).phase;
+      if (p !== undefined) this.openingShot = p === "launching";
+    }
+    if (this.openingShot) {
+      const launch = GameConfig.launch;
+      if (this.launchZoomEaseStartMs === null) {
+        if (this.myLaunching) {
+          this.cameraRig.setZoom(launch.introZoom);
+        } else {
+          // Already clear of the tube (our shipLaunched FX never played, or we
+          // joined between catapult and phase flip) — just ease down from here.
+          this.launchZoomEaseStartMs = nowMs;
+        }
+      }
+      if (this.launchZoomEaseStartMs !== null) {
+        const durMs = launch.countdownStepSec * 3 * 1000;
+        const t = Math.min((nowMs - this.launchZoomEaseStartMs) / durMs, 1);
+        const eased = t * t * (3 - 2 * t); // smoothstep — same curve as solo
+        this.cameraRig.setZoom(
+          launch.introZoom + (GameConfig.camera.defaultZoom - launch.introZoom) * eased,
+        );
+        if (t >= 1) this.openingShot = false; // spent — zoom keys take over
+      }
+    }
     const zoomInput = this.input.state.zoomIn ? 1 : this.input.state.zoomOut ? -1 : 0;
     this.cameraRig.update(dt, this.camPos, this.camVel, zoomInput);
     this.starfield.update();
@@ -1354,6 +1400,11 @@ export class NetworkGame {
       case "shipLaunched": {
         if (e.ship === this.myKey) {
           this.cameraRig.addTrauma(GameConfig.launch.launchTrauma);
+          // Our catapult fired — start easing the opening wide shot down to
+          // the default framing (consumed by the camera block in tick()).
+          if (this.openingShot && this.launchZoomEaseStartMs === null) {
+            this.launchZoomEaseStartMs = performance.now();
+          }
         } else {
           const pose = this.poseOf(e.ship);
           if (pose) {

@@ -6,9 +6,6 @@ import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
-import { DefaultRenderingPipeline } from "@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline";
-// ACES tone-mapping constant lives on ImageProcessingConfiguration.
-import { ImageProcessingConfiguration } from "@babylonjs/core/Materials/imageProcessingConfiguration";
 // Builds a cube/IBL environment from an equirectangular image — used to light
 // the PBR (metallic) GLB ships, which need an environment to reflect.
 import { EquiRectangularCubeTexture } from "@babylonjs/core/Materials/Textures/equiRectangularCubeTexture";
@@ -27,6 +24,7 @@ import { MissileSystemView } from "./view/MissileSystemView";
 import { SimEventBus } from "@space-duel/shared";
 import { wrapAngle } from "@space-duel/shared";
 import { CameraRig } from "./CameraRig";
+import { buildPostPipeline } from "./PostPipeline";
 import { Hud } from "./Hud";
 import { Radar } from "./Radar";
 import { MissileWarning } from "./MissileWarning";
@@ -537,7 +535,7 @@ export class Game {
     // (the jumpFired handler wired above reads it lazily, only at jump time).
     this.jumpRipple = new JumpRipple(this.scene, this.cameraRig.camera);
     // Self-registers with the scene (like Nebulas/CapitalShips) — no handle kept.
-    this.buildPostPipeline();
+    buildPostPipeline(this.scene, this.cameraRig.camera);
     this.starfield = new Starfield(this.scene, this.cameraRig.camera);
     this.hud = new Hud(hudRoot);
     this.radar = new Radar();
@@ -574,48 +572,6 @@ export class Game {
         arenaHalfZ: this.arena.halfDepth,
       },
     };
-  }
-
-  /**
-   * Build the full-frame post pipeline: ACES tone mapping + FXAA. Returns null
-   * if disabled in config. HDR target (`true`) so the tone-mapper has float
-   * headroom to roll off the >1.0 emissive highlights instead of clipping. This
-   * runs AFTER the GlowLayer's per-mesh bloom — both passes coexist: glow blooms
-   * individual emissive meshes, this tone-maps + antialiases the composite.
-   *
-   * The pipeline self-registers with the scene's render-pipeline manager, so no
-   * handle is kept (same fire-and-forget pattern as Nebulas/CapitalShips).
-   */
-  private buildPostPipeline(): void {
-    const cfg = GameConfig.postProcess;
-    if (!cfg.enabled) return;
-
-    const pipeline = new DefaultRenderingPipeline(
-      "post",
-      true, // HDR: float texture, needed for tone mapping to have headroom
-      this.scene,
-      [this.cameraRig.camera],
-    );
-
-    // We only want tone mapping + FXAA here; the DefaultRenderingPipeline's own
-    // bloom stays off (the GlowLayer already owns bloom).
-    pipeline.bloomEnabled = false;
-    pipeline.fxaaEnabled = cfg.fxaa;
-
-    const ip = pipeline.imageProcessing;
-    ip.toneMappingEnabled = cfg.toneMapping;
-    ip.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES;
-    // exposure + contrast counter ACES lifting the dark backdrop: pull the
-    // global level down and deepen shadows so the fighters keep their contrast.
-    ip.exposure = cfg.exposure;
-    ip.contrast = cfg.contrast;
-
-    // Black multiply vignette: darkens the frame edges (where the bright nebulas
-    // sit) and frames the action toward center. Multiply blend with the default
-    // black vignetteColor just attenuates the corners.
-    ip.vignetteEnabled = cfg.vignette;
-    ip.vignetteWeight = cfg.vignetteWeight;
-    ip.vignetteBlendMode = ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
   }
 
   /**
