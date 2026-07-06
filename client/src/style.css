@@ -141,6 +141,13 @@
   margin-bottom: 1em;
 }
 
+/* Named entities (the Loom, the Meridian, the factions) pop in the beat
+   color so they read as highlights against the dimmer body text. */
+#splash-story strong {
+  color: #cdd6f4;
+  font-weight: 600;
+}
+
 /* `top` % resolves against the WRAP (the visible window), translateY %
    against the STORY itself. Starting at top:100% puts the first line at the
    window's bottom edge — text is visible within a beat instead of spending
