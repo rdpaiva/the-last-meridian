@@ -1,9 +1,10 @@
 /* ── Splash screen ─────────────────────────────────────────────────────── */
 /* The splash is a state machine driven by main.ts via data-state on #splash:
-     landing        title poster + ENTER THE MERIDIAN + Skip Intro
-     intro          story crawl + Skip Intro
-     factionSelect  the loadout frame: mode + callsign → hangar → mission
-     quickPlay      Continue line + PLAY + Change Faction / Replay Intro
+     factionSelect  the loadout frame (the front door): mode + callsign →
+                    hangar → mission; returning players get CONTINUE on step 1
+     intro          story crawl over the poster + Skip Intro (first-run gate
+                    between MODE and HANGAR, or Replay Intro)
+     settings       the match-settings tuning overlay
    Every state-dependent element is hidden by default and revealed by a
    data-state rule below — no JS show/hide beyond setting the attribute. */
 
@@ -21,28 +22,11 @@
   display: none;
 }
 
-/* ── Faded "dormant" state ────────────────────────────────────────────── */
-/* Before the first interaction the whole splash sits desaturated and dim —
-   grayscale, dormant, quiet. The first meaningful click (Enter the Meridian /
-   Skip Intro / Change Faction / Replay Intro) adds `.begun`, which slowly
-   fades everything up into color: the interface waking up. Quick play stays
-   dormant — its PLAY cuts straight to the game. */
-
-#splash-poster,
-#splash-panel {
-  filter: grayscale(1) brightness(0.7);
-  transition: filter 1.1s ease;
-}
-
-#splash.begun #splash-poster,
-#splash.begun #splash-panel {
-  filter: none;
-}
-
 /* ── Poster column ── */
-/* The poster is the cinematic backdrop (it carries the baked-in THE LAST
-   MERIDIAN title); the story crawl and the action stack are superimposed
-   over it (relative wrapper → absolute children). */
+/* The poster is the intro's cinematic backdrop (it carries the baked-in THE
+   LAST MERIDIAN title); the story crawl is superimposed over it (relative
+   wrapper → absolute child). Hidden in factionSelect — the loadout frame
+   spans the page there. */
 
 #splash-poster-wrap {
   position: relative;
@@ -133,7 +117,7 @@
   padding: 0 12px 3rem;
   text-align: center;
   animation: story-scroll 80s linear 1 forwards;
-  /* Held until the intro state, so the crawl starts in sync with the music. */
+  /* Held until the intro state, so the crawl starts from the top each entry. */
   animation-play-state: paused;
 }
 
@@ -161,179 +145,21 @@
   100% { transform: translateY(-100%); }
 }
 
-/* ── Action stack (over the poster's lower edge) ── */
-/* One absolutely-positioned column holds every poster-overlay control; the
-   data-state rules below choose which ones exist per state. */
-
-#splash-actions {
+/* ── Intro footer rail ── */
+/* The crawl's only chrome: SKIP INTRO + the key hint, in the same
+   .lo-rail-bot dress as the loadout frame's rail. Intro-only — every other
+   state either has its own rail (factionSelect) or is an overlay. */
+#splash-rail {
+  display: none;
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 5%;
+  bottom: 0;
   z-index: 2;
+}
+
+#splash[data-state="intro"] #splash-rail {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-
-/* Hidden by default; revealed per state. */
-#splash-continue,
-#splash-primary,
-#splash-online,
-#splash-skip,
-#splash-change,
-#splash-replay,
-#splash-settings {
-  display: none;
-}
-
-#splash[data-state="landing"] #splash-primary,
-#splash[data-state="quickPlay"] #splash-primary {
-  display: block;
-}
-
-/* PLAY ONLINE — quick play's second launch mode (solo needs no server). */
-#splash[data-state="quickPlay"] #splash-online {
-  display: block;
-}
-
-#splash[data-state="landing"] #splash-skip,
-#splash[data-state="intro"] #splash-skip,
-#splash[data-state="quickPlay"] #splash-change,
-#splash[data-state="quickPlay"] #splash-replay {
-  display: inline-block;
-}
-
-/* The dev tuning screen is reachable from every non-intro stage (the loadout
-   screens reach it via their own footer-rail link instead). */
-#splash[data-state="landing"] #splash-settings,
-#splash[data-state="quickPlay"] #splash-settings {
-  display: inline-block;
-}
-
-#splash[data-state="quickPlay"] #splash-continue {
-  display: flex;
-}
-
-/* In factionSelect every action (launch, replay intro, match settings) lives
-   in the loadout frame itself — the poster overlay shows nothing there. */
-
-/* Primary button — ENTER THE MERIDIAN on landing, PLAY on quick play. */
-#splash-primary {
-  padding: 13px 46px;
-  background: rgba(5, 7, 14, 0.55);
-  border: 1px solid rgba(137, 180, 250, 0.55);
-  border-radius: 4px;
-  color: #cdd6f4;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 14px;
-  letter-spacing: 0.14em;
-  cursor: pointer;
-  backdrop-filter: blur(2px);
-  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, color 0.15s;
-}
-
-#splash-primary:hover {
-  background: rgba(137, 180, 250, 0.16);
-  border-color: rgba(137, 180, 250, 0.9);
-  color: #89b4fa;
-  box-shadow: 0 0 18px rgba(137, 180, 250, 0.3);
-}
-
-#splash-primary:active {
-  background: rgba(137, 180, 250, 0.22);
-}
-
-/* PLAY ONLINE — same command styling as the primary, quieter border (the
-   pulse stays on the primary; this is the road less traveled for now). */
-#splash-online {
-  padding: 10px 46px;
-  background: rgba(5, 7, 14, 0.55);
-  border: 1px solid rgba(137, 180, 250, 0.35);
-  border-radius: 4px;
-  color: #a6b4d8;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
-  letter-spacing: 0.14em;
-  cursor: pointer;
-  backdrop-filter: blur(2px);
-  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, color 0.15s;
-}
-
-#splash-online:hover {
-  background: rgba(137, 180, 250, 0.16);
-  border-color: rgba(137, 180, 250, 0.9);
-  color: #89b4fa;
-  box-shadow: 0 0 18px rgba(137, 180, 250, 0.3);
-}
-
-/* Quick play's PLAY is the one-click relaunch — give it the pulse. */
-#splash[data-state="quickPlay"] #splash-primary {
-  animation: play-pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes play-pulse {
-  0%, 100% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(137, 180, 250, 0);
-    border-color: rgba(137, 180, 250, 0.55);
-  }
-  50% {
-    transform: scale(1.06);
-    box-shadow: 0 0 24px 4px rgba(137, 180, 250, 0.45);
-    border-color: rgba(137, 180, 250, 0.95);
-  }
-}
-
-/* Secondary text links — Skip Intro / Change Faction / Replay Intro. */
-#splash-secondary {
-  display: flex;
-  gap: 26px;
-}
-
-.splash-link {
-  background: none;
-  border: none;
-  padding: 4px 6px;
-  color: #8a96b8;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  cursor: pointer;
-  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
-  transition: color 0.15s, text-shadow 0.15s;
-}
-
-.splash-link:hover {
-  color: #cdd6f4;
-  text-shadow: 0 0 12px rgba(137, 180, 250, 0.6);
-}
-
-/* Quick-play "Continue:" line — the saved side + ship, command-style. */
-#splash-continue {
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  padding: 9px 22px;
-  background: rgba(5, 7, 14, 0.6);
-  border: 1px solid rgba(120, 140, 200, 0.3);
-  border-radius: 4px;
-  backdrop-filter: blur(2px);
-}
-
-#splash-continue .continue-label {
-  font-size: 10px;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: #7f8aa6;
-}
-
-#splash-continue-loadout {
-  font-size: 13px;
-  letter-spacing: 0.08em;
-  color: #f9e2af;
 }
 
 /* ── Loadout select (mode → hangar → mission) ── */
@@ -1187,6 +1013,20 @@ video.faction-portrait-video {
   box-shadow: 0 0 18px rgba(243, 139, 168, 0.3);
 }
 
+/* CONTINUE — the returning player's one-press relaunch on step 1. Gold like
+   the PILOT chip and callsign: the "your saved identity" accent. */
+.loadout-cta.continue {
+  border-color: rgba(249, 226, 175, 0.55);
+  color: #f9e2af;
+}
+
+.loadout-cta.continue:hover {
+  background: rgba(249, 226, 175, 0.12);
+  border-color: #f9e2af;
+  color: #f9e2af;
+  box-shadow: 0 0 18px rgba(249, 226, 175, 0.3);
+}
+
 /* BACK — subdued secondary, steps back one page. */
 .loadout-back {
   padding: 12px 28px;
@@ -1362,10 +1202,6 @@ video.faction-portrait-video {
 
   #ship-preview {
     flex-direction: column;
-  }
-
-  #splash-actions {
-    bottom: 7%;
   }
 }
 

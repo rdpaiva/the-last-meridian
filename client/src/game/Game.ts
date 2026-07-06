@@ -1256,7 +1256,7 @@ export class Game {
     }
     // Escape returns to the splash menu at any time. Same clean-reset reload as
     // the restart above, but WITHOUT the RESTART_FLAG — so main.ts shows the
-    // splash flow (quick play / landing) instead of dropping straight back in.
+    // loadout menu instead of dropping straight back in.
     if (e.code === "Escape") {
       window.location.reload();
     }

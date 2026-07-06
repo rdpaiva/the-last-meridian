@@ -8,10 +8,11 @@
   </head>
   <body>
     <!-- Splash flow — main.ts drives data-state through:
-         landing → intro → factionSelect   (new players)
-         quickPlay → factionSelect/intro   (returning players)
+         factionSelect (the loadout frame, the front door for everyone)
+         → intro (first-run gate between MODE and HANGAR, or Replay Intro)
+         → settings (match-settings overlay).
          CSS keys every element's visibility off data-state. -->
-    <div id="splash" data-state="landing">
+    <div id="splash" data-state="factionSelect">
       <div id="splash-poster-wrap">
         <img id="splash-poster" alt="The Last Meridian" />
         <div id="splash-story-wrap">
@@ -37,23 +38,17 @@
             <p class="beat">Destroy theirs.</p>
           </div>
         </div>
-        <div id="splash-actions">
-          <div id="splash-continue">
-            <span class="continue-label">Continue:</span>
-            <span id="splash-continue-loadout"></span>
-          </div>
-          <button id="splash-primary">ENTER THE MERIDIAN</button>
-          <button id="splash-online">PLAY ONLINE</button>
-          <div id="splash-secondary">
-            <button class="splash-link" id="splash-skip">Skip Intro</button>
-            <button class="splash-link" id="splash-change">Change Faction</button>
-            <button class="splash-link" id="splash-replay">Replay Intro</button>
-            <button class="splash-link" id="splash-settings">Match Settings</button>
-          </div>
-        </div>
       </div>
       <div id="splash-panel">
         <div id="loadout"></div>
+      </div>
+      <!-- Intro footer rail — the crawl's only chrome, in the same
+           .lo-rail-bot dress as the loadout frame's rail. -->
+      <div id="splash-rail" class="lo-rail lo-rail-bot">
+        <div class="lo-utils">
+          <button class="lo-util" id="splash-skip">Skip Intro</button>
+        </div>
+        <div class="lo-hint-side"><span class="loadout-hint">ENTER SKIP</span></div>
       </div>
       <!-- Flight-controls overlay — opened from the loadout footer's CONTROLS
            link (LoadoutMenu.ts); CLOSE, a backdrop click, or Esc dismisses. -->

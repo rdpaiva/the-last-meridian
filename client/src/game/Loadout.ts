@@ -155,6 +155,6 @@ export function markIntroSeen(): void {
   try {
     localStorage.setItem(INTRO_KEY, "true");
   } catch {
-    // Non-essential — the player just sees the landing screen again next time.
+    // Non-essential — the player just gets the intro gate again next time.
   }
 }

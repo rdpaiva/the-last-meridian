@@ -1,18 +1,17 @@
 import { Game, RESTART_FLAG } from "./game/Game";
 import { NetworkGame } from "./game/NetworkGame";
 import { NetClient, inviteRoomId } from "./net/NetClient";
-import { LoadoutMenu, SHIP_INFO, type LaunchMode } from "./game/LoadoutMenu";
+import { LoadoutMenu, type LaunchMode } from "./game/LoadoutMenu";
 import { ShipPreview } from "./game/ShipPreview";
 import { SettingsMenu } from "./game/SettingsMenu";
-import { FACTION_THEME, PROTOCOL_MISMATCH } from "@space-duel/shared";
-import { applyStoredOverrides, overrideCount } from "./game/ConfigOverrides";
+import { PROTOCOL_MISMATCH } from "@space-duel/shared";
+import { applyStoredOverrides } from "./game/ConfigOverrides";
 import { applyMap, resolveMapId, loadSavedMapSelection } from "./game/Maps";
 import { applyDifficulty, loadSavedDifficulty } from "./game/Difficulty";
 import {
-  hasSavedLoadout,
   hasSeenIntro,
-  loadPilotName,
   loadSavedLoadout,
+  loadPilotName,
   markIntroSeen,
 } from "./game/Loadout";
 
@@ -22,17 +21,18 @@ import {
  * The splash is a small state machine (data-state on #splash drives all the
  * CSS visibility):
  *
- *   landing       THE LAST MERIDIAN · [ENTER THE MERIDIAN] · Skip Intro.
- *                 First screen for anyone without a saved loadout + seen
- *                 intro. Skip Intro is ALWAYS visible from second zero.
- *   intro         The cinematic: color fades up, music starts, the story
- *                 crawl plays once. Ends (or Skip) → factionSelect.
- *   factionSelect The three-step loadout frame (LoadoutMenu.ts): mode +
- *                 callsign → faction/ship hangar → mission setup → launch.
- *   quickPlay     Returning players (saved loadout + intro seen): Continue
- *                 line · [PLAY] · Change Faction / Replay Intro.
+ *   factionSelect The front door for EVERYONE: the three-step loadout frame
+ *                 (LoadoutMenu.ts): mode + callsign → faction/ship hangar →
+ *                 mission setup → launch. Returning players get a gold
+ *                 CONTINUE CTA (Enter) on step 1 that relaunches the saved
+ *                 loadout immediately — the old quick-play screen, folded in.
+ *   intro         The cinematic story crawl over the poster. First-timers
+ *                 hit it as a gate between MODE and HANGAR (the crawl ends
+ *                 on "Choose your side" — the hangar IS that choice); it's
+ *                 replayable any time via the loadout's footer rail.
  *
- * Every button is also a browser audio-unlock gesture (unlockAudio()).
+ * Audio unlock rides the first pointer/key gesture on the splash (browsers
+ * require a user gesture before an AudioContext may run).
  */
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement | null;
@@ -40,14 +40,8 @@ const hudRoot = document.getElementById("hud") as HTMLDivElement | null;
 const splash = document.getElementById("splash") as HTMLDivElement | null;
 const splashPoster = document.getElementById("splash-poster") as HTMLImageElement | null;
 const story = document.getElementById("splash-story") as HTMLDivElement | null;
-const primaryBtn = document.getElementById("splash-primary") as HTMLButtonElement | null;
-const onlineBtn = document.getElementById("splash-online") as HTMLButtonElement | null;
 const skipBtn = document.getElementById("splash-skip") as HTMLButtonElement | null;
-const changeBtn = document.getElementById("splash-change") as HTMLButtonElement | null;
-const replayBtn = document.getElementById("splash-replay") as HTMLButtonElement | null;
-const continueLoadout = document.getElementById("splash-continue-loadout");
 const loadoutRoot = document.getElementById("loadout") as HTMLDivElement | null;
-const settingsBtn = document.getElementById("splash-settings") as HTMLButtonElement | null;
 const settingsRoot = document.getElementById("settings") as HTMLDivElement | null;
 
 if (!canvas) throw new Error("Canvas #renderCanvas not found in DOM");
@@ -55,14 +49,8 @@ if (!hudRoot) throw new Error("HUD root #hud not found in DOM");
 if (!splash) throw new Error("#splash not found in DOM");
 if (!splashPoster) throw new Error("#splash-poster not found in DOM");
 if (!story) throw new Error("#splash-story not found in DOM");
-if (!primaryBtn) throw new Error("#splash-primary not found in DOM");
-if (!onlineBtn) throw new Error("#splash-online not found in DOM");
 if (!skipBtn) throw new Error("#splash-skip not found in DOM");
-if (!changeBtn) throw new Error("#splash-change not found in DOM");
-if (!replayBtn) throw new Error("#splash-replay not found in DOM");
-if (!continueLoadout) throw new Error("#splash-continue-loadout not found in DOM");
 if (!loadoutRoot) throw new Error("#loadout not found in DOM");
-if (!settingsBtn) throw new Error("#splash-settings not found in DOM");
 if (!settingsRoot) throw new Error("#settings not found in DOM");
 
 // Write any saved match-settings overrides into GameConfig BEFORE anything
@@ -209,12 +197,9 @@ async function startOnline(base: ReturnType<typeof loadSavedLoadout>): Promise<v
   // The persisted pilot name rides the join as the seat's callsign (the
   // loadout menu's field saves per keystroke; quick play reads the same key).
   const loadout = { ...base, pilotName: loadPilotName() };
-  // Status lands where the player is looking: the loadout's online CTA when
-  // the menu is up, else the quick-play primary button.
-  const setStatus = (text: string | null): void => {
-    if (state === "factionSelect") menu?.setOnlineStatus(text);
-    else if (text) primaryBtn!.textContent = text;
-  };
+  // Status lands where the player is looking: the loadout's online launch
+  // CTA (step 3) or the CONTINUE CTA (step 1) — setOnlineStatus feeds both.
+  const setStatus = (text: string | null): void => menu?.setOnlineStatus(text);
   connecting = true;
   setStatus("CONNECTING…");
   try {
@@ -257,18 +242,19 @@ async function startOnline(base: ReturnType<typeof loadSavedLoadout>): Promise<v
 
 // ── Splash state machine ───────────────────────────────────────────────────
 
-type SplashState = "landing" | "intro" | "factionSelect" | "quickPlay" | "settings";
-let state: SplashState = "landing";
+type SplashState = "intro" | "factionSelect" | "settings";
+let state: SplashState = "factionSelect";
 let settings: SettingsMenu | null = null;
 /** Where BACK/Esc returns to from the settings overlay. */
-let settingsReturn: SplashState = "landing";
+let settingsReturn: SplashState = "factionSelect";
+/** Where the intro hands off when it ends: the hangar (the first-run gate on
+ *  MODE → HANGAR advances the menu) or wherever the menu already was (Replay
+ *  Intro). */
+let introReturn: "hangar" | "stay" = "stay";
 
-/** "Match Settings · N modified" when off defaults — the at-a-glance cue
- *  that the next launch won't run stock tuning. Mirrored into the loadout's
- *  footer rail (which renders its own settings link) via menu.refresh(). */
+/** The loadout footer rail renders its own "Match Settings · N" label from
+ *  overrideCount() — a refresh re-reads it when settings change. */
 function updateSettingsBadge(): void {
-  const n = overrideCount();
-  settingsBtn!.textContent = n > 0 ? `Match Settings · ${n} modified` : "Match Settings";
   menu?.refresh();
 }
 
@@ -276,46 +262,30 @@ function setState(next: SplashState): void {
   state = next;
   splash!.dataset.state = next;
 
-  // The desaturated "dormant" filter lifts the moment the interface wakes up
-  // (intro or selection); landing and quick play stay gray until touched.
-  if (next === "intro" || next === "factionSelect") {
-    splash!.classList.add("begun");
-  }
-
   switch (next) {
-    case "landing":
-      primaryBtn!.textContent = "ENTER THE MERIDIAN";
-      break;
     case "intro":
       restartCrawl();
       break;
-    case "quickPlay": {
-      const saved = loadSavedLoadout();
-      const info = SHIP_INFO[saved.shipType];
-      continueLoadout!.textContent =
-        `${FACTION_THEME[saved.faction].fullName.replace(/^The /, "")}` +
-        ` · ${info.name} ${info.role}`;
-      // An invite link means the player came to JOIN — the big button obliges
-      // and solo steps aside (the same swap quickPlayModes gives the clicks).
-      const invited = inviteRoomId() !== null;
-      primaryBtn!.textContent = invited ? "JOIN FRIENDS' MATCH" : "PLAY";
-      onlineBtn!.textContent = invited ? "PLAY SOLO" : "PLAY ONLINE";
-      break;
-    }
     case "factionSelect":
-      // Built lazily on first entry; both survive return visits (e.g. via
-      // Change Faction) with their loaded GLBs and thumbnails intact. The
-      // actions land in the loadout's footer rail (the old poster-overlay
-      // links don't show in this state anymore).
+      // Built lazily on first entry; both survive return visits (intro,
+      // settings) with their loaded GLBs and thumbnails intact.
       if (!preview) preview = new ShipPreview();
       if (!menu) {
         menu = new LoadoutMenu(loadoutRoot!, preview, startGame, {
+          firstRunIntro: () => {
+            // The MODE → HANGAR gate: first-timers see the story crawl
+            // before choosing a side. Returns true when it intercepts (the
+            // menu holds; finishIntro() advances it to the hangar after).
+            if (hasSeenIntro()) return false;
+            introReturn = "hangar";
+            setState("intro");
+            return true;
+          },
           replayIntro: () => {
-            unlockAudio();
+            introReturn = "stay";
             setState("intro");
           },
           openSettings: () => {
-            unlockAudio();
             settingsReturn = state;
             setState("settings");
           },
@@ -349,15 +319,14 @@ function restartCrawl(): void {
   story!.style.animation = "";
 }
 
-function enterMeridian(): void {
-  unlockAudio();
-  setState("intro");
-}
-
-function skipIntro(): void {
-  unlockAudio();
+/** Intro over (crawl finished or skipped): back to the loadout — advancing
+ *  into the hangar when the intro was the first-run MODE → HANGAR gate. */
+function finishIntro(): void {
   markIntroSeen();
+  const toHangar = introReturn === "hangar";
+  introReturn = "stay";
   setState("factionSelect");
+  if (toHangar) menu?.enterHangar();
 }
 
 // End-of-match restart (Enter on the result banner): the flag's VALUE is the
@@ -376,61 +345,27 @@ if (restartMode && restartMode !== "online") {
   game = new Game(canvas, hudRoot, loadSavedLoadout());
   void game.start();
 } else {
-  // Returning players (intro seen + a real saved loadout) get the one-click
-  // quick-play screen; everyone else gets the cinematic landing — which
-  // always offers both ENTER THE MERIDIAN and Skip Intro.
-  setState(hasSeenIntro() && hasSavedLoadout() ? "quickPlay" : "landing");
+  // Everyone lands on the loadout frame (step 1: MODE). First-timers hit the
+  // intro when they advance to the hangar; returning players get the gold
+  // CONTINUE CTA for a one-press relaunch.
+  setState("factionSelect");
 
-  // Quick play's two launch buttons swap roles when the URL carries an
-  // invite link (#join): the big button joins the friend, solo steps aside.
-  const quickPlayModes = (): { primary: LaunchMode; secondary: LaunchMode } =>
-    inviteRoomId() ? { primary: "online", secondary: "solo" } : { primary: "solo", secondary: "online" };
+  // Browsers hold the AudioContext until a user gesture — the first pointer
+  // or key press on the splash starts (or resumes) the menu music. Guarded so
+  // in-game input never resurrects it after launch (startGame stops it).
+  const gestureUnlock = (): void => {
+    if (!game && !netGame) unlockAudio();
+  };
+  window.addEventListener("pointerdown", gestureUnlock);
+  window.addEventListener("keydown", gestureUnlock);
 
-  primaryBtn.addEventListener("click", () => {
-    if (state === "landing") enterMeridian();
-    else if (state === "quickPlay") {
-      unlockAudio();
-      startGame(quickPlayModes().primary);
-    }
-  });
+  skipBtn.addEventListener("click", finishIntro);
 
-  onlineBtn.addEventListener("click", () => {
-    if (state !== "quickPlay") return;
-    unlockAudio();
-    startGame(quickPlayModes().secondary);
-  });
-
-  skipBtn.addEventListener("click", skipIntro);
-
-  changeBtn.addEventListener("click", () => {
-    unlockAudio();
-    setState("factionSelect");
-  });
-
-  replayBtn.addEventListener("click", () => {
-    // Replaying never erases the saved faction/ship — the crawl just runs
-    // again, then lands on faction selection with the save preselected.
-    unlockAudio();
-    setState("intro");
-  });
-
-  updateSettingsBadge();
-  settingsBtn.addEventListener("click", () => {
-    unlockAudio();
-    if (state !== "settings") settingsReturn = state;
-    setState("settings");
-  });
-
-  // The crawl finished on its own → remember that and reveal the selection.
+  // The crawl finished on its own → on to the hangar / back to the menu.
   story.addEventListener("animationend", () => {
-    if (state !== "intro") return;
-    markIntroSeen();
-    setState("factionSelect");
+    if (state === "intro") finishIntro();
   });
 
-  // Enter mirrors the current state's primary action so the whole splash
-  // remains keyboard-walkable (landing → intro → [Enter skips] → select →
-  // launch; quick play is a single Enter).
   window.addEventListener("keydown", (e) => {
     if (game || netGame) return;
     if (state === "settings") {
@@ -439,26 +374,17 @@ if (restartMode && restartMode !== "online") {
       if (e.code === "Escape") setState(settingsReturn);
       return;
     }
-    if (e.code !== "Enter") return;
-    switch (state) {
-      case "landing":
-        enterMeridian();
-        break;
-      case "intro":
-        // Don't trap keyboard users in the crawl — Enter skips ahead.
-        skipIntro();
-        break;
-      case "quickPlay":
-        startGame(quickPlayModes().primary);
-        break;
-      // factionSelect's Enter is owned by LoadoutMenu (page 1 → NEXT, page 2 →
-      // PLAY), so it's intentionally not handled here.
-    }
+    // Don't trap keyboard users in the crawl — Enter skips ahead.
+    // factionSelect's keys (Enter included) are owned by LoadoutMenu; its
+    // handler runs first and preventDefault()s the Enter that STARTED the
+    // intro (the step-1 advance), so that same keystroke must not also skip
+    // the crawl it just started.
+    if (state === "intro" && e.code === "Enter" && !e.defaultPrevented) finishIntro();
   });
 
   // Online restart (Enter on the end banner of a networked match): the full
-  // splash wiring above stays live, so a failed rejoin leaves working buttons
-  // — the reconnect just fires immediately on top of the quick-play screen.
+  // splash wiring above stays live, so a failed rejoin leaves a working menu
+  // — the reconnect just fires immediately on top of the loadout screen.
   if (restartMode === "online") {
     void startOnline(loadSavedLoadout());
   }

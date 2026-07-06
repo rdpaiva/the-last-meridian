@@ -164,7 +164,7 @@ gets clobbered every frame; modifying inner root persists.
 
 ```
 src/
-  main.ts                  entry: staged splash state machine (landing → intro crawl → faction select | quick play for returning players) → construct Game with the chosen loadout; centralized unlockAudio(); applies the active Map + Difficulty at launch; handle resize
+  main.ts                  entry: splash state machine — the loadout frame IS the front door (factionSelect); the intro crawl is a first-run gate between its MODE and HANGAR steps (replayable from the rail) → construct Game with the chosen loadout; first-gesture audio unlock; applies the active Map + Difficulty at launch; handle resize
   style.css                full-viewport canvas + HUD styling
   game/
     Game.ts                top-level coordinator and render loop
@@ -177,8 +177,8 @@ src/
     AsteroidField.ts       rock collection: spawn/drift/wrap + shatter-into-chunks; exposes obstacles[] (held by reference by the weapon systems for cover)
     AssetLoader.ts         GLB importer with procedural fallback (two-tier root); fallback has two designs (classic/viper) via GameConfig.player.shipDesign
     Faction.ts             humans|machines type + opposing() + FACTION_THEME (colors/labels)
-    Loadout.ts             PlayerLoadout {faction, shipType} + localStorage persistence (lastMeridian_* keys incl. introSeen, mode solo|online, pilotName; validated vs GameConfig.factionShips; hasSavedLoadout gates quick play). The map + difficulty selections persist under sibling lastMeridian_* keys (Maps.ts / Difficulty.ts), not on PlayerLoadout
-    LoadoutMenu.ts         splash loadout, THREE STEPS in a fixed header-rail/stage/footer-rail frame (stage scrolls, card heights clamp to vh — overlap-proof on laptops): 1 MODE (solo/multiplayer boxes + gold callsign "pilot registration" → PILOT chip) → 2 HANGAR (faction cards → roster + live preview) → 3 MISSION (solo: difficulty+arena; online: quick-match/invite briefing) → LAUNCH fires onPlay(mode). Keyboard-driven (←/→ select, ↑/↓ row, ENTER next-then-launch, ESC back); owns ENTER while in factionSelect. Footer links = controls overlay + main.ts LoadoutActions (replay intro / match settings)
+    Loadout.ts             PlayerLoadout {faction, shipType} + localStorage persistence (lastMeridian_* keys incl. introSeen, mode solo|online, pilotName; validated vs GameConfig.factionShips; hasSavedLoadout + hasSeenIntro gate the step-1 CONTINUE relaunch). The map + difficulty selections persist under sibling lastMeridian_* keys (Maps.ts / Difficulty.ts), not on PlayerLoadout
+    LoadoutMenu.ts         the splash front door, THREE STEPS in a fixed header-rail/stage/footer-rail frame (stage scrolls, card heights clamp to vh — overlap-proof on laptops): 1 MODE (solo/multiplayer boxes + gold callsign "pilot registration" → PILOT chip; returning players get a gold CONTINUE CTA — Enter = one-press relaunch of the saved loadout) → 2 HANGAR (faction cards → roster + live preview) → 3 MISSION (solo: difficulty+arena; online: quick-match/invite briefing) → LAUNCH fires onPlay(mode). MODE→HANGAR advance first offers main.ts the firstRunIntro gate (story crawl for first-timers; enterHangar() resumes). Keyboard-driven (←/→ select, ↑/↓ row, ENTER continue/next-then-launch, ESC back); owns ENTER while in factionSelect. Footer links = controls overlay + main.ts LoadoutActions (replay intro / match settings)
     Maps.ts                arena presets (docs/ARENA-MAPS.md): named battlefield bundles (carrier spacing, asteroids, nebula zones, hazards, fleet comp) written into GameConfig at launch via applyMap; selection persists (lastMeridian_map); player match-settings overrides win
     Difficulty.ts          ENEMY-skill presets (easy/normal/hard), parallel to Maps: applyDifficulty writes ai.*/commander.* knobs into GameConfig at launch (reflex/accuracy/missile pacing/how many press you); selection persists (lastMeridian_difficulty, default normal); player overrides win; player's own wing unaffected
     ShipPreview.ts         standalone Babylon engine for the splash: rotating selected-ship GLB turntable + cached ship-card thumbnails (disposed at launch)
@@ -419,13 +419,13 @@ for one, do it. Otherwise: don't.
 - **ECS framework**. The handful of entities don't need it.
 - **Mobile / touch controls**. Keyboard only.
 - **Gamepad input**.
-- **A complex menu system**. The staged splash flow (landing → intro crawl →
-  faction/ship select, with one-click quick play for returning players) is
-  the deliberate ceiling — keyboard-first, saved choice, Enter back into
-  play. ONE sanctioned exception: the match-settings tuning screen
-  (`SettingsMenu`, dev/playtest tooling — see `docs/SUBSYSTEMS.md`). Don't
-  grow it into general settings (audio/video/keybinds) or pause menus
-  unprompted.
+- **A complex menu system**. The splash flow (the three-step loadout frame
+  as the front door, the intro crawl as a first-run gate, one-press CONTINUE
+  for returning players) is the deliberate ceiling — keyboard-first, saved
+  choice, Enter back into play. ONE sanctioned exception: the match-settings
+  tuning screen (`SettingsMenu`, dev/playtest tooling — see
+  `docs/SUBSYSTEMS.md`). Don't grow it into general settings
+  (audio/video/keybinds) or pause menus unprompted.
 - **Asset preloading splash screens**.
 
 ---

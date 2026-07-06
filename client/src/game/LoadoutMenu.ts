@@ -1,6 +1,8 @@
 import { GameConfig, PILOT_NAME_MAX, type ShipTypeId } from "@space-duel/shared";
 import { FACTION_THEME, opposing, type Faction } from "@space-duel/shared";
 import {
+  hasSavedLoadout,
+  hasSeenIntro,
   loadPilotName,
   loadSavedLoadout,
   loadSavedMode,
@@ -30,17 +32,25 @@ import { overrideCount } from "./ConfigOverrides";
 /** How a launch leaves the splash: offline solo, or a server match. */
 export type LaunchMode = "solo" | "online";
 
-/** Splash-owned buttons that live in the loadout's footer rail (the old
- *  poster-overlay links) — main.ts supplies the state transitions. */
+/** Splash-owned transitions the loadout hands off to — main.ts supplies
+ *  them (it owns the splash state machine). */
 export interface LoadoutActions {
+  /** The MODE → HANGAR gate: called when step 1 advances. Returns true when
+   *  main.ts intercepts with the first-run story crawl — the menu holds, and
+   *  enterHangar() completes the advance after the intro. */
+  firstRunIntro(): boolean;
   replayIntro(): void;
   openSettings(): void;
 }
 
 /**
- * The loadout stage of the splash flow: pick a mode, a side + ship, then the
- * mission. Plain DOM like the HUD (no framework). Shown only after the intro
- * crawl completes / is skipped (main.ts owns the state machine).
+ * The loadout stage of the splash flow — and the splash's front door: pick a
+ * mode, a side + ship, then the mission. Plain DOM like the HUD (no
+ * framework). First-timers get the story crawl as a gate between MODE and
+ * HANGAR (actions.firstRunIntro); returning players (intro seen + saved
+ * loadout) get a gold CONTINUE CTA on step 1 that relaunches the saved
+ * loadout in the selected mode with one press of Enter (the old quick-play
+ * screen, folded into the frame).
  *
  * Layout — every step renders inside a fixed three-row frame so nothing can
  * overlap on short laptop screens (the old free-flowing column bug):
@@ -340,8 +350,8 @@ export class LoadoutMenu {
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     // Only act while the loadout is the active splash page — never behind the
-    // match-settings overlay (whose Enter would otherwise launch the game), nor
-    // on the landing/quick-play screens.
+    // match-settings overlay (whose Enter would otherwise launch the game),
+    // nor during the intro crawl.
     if (document.getElementById("splash")?.dataset.state !== "factionSelect") return;
     // The controls overlay swallows Esc (close) and Enter (nothing) first.
     const overlay = document.getElementById("controls-overlay");
@@ -359,11 +369,16 @@ export class LoadoutMenu {
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
     switch (e.code) {
       case "Enter":
-        // Steps 1 and 2 advance; step 3 launches in the chosen mode (the same
-        // path the NEXT/LAUNCH buttons take). main.ts no longer launches on
+        // A focused button (Tab navigation) keeps its native Enter-click —
+        // that's how keyboard users reach NEXT past a CONTINUE default.
+        if (target?.tagName === "BUTTON") return;
+        // Step 1 with a saved run launches it (CONTINUE); otherwise steps 1
+        // and 2 advance and step 3 launches in the chosen mode (the same
+        // paths the footer buttons take). main.ts no longer launches on
         // Enter in factionSelect — this owns it.
         e.preventDefault();
-        if (this.step < 3) this.goStep((this.step + 1) as Step);
+        if (this.step === 1 && this.canContinue()) this.onPlay(this.mode);
+        else if (this.step < 3) this.advance();
         else this.onPlay(this.mode);
         break;
       case "Escape":
@@ -421,6 +436,25 @@ export class LoadoutMenu {
     this.step = next;
     this.activeRow = this.rows()[0] ?? "map";
     this.render();
+  }
+
+  /** Advance one step — the MODE → HANGAR edge first offers main.ts the
+   *  first-run intro gate (which resumes via enterHangar()). */
+  private advance(): void {
+    if (this.step === 1 && this.actions.firstRunIntro()) return;
+    this.goStep((this.step + 1) as Step);
+  }
+
+  /** Complete a gated MODE → HANGAR advance — main.ts calls this when the
+   *  first-run intro crawl ends or is skipped. */
+  enterHangar(): void {
+    this.goStep(2);
+  }
+
+  /** Whether step 1 offers the one-press CONTINUE relaunch: a returning
+   *  player — intro seen, a valid saved loadout to fly. */
+  private canContinue(): boolean {
+    return hasSeenIntro() && hasSavedLoadout();
   }
 
   /** Switch sides, carrying the ship ROLE across (fighter ↔ fighter, etc.). */
@@ -504,13 +538,26 @@ export class LoadoutMenu {
       this.mode === "solo"
         ? "LAUNCH"
         : this.onlineStatus ?? (inviteRoomId() ? "JOIN FRIENDS" : "LAUNCH · FIND MATCH");
-    const cta =
-      this.step < 3
+    // Returning players (intro seen + saved loadout) get the one-press
+    // relaunch on step 1: CONTINUE is the gold primary and Enter's default;
+    // NEXT steps down to the secondary dress (Tab reaches it by keyboard).
+    const continueHere = this.step === 1 && this.canContinue();
+    const continueLabel =
+      this.mode === "online"
+        ? this.onlineStatus ??
+          (inviteRoomId() ? "CONTINUE ▸ JOIN FRIENDS" : "CONTINUE ▸ FIND MATCH")
+        : `CONTINUE ▸ ${SHIP_INFO[this.shipType].name.toUpperCase()}`;
+    const cta = continueHere
+      ? `<button id="loadout-next" class="loadout-back">NEXT ▸</button>
+         <button id="loadout-continue" class="loadout-cta continue">${continueLabel}</button>`
+      : this.step < 3
         ? `<button id="loadout-next" class="loadout-cta ${this.faction}">NEXT ▸</button>`
         : `<button id="loadout-play" class="loadout-cta ${this.faction}">${launchLabel}</button>`;
     const hint =
       this.step === 1
-        ? "←/→ SELECT · ENTER NEXT"
+        ? continueHere
+          ? "←/→ SELECT · ENTER CONTINUE"
+          : "←/→ SELECT · ENTER NEXT"
         : this.step === 2
           ? "←/→ SELECT · ↑/↓ ROW · ENTER NEXT · ESC BACK"
           : this.mode === "solo"
@@ -666,12 +713,15 @@ export class LoadoutMenu {
     // Step navigation + launch (only one step's buttons exist per render).
     this.root
       .querySelector<HTMLButtonElement>("#loadout-next")
-      ?.addEventListener("click", () => this.goStep((this.step + 1) as Step));
+      ?.addEventListener("click", () => this.advance());
     this.root
       .querySelector<HTMLButtonElement>("#loadout-back")
       ?.addEventListener("click", () => this.goStep((this.step - 1) as Step));
     this.root
       .querySelector<HTMLButtonElement>("#loadout-play")
+      ?.addEventListener("click", () => this.onPlay(this.mode));
+    this.root
+      .querySelector<HTMLButtonElement>("#loadout-continue")
       ?.addEventListener("click", () => this.onPlay(this.mode));
 
     // Footer utility links: the controls overlay + the old poster-overlay

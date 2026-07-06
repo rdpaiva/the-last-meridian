@@ -574,26 +574,30 @@ Full design + as-built notes: `docs/JUMP-DRIVE-AND-RESUPPLY.md`. Built sim/view-
   (hull + spine + tower + engine + 6 running lights). Engines and
   lights are emissive and opt into GlowLayer.
 
-## Splash flow (landing / intro / faction select / quick play)
+## Splash flow (loadout front door / intro gate)
 - `main.ts` owns a small state machine; the current state lives in
   `data-state` on `#splash` and ALL visibility is CSS keyed off that
-  attribute (no JS show/hide). States: `landing` (ENTER THE MERIDIAN +
-  always-visible Skip Intro), `intro` (color fade-up + music + one-iteration
-  story crawl; `animationend` on `#splash-story` advances), `factionSelect`
-  (the right panel reveals), `quickPlay` (returning players: Continue line +
-  PLAY + Change Faction / Replay Intro).
-- Returning-player gate: `hasSeenIntro() && hasSavedLoadout()` → `quickPlay`;
-  otherwise `landing`. Skip Intro is ALWAYS on the landing screen — never
-  assume the game knows whether the player is new.
-- `unlockAudio()` in main.ts is the centralized browser audio unlock; every
-  splash button routes through it (the click is the required user gesture).
-  Splash music goes through a raw Web Audio `AudioContext` (NOT `<audio>`,
-  which extensions auto-mute) and is idempotent across repeat clicks.
-- The `.begun` class still drives the grayscale→color "interface wakes up"
-  fade; `quickPlay` deliberately stays dormant/gray (its PLAY cuts straight
-  to the game).
+  attribute (no JS show/hide). States: `factionSelect` (the loadout frame —
+  the front door for EVERYONE), `intro` (one-iteration story crawl over the
+  poster; `animationend` on `#splash-story` advances; SKIP INTRO + key hint
+  live in `#splash-rail`, an intro-only copy of the loadout's footer-rail
+  chrome), `settings` (the tuning overlay).
+- The intro is a GATE, not a landing: first-timers hit it when step 1 (MODE)
+  advances to the hangar (`LoadoutActions.firstRunIntro` returns true,
+  `introReturn = "hangar"`), and `finishIntro()` resumes the menu at step 2
+  via `menu.enterHangar()` — the crawl ends on "Choose your side," and the
+  hangar IS that choice. Replay Intro (`introReturn = "stay"`) returns to
+  whatever step the menu was on. `markIntroSeen()` fires on finish OR skip.
+- The same Enter keystroke that starts the gated intro must not also skip
+  it: LoadoutMenu `preventDefault()`s its Enter, and main.ts's intro skip
+  ignores `defaultPrevented` events (both handlers share `window`).
+- Audio unlock: one-time `pointerdown`/`keydown` listeners call
+  `unlockAudio()` on the first gesture (guarded so in-game input never
+  restarts menu music). Splash music goes through a raw Web Audio
+  `AudioContext` (NOT `<audio>`, which extensions auto-mute) and is
+  idempotent across repeat gestures.
 - The story crawl runs ONE iteration (`forwards`), paused except in the
-  `intro` state; Replay Intro re-arms it by resetting the inline animation
+  `intro` state; re-entry re-arms it by resetting the inline animation
   (`restartCrawl()`).
 
 ## Loadout + LoadoutMenu + ShipPreview (splash side/ship select)
@@ -605,7 +609,8 @@ Full design + as-built notes: `docs/JUMP-DRIVE-AND-RESUPPLY.md`. Built sim/view-
   `GameConfig.factionShips` (a saved ship that no longer exists falls back to
   the faction's first ship). `hasSavedLoadout()` ("did the player ever pick?")
   is deliberately separate from `loadSavedLoadout()` (which falls back to
-  GameConfig defaults) — only a real save unlocks the quick-play screen.
+  GameConfig defaults) — only a real save (plus a seen intro) unlocks the
+  step-1 CONTINUE relaunch.
   `Game` takes the loadout as a constructor param and copies it —
   `GameConfig.player.faction/shipType` remain the build-time DEFAULTS only.
 - `LoadoutMenu.ts`: plain-DOM THREE-STEP flow injected into `#loadout`,
@@ -625,8 +630,14 @@ Full design + as-built notes: `docs/JUMP-DRIVE-AND-RESUPPLY.md`. Built sim/view-
   3. MISSION — solo: difficulty + arena cards; online: a quick-match/invite
      briefing instead (the server owns the battlefield, so no pickers).
   Fully keyboard-driven (←/→ select, ↑/↓ row, ENTER next-then-launch, ESC
-  back — LoadoutMenu owns Enter in factionSelect). LAUNCH fires
-  `onPlay(mode)` with the step-1 choice; an invite link preselects online.
+  back — LoadoutMenu owns Enter in factionSelect; a Tab-focused button keeps
+  its native Enter-click). LAUNCH fires `onPlay(mode)` with the step-1
+  choice; an invite link preselects online. Returning players (intro seen +
+  saved loadout) get a gold CONTINUE CTA on step 1 — Enter's default — that
+  fires `onPlay(mode)` immediately with the saved loadout (the old
+  quick-play screen, folded into the frame); NEXT drops to the secondary
+  dress beside it. Advancing MODE → HANGAR first offers main.ts the
+  `firstRunIntro` gate (see "Splash flow" above).
   Stats read straight from `GameConfig.shipTypes`, normalized against
   catalog maxima. Every selection change saves immediately; `commit()`
   persists + detaches the key handler before the Game's own keys come up.
@@ -646,14 +657,15 @@ Full design + as-built notes: `docs/JUMP-DRIVE-AND-RESUPPLY.md`. Built sim/view-
   element that LoadoutMenu re-adopts after every innerHTML re-render (engine
   needs `preserveDrawingBuffer` for the thumbnail readback). Tuning lives in
   `GameConfig.shipPreview`.
-- Fast entry invariants: the saved loadout is preselected everywhere, quick
-  play is a single click/Enter, and the end-of-match restart (`RESTART_FLAG`)
-  skips the splash entirely and replays the saved loadout.
+- Fast entry invariants: the saved loadout is preselected everywhere,
+  a returning player relaunches with a single Enter (CONTINUE on step 1),
+  and the end-of-match restart (`RESTART_FLAG`) skips the splash entirely
+  and replays the saved loadout.
 
 ## Match settings (TuningSchema + ConfigOverrides + SettingsMenu)
-- Dev/playtest tuning GUI, reachable as splash state `settings` ("Match
-  Settings" link on landing / quick play / faction select; BACK or Esc
-  returns to wherever the user came from). Three pieces:
+- Dev/playtest tuning GUI, reachable as splash state `settings` (the "Match
+  Settings" link in the loadout's footer rail; BACK or Esc returns to
+  wherever the user came from). Three pieces:
   - `TuningSchema.ts` — the CURATED declarative knob list (`{path, label,
     kind, min, max, step, options, hint}` grouped into sections; kinds:
     `number` = slider+field, `boolean` = checkbox, `choice` = dropdown over
