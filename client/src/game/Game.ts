@@ -54,6 +54,7 @@ import { HulkView } from "./view/HulkView";
 import { LaunchSequence } from "@space-duel/shared";
 import { opposing, FACTION_THEME, type Faction } from "@space-duel/shared";
 import { LocalInputController } from "./LocalInputController";
+import { MouseSteering } from "./MouseSteering";
 import { AIController } from "@space-duel/shared";
 import type { PlayerLoadout } from "./Loadout";
 import { SensorSystem } from "@space-duel/shared";
@@ -124,6 +125,8 @@ export class Game {
   private readonly scene: Scene;
   private readonly glowLayer: GlowLayer;
   private readonly input: InputManager;
+  /** Mouse heading-steer + fire buttons, merged into input.state each tick. */
+  private readonly mouse: MouseSteering;
   private readonly arena: Arena;
   private readonly asteroids: AsteroidFieldView;
   /** Placed derelict wrecks (map hazards) — indestructible, slowly-rotating
@@ -526,6 +529,10 @@ export class Game {
     // clone the player's loaded ship.
 
     this.cameraRig = new CameraRig(this.scene);
+    // Mouse steering needs the camera to unproject the cursor, so it's built
+    // after the rig. It merges into input.state each tick (see tick()).
+    this.mouse = new MouseSteering(this.cameraRig.camera);
+    this.mouse.attach(canvas);
     // Jump shockwave refraction — needs the camera, so it's built after the rig
     // (the jumpFired handler wired above reads it lazily, only at jump time).
     this.jumpRipple = new JumpRipple(this.scene, this.cameraRig.camera);
@@ -1582,6 +1589,9 @@ export class Game {
 
       this.input.update();
       if (this.input.consumeDebugToggle()) this.toggleGodMode();
+      // Merge mouse steering + buttons into the same InputState the keyboard
+      // filled — everything downstream (controller, sim, HUD) sees one state.
+      this.mouse.apply(this.input.state, this.playerShip, nowMs);
 
       const anyInputHeld =
         this.input.state.thrust ||

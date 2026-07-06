@@ -1336,6 +1336,40 @@ export const GameConfig = {
     farClip: 2000,
   },
 
+  /**
+   * Mouse steering (CLIENT-ONLY input — the sim and the wire protocol never
+   * see the mouse; it merges into the same InputState the keyboard fills).
+   * The cursor sets a DESIRED HEADING: it's unprojected onto the fighter
+   * plane and the heading error drives `InputState.turn` through the same
+   * proportional P-controller the AI uses, so the ship still turns at its
+   * normal per-type rotation rate — mouse and keyboard pilots are physically
+   * identical. Left button = lasers, right button = missile. Last-touched
+   * device wins: a held rotate key overrides and disengages mouse steering
+   * until the mouse moves again. See client MouseSteering.ts.
+   */
+  mouse: {
+    /**
+     * Steering stays engaged this long (ms) after the last mouse move or
+     * click; past it the cursor counts as parked and the ship flies
+     * keyboard-only. Long enough to hold a heading without stirring the
+     * mouse, short enough that an abandoned cursor stops mattering fast.
+     */
+    activeTimeoutMs: 1500,
+    /**
+     * World-units radius around the ship inside which the cursor is ignored
+     * (~2 ship lengths). Without it, flying past a parked cursor commands
+     * wild bearing swings as the world point crosses under the ship.
+     */
+    deadzoneWorldUnits: 5,
+    /**
+     * Heading error (rad) at which the commanded turn saturates to full
+     * rate; below it the rate scales linearly (same shape as ai.steerBand).
+     */
+    steerBand: 0.5,
+    /** Heading error (rad) below which the nose holds — anti-jitter floor. */
+    steerDeadband: 0.02,
+  },
+
   starfield: {
     /**
      * The starfield is a CAMERA-LOCKED WRAPPING field. Instead of scattering

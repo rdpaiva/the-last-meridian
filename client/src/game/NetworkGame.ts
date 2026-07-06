@@ -44,6 +44,7 @@ import { Starfield } from "./Starfield";
 import { CameraRig } from "./CameraRig";
 import { Hud } from "./Hud";
 import { InputManager } from "./InputManager";
+import { MouseSteering } from "./MouseSteering";
 import { AssetLoader } from "./AssetLoader";
 import { buildFighterMesh } from "./FighterMesh";
 import { ShipView } from "./view/ShipView";
@@ -230,6 +231,8 @@ export class NetworkGame {
   private readonly starfield: Starfield;
   private readonly hud: Hud;
   private readonly input: InputManager;
+  /** Mouse heading-steer + fire buttons, merged into input.state each frame. */
+  private readonly mouse: MouseSteering;
   private readonly loader: AssetLoader;
   /** Per-ship-type GLB template (null = procedural fallback), cloned per ship. */
   private readonly templates = new Map<ShipTypeId, TransformNode | null>();
@@ -472,6 +475,11 @@ export class NetworkGame {
     }
 
     this.cameraRig = new CameraRig(this.scene);
+    // Mouse steering unprojects the cursor through the rig's camera; it
+    // merges into input.state each frame BEFORE the input send (tick step 1),
+    // so the server receives the mouse-commanded turn like any other input.
+    this.mouse = new MouseSteering(this.cameraRig.camera);
+    this.mouse.attach(canvas);
     this.starfield = new Starfield(this.scene, this.cameraRig.camera);
     this.hud = new Hud(hudRoot);
     this.hud.setLaunchOverlay("STAND BY");
@@ -926,12 +934,21 @@ export class NetworkGame {
     this.input.update();
     // Backquote: the netcode readout (offline the key is god mode; free in MP).
     if (this.input.consumeDebugToggle()) this.netDebug.toggle();
+    const nowMs = performance.now();
+    // Merge mouse steering + buttons into the keyboard's InputState before
+    // it's read anywhere. Steering needs a ship pose to compute a bearing —
+    // the predicted own-ship is that pose; until prediction is live the
+    // mouse contributes buttons only.
+    this.mouse.apply(
+      this.input.state,
+      this.predictionActive ? this.predicted : null,
+      nowMs,
+    );
     // Audio unlock rides the first real input gesture (mirrors Game.tick).
     const held = this.input.state;
     if (held.thrust || held.reverse || held.rotateLeft || held.rotateRight || held.fire) {
       this.sound.unlock();
     }
-    const nowMs = performance.now();
     if (
       !this.ended &&
       !this.connectionLost &&
@@ -2001,6 +2018,7 @@ export class NetworkGame {
     this.netDebug.dispose();
     this.nameplates.dispose(); // DOM layer — scene.dispose won't remove it
     this.input.detach();
+    this.mouse.detach();
     void this.net.leave();
     // Stop the track explicitly — a queued locked-context play or the
     // onEnded chain would otherwise outlive scene.dispose().

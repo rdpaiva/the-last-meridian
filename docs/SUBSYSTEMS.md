@@ -161,6 +161,36 @@ Game wires each Ship as a target of the **opposing** faction's `LaserSystem`
 and `MissileSystem`, so collisions are faction-correct and
 friendly-fire-free without per-bolt faction checks.
 
+## MouseSteering (mouse input for the local pilot)
+- CLIENT-ONLY input source that merges into the same `InputState` the keyboard
+  fills — the sim, the wire protocol, and the server never know a mouse exists.
+  `Game.tick` and `NetworkGame.tick` both call `mouse.apply(input.state, ship,
+  nowMs)` right after `InputManager.update()`, before anything reads the state.
+- **Heading control, not aim control.** The cursor is unprojected onto the
+  fighter plane (y = 0, via `Vector3.UnprojectToRef` near/far points — no
+  picking, no side-effect ray import) and the bearing error drives
+  `InputState.turn` with the same proportional P-controller shape the AI uses.
+  The ship still turns at its per-type `rotationSpeed`, so mouse and keyboard
+  pilots are physically identical — this is the balance invariant; don't
+  "upgrade" the mouse to instant heading snaps.
+- **Last-touched device wins**: steering engages for `mouse.activeTimeoutMs`
+  after a move/click; a held rotate key overrides immediately AND disengages
+  the mouse until it moves again (no snap-back to a stale cursor). A world-unit
+  deadzone around the ship keeps a parked cursor from commanding bearing swings
+  as the ship flies past it.
+- Buttons: left = `fire`, right = `fireMissile` (canvas `contextmenu`
+  suppressed). Presses must START on the game canvas (listener is on the
+  canvas, so DOM HUD overlays swallow their own clicks); releases are tracked
+  window-wide so drags off-canvas can't stick a button.
+- `InputManager.update()` zeroes `state.turn` every frame — MouseSteering
+  re-writes it after. Keep that reset: without it the last mouse-commanded
+  turn sticks forever once the mouse goes idle.
+- In multiplayer the mouse-commanded `turn` rides the existing input message
+  untouched; the server sim clamps summed turn to ±1, so out-of-range values
+  from a modified client can't exceed keyboard turn rates.
+- Tuning lives in `GameConfig.mouse`. Gamepad later: map the stick to the same
+  `turn` channel — no new sim/protocol surface needed.
+
 ## SensorSystem (per-faction awareness)
 - The keystone of the stealth loop: each faction has ONE shared sensor picture
   (`sensors.contacts[faction]`, an array of `SensorContact`), and **every AI

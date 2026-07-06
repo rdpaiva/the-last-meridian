@@ -192,6 +192,7 @@ src/
     Ship.ts                unified ship sim + HP + DamageTarget + muzzle/fire (config-injected; merges old PlayerShip/EnemyShip)
     ShipController.ts      controller interface + ControllerWorld (opponents/mothership/leader → InputState)
     LocalInputController.ts  keyboard controller (surfaces InputManager.state) = the player
+    MouseSteering.ts         client-only mouse input: cursor = desired heading → InputState.turn (same P-controller as the AI; ship still turns at its normal rate), LMB/RMB = fire/missile; last-touched device wins vs keyboard (docs/SUBSYSTEMS.md → MouseSteering)
     AIController.ts        order-driven AI (patrol/strike/hunt/cover/formation/defend), emits InputState; targets SENSOR CONTACTS; missile launch doctrine (fresh-track + envelope + LOS + pacing); setOrder() = runtime re-task seam
     FighterMesh.ts         faction-themed procedural fighter mesh + randomFighterSpawn helper
     Laser.ts               single bolt entity (position, age, kill flag)
@@ -417,8 +418,11 @@ for one, do it. Otherwise: don't.
   work follows `docs/MULTIPLAYER.md` — don't ad-hoc networking outside it.
 - **Physics engine** (cannon, ammo, havok). Motion is hand-rolled.
 - **ECS framework**. The handful of entities don't need it.
-- **Mobile / touch controls**. Keyboard only.
-- **Gamepad input**.
+- **Mobile / touch controls**. Keyboard + mouse only (mouse added
+  2026-07-06 — heading control via `MouseSteering`, not aim control).
+- **Gamepad input**. Planned next input method — when asked, map the stick
+  onto the same `InputState.turn` channel the mouse uses; don't build a
+  parallel path.
 - **A complex menu system**. The splash flow (the three-step loadout frame
   as the front door, the intro crawl as a first-run gate, one-press CONTINUE
   for returning players) is the deliberate ceiling — keyboard-first, saved
