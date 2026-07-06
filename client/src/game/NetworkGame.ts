@@ -55,6 +55,7 @@ import { ExplosionSystem } from "./ExplosionSystem";
 import { JumpFlashSystem } from "./JumpFlashSystem";
 import { JumpRipple } from "./JumpRipple";
 import { SoundSystem } from "./SoundSystem";
+import { MusicSystem } from "./MusicSystem";
 import { EngineGlow } from "./EngineGlow";
 import { Nameplates } from "./Nameplates";
 import { SecondaryThrusters } from "./SecondaryThrusters";
@@ -323,6 +324,7 @@ export class NetworkGame {
 
   // ─── Transient FX (Phase 2 event replication) ───
   private readonly sound: SoundSystem;
+  private readonly music: MusicSystem;
   private readonly explosions: ExplosionSystem;
   private readonly jumpFlashes: JumpFlashSystem;
   private readonly jumpRipple: JumpRipple;
@@ -483,6 +485,7 @@ export class NetworkGame {
     // --- Transient FX (Phase 2 event replication): sound + explosions +
     // jump FX + cosmetic projectile pools, driven by applyFxEvent.
     this.sound = new SoundSystem(this.scene);
+    this.music = new MusicSystem(this.scene);
     this.explosions = new ExplosionSystem(this.scene, this.glowLayer);
     this.jumpFlashes = new JumpFlashSystem(this.scene, this.glowLayer);
     this.jumpRipple = new JumpRipple(this.scene, this.cameraRig.camera);
@@ -677,6 +680,7 @@ export class NetworkGame {
   /** Preload the ship GLBs, then start the render loop. */
   async start(): Promise<void> {
     await this.preloadTemplates();
+    this.music.playPlaylist("game");
     this.engine.runRenderLoop(this.tick);
     // Loaded + rendering: tell the room we can actually SEE the battlefield.
     // The first ready in a room releases the opening fleet launch.
@@ -1998,6 +2002,9 @@ export class NetworkGame {
     this.nameplates.dispose(); // DOM layer — scene.dispose won't remove it
     this.input.detach();
     void this.net.leave();
+    // Stop the track explicitly — a queued locked-context play or the
+    // onEnded chain would otherwise outlive scene.dispose().
+    this.music.stop();
     this.engine.stopRenderLoop();
     this.scene.dispose();
     this.engine.dispose();
