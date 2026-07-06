@@ -10,55 +10,52 @@ editing instead of searching.
 
 ---
 
-Continue the multiplayer work. The identity slice (own-ship engine tint +
-callsigns/nameplates) is MERGED to `main` and OWNER-VERIFIED (2026-07-05).
-Branch off `main`.
+Continue the multiplayer work. The Phase 3 slice (reconnection + hosting
+artifacts) is BUILT on `feat/reconnect-hosting` (2026-07-05, commits
+`a0caf6d` + `2200f5e`, 19/19 tests green) and awaits my in-browser check —
+if I've merged it by the time you read this, branch off `main`; otherwise
+continue on that branch.
 
 **Read `docs/PHASE1_OPEN_ISSUES.md` first and trust it** — do NOT re-survey
 the codebase; that doc's Architecture notes + the anchors below are accurate.
 
 **State**: online co-op is playable and feels close to single-player on
-LOCALHOST; the Phase 2 tail (netsim + NetDebugOverlay + sensor-filtered
-replication) is merged to `main` and owner-verified clean. This session
-added, on `feat/own-ship-marker`: the **own-ship engine tint** (YOUR ship
-burns teal exhaust vs everyone's orange — owner picked this over a hull
-ring; `EngineGlow` palette param + `GameConfig.ownShipTint`) and
-**callsigns + nameplates** (`shared/src/Callsigns.ts` schemes from the story
-bible — two-word handles, no numbers (owner call): Commonwealth pilot
-handles ("Blue Fox") vs Novari choir names ("Silent Psalm");
-`ShipSchema.callsign` swaps with `isAI` on join/leave; CALLSIGN field on
-loadout page 2 → `lastMeridian_pilotName` → `JoinOptions.pilotName`;
-`Nameplates.ts` pooled DOM labels, zoom-faded, friendlies-always +
-enemies-only-when-lock-targeted + never your own, launch-gated, human names
-haloed vs dimmer faction-tinted AI callsigns, dark backing pill so labels
-read over exhaust plumes). PROTOCOL_VERSION 15. Typecheck + 18/18 tests
-green (join test now also proves the callsign lifecycle over the wire).
-The identity slice is OWNER-VERIFIED; the netsim feel pass is STILL
-pending — that's the headline task.
+LOCALHOST. Merged + owner-verified: Phases 1–2 core, the Phase 2 tail
+(netsim + NetDebugOverlay + sensor-filtered replication), and the identity
+slice (own-ship teal engine tint + callsigns/nameplates). Built this
+session on `feat/reconnect-hosting`: **reconnection** (server holds a
+dropped seat 60s — `GameConfig.net.reconnectGraceSec` — AI flies it
+meanwhile, reclaim restores occupant/callsign/leadership; client rides the
+0.17 SDK's built-in auto-reconnect on the SAME Room object — do NOT
+hand-roll a token loop; page unloads leave consented via `pagehide`) and
+**hosting artifacts** (esbuild ESM server bundle, systemd unit, Caddy +
+nginx configs, manual-only server-deploy workflow, `VITE_SERVER_URL` wired
+into the Pages build from a repo variable — full map in `docs/DEPLOY.md`).
+PROTOCOL_VERSION **16**.
 
-**Owner goal (2026-07-05)**: a friends playtest — GitHub Pages client +
-Colyseus on the owner's existing DigitalOcean VM. Constraint that shapes
-the hosting work: Pages is HTTPS, so the socket must be `wss://` ⇒
-subdomain + TLS reverse proxy (Caddy or the VM's existing nginx) in front
-of `localhost:2567`; the client bakes the endpoint at build time via
-`VITE_SERVER_URL` (`client/src/net/NetClient.ts`). Deploy client + server
-from the SAME commit (protocol check refuses mismatches). NOTE —
-DELIBERATE, do not suggest pushing: local `main` is ~54 commits ahead of
-`origin/main` and stays that way until the MP server is hosted. The
-deployed Pages build is the owner's LIVE single-player test channel
-(friends are actively playtesting it); pushing main would ship a client
-with online entry points and no server behind them. Backup-without-deploy
-option if wanted: push to a side branch (e.g. `origin/dev`) — Pages only
-tracks main.
+**Owner goal**: a friends playtest — GitHub Pages client + Colyseus on the
+owner's DigitalOcean VM behind `wss://play.<domain>` (Caddy or the VM's
+existing nginx). Everything agent-preparable is DONE; what remains is the
+`[human]` provisioning checklist in `docs/DEPLOY.md` (DNS, proxy, unit, CI
+secrets, first deploy) and deploys always ship client + server from the
+SAME commit. NOTE — DELIBERATE, do not suggest pushing: local `main` stays
+ahead of `origin/main` until the MP server is hosted. The deployed Pages
+build is the owner's LIVE single-player test channel; pushing main would
+ship a client with online entry points and no server behind them.
+Backup-without-deploy option: push a side branch (e.g. `origin/dev`) —
+Pages only tracks main.
 
-**My playtest findings**: <fill in — fly at netsim 40/80/120ms ± jitter
-and report what feels wrong, with overlay numbers when something spikes>
+**My playtest findings**: <fill in — (a) reconnection check: kill the
+server / drop a tab mid-match → RECONNECTING overlay → seat back with my
+callsign; (b) netsim feel at 40/80/120ms ± jitter, with overlay numbers
+when something spikes>
 
 **Work order**:
 
-1. **`[human]` feel-tuning loop** (Phase 2 tail, docs/MULTIPLAYER.md): I fly
-   with `GameConfig.net.sim` at 40/80/120ms (+ `jitterMs` 10–30) and report;
-   you translate reports into `GameConfig.net` changes. Knob → symptom map:
+1. **`[human]` feel-tuning loop** (Phase 2 tail, docs/MULTIPLAYER.md — STILL
+   the headline): I fly with `GameConfig.net.sim` at 40/80/120ms
+   (+ `jitterMs` 10–30) and report; you translate reports into
+   `GameConfig.net` changes. Knob → symptom map:
    - remote ships stutter/hitch → `interpDelayMs` (raise toward
      patch-interval × 2 + worst jitter; overlay "headroom" going ≤0 =
      buffer starvation, the smoking gun)
@@ -73,27 +70,27 @@ and report what feels wrong, with overlay numbers when something spikes>
    `client/src/net/NetClient.ts` `send` + `client/src/net/DelayQueue.ts`
    (the netsim halves). Pure retunes of `GameConfig.net` numbers still
    bump PROTOCOL_VERSION (GameConfig is shared).
-   (Identity-slice retune anchors, if playtests surface polish:
-   `GameConfig.ownShipTint` / `GameConfig.nameplates`; styling in
-   `client/src/style.css` (`#nameplates`, `.pilot-name-row`); word lists in
-   `shared/src/Callsigns.ts`; wiring in `EngineGlow.ts` (palette param) /
-   `Nameplates.ts` / `NetworkGame.ts` (tint in `makeView`; plate loop) /
-   `Game.ts` (tinted `engineGlow`; plate loop).)
-2. **Reconnection** (Phase 3): `allowReconnection` in
-   `BattleRoom.onLeave` — AI takes the seat meanwhile (the seat handback
-   already exists there: controller/isAI/owner/callsign), reclaim restores
-   occupant + name; `retaskLeader` runs on both edges; note `Room` already
-   copies `client.view` across a reconnection (the sensor-filter StateView
-   survives). Client side: `NetClient.leave`/error path +
-   `NetworkGame.connectionLost` is the resume seam. Integration test like
-   the leave-handback one in `tests/server/battleRoom.test.ts`.
-3. **Hosting artifacts** (Phase 3, pulled forward by the friends-test
-   goal — see docs/MULTIPLAYER.md → Phase 3 "Hosting artifacts" for the
-   full list): esbuild server bundle, systemd unit, Caddyfile (or nginx
-   block — the owner's VM may already run nginx), deploy notes/workflow,
-   `VITE_SERVER_URL` build wiring. Then the `[human]` provisioning
-   checklist (DNS, certs, first deploy) is the owner's.
-4. Then the rest of Phase 3 (separate sessions): room lifecycle/rematch.
+2. **Reconnection polish, if my check surfaces it**: server seam is
+   `BattleRoom.onLeave` (branch on `CloseCode.CONSENTED`; reserve/reclaim
+   around `allowReconnection`; `seat.pilotCallsign`/`seat.reserved`);
+   client seam is the `onDrop`/`onReconnect`/`onLeave` handlers in the
+   `NetworkGame` constructor + `NetworkGame.onReconnected()` (the buffer
+   wipe) + the `reconnecting` gates (input send, `updatePrediction`,
+   `updatePhase` overlay). Test: "holds a dropped seat…" in
+   `tests/server/battleRoom.test.ts` (gotcha: disable the test client's
+   `reconnection.enabled` before `leave(false)` or the SDK auto-reconnects
+   under your assertions).
+3. **Room lifecycle / rematch** (Phase 3 remainder): victory → room
+   disposal + Enter-rematch flow (today Enter reloads into a NEW quick
+   match — `NetworkGame.onKeyDown` `RESTART_FLAG`; `main.ts` `startOnline`
+   reads the `#join=` hash, so a disposed room falls back to quick match
+   already). Mid-match join already works (AI backfill); decide staleness
+   rules (join a nearly-decided match?), maybe `BattleRoom.onBeforeShutdown`.
+   Server room-side anchors: `BattleRoom.onCreate` (autoDispose default),
+   `step()` → `this.sim.state`/`winner`.
+4. **Lobby polish** (Phase 3 remainder, small): connecting/error states on
+   the PLAY ONLINE buttons (`LoadoutMenu.onPlay`, `main.ts startOnline`),
+   copy-invite-link button, rejoin-last-match prompt.
 
 **Rules of the road** (already true in code — don't relearn them):
 
@@ -109,5 +106,8 @@ and report what feels wrong, with overlay numbers when something spikes>
 - `GameConfig.net.sim` stays OFF in every commit (`enabled: false`).
 - Netsim state copies must carry EVERY replicated field — adding one to
   `ShipSchema` means adding it to `NetShip` + `cloneNetState` too.
+- Colyseus 0.17 idioms: server `onLeave(client, code)` + `CloseCode`;
+  client SDK auto-reconnects the same Room object (`room.reconnection`
+  options) — work WITH it, never around it.
 - Verify with `npm run typecheck` + `npm test` only — I run the dev server
   and playtest myself. Commit each landed change like previous sessions.

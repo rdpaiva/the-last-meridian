@@ -1,13 +1,53 @@
 # Phase 1/2 — status + handoff notes
 
-Snapshot for resuming the multiplayer work. Phases 1–2 core AND the Phase 2
-tail (netsim + overlay + sensor-filtered replication) are MERGED to `main`
-(`0667a72`, 2026-07-05, owner-accepted); the IDENTITY slice below (own-ship
-marker + callsigns/nameplates) lives on **`feat/own-ship-marker`**.
-Everything builds + typechecks; the full test suite is **18/18 green**
-(`npm test`). PROTOCOL_VERSION is **15** — stale tabs get a clean join
+Snapshot for resuming the multiplayer work. Phases 1–2 core, the Phase 2
+tail (netsim + overlay + sensor-filtered replication), AND the identity
+slice (own-ship tint + callsigns/nameplates) are MERGED to `main`
+(`5c162e8`, 2026-07-05, owner-verified); the PHASE 3 slice below
+(reconnection + hosting artifacts) lives on **`feat/reconnect-hosting`**.
+Everything builds + typechecks; the full test suite is **19/19 green**
+(`npm test`). PROTOCOL_VERSION is **16** — stale tabs get a clean join
 rejection (rendered as "NEW VERSION — refresh"), so always reload after
 pulling.
+
+## DONE 2026-07-05 — Phase 3 slice: reconnection + hosting artifacts (`feat/reconnect-hosting`, awaiting owner check)
+
+- **Reconnection** (`a0caf6d`): server holds a NON-consented leaver's seat
+  for `GameConfig.net.reconnectGraceSec` (60s, new shared knob ⇒ PROTOCOL
+  15→16) via `allowReconnection` in `BattleRoom.onLeave` — the AI takes the
+  ship immediately (match stays balanced), `claimSeat` skips reserved seats,
+  the `clientViews` entry stays alive through the window (sessionId +
+  `client.view` survive a Colyseus reconnection), and reclaim restores
+  occupant/controller/callsign (`seat.pilotCallsign`) + re-tasks the
+  formation leader on both edges. Colyseus 0.17 note: `onLeave(client,
+  code)` — branch on `CloseCode.CONSENTED` (4000); there is no `consented`
+  boolean anymore. CLIENT rides the 0.17 SDK's BUILT-IN auto-reconnect (the
+  same Room object retries with backoff ~60s and keeps every handler — do
+  NOT hand-roll a token/room-swap loop, we deleted one): `room.onDrop` →
+  RECONNECTING overlay + input/prediction freeze; `room.onReconnect` →
+  `NetworkGame.onReconnected()` wipes every timeline-derived buffer
+  (snapshots, clock offset hard-resync, pending inputs/correction, fx +
+  netsim queues); `room.onLeave` is TERMINAL. Page unloads (reload, ESC)
+  now leave CONSENTED via `pagehide` so the seat frees immediately.
+  Integration test ("holds a dropped seat…"): drop without consent → AI
+  handback + reservation denies a poaching joiner → `colyseus.sdk.reconnect`
+  restores seat/callsign/leadership. Test gotcha: disable the test client's
+  `reconnection.enabled` before `leave(false)` or the SDK auto-reconnects
+  under the assertions.
+- **Hosting artifacts** (`2200f5e`): everything agent-preparable for the
+  friends playtest — see **docs/DEPLOY.md** (topology, artifact table, the
+  `[human]` provisioning checklist, per-deploy procedure). Highlights:
+  `npm run build:server` → `server/dist/server.mjs` (self-contained ESM;
+  esbuild CJS breaks on deps' `import.meta.url`, hence ESM + aliased
+  `createRequire` banner; smoke-verified serving a real SDK join),
+  systemd unit + Caddy/nginx configs under `deploy/`, manual-only
+  `deploy-server.yml` (same-commit rule), Pages workflow bakes
+  `VITE_SERVER_URL` from a repo variable (NetClient falls back via `||` —
+  an unset repo var arrives as an EMPTY string, `??` would bake it).
+- **Still pending**: the `[human]` netsim feel pass (headline), the
+  `[human]` provisioning checklist (DEPLOY.md), owner in-browser check of
+  reconnection (kill the server tab-side mid-match → RECONNECTING → seat
+  back with callsign).
 
 ## DONE + OWNER-VERIFIED 2026-07-05 — identity slice
 
