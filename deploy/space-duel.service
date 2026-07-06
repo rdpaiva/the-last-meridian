@@ -1,0 +1,40 @@
+# systemd unit for the space-duel (The Last Meridian) Colyseus game server.
+#
+# Install (docs/DEPLOY.md has the full provisioning checklist):
+#   sudo useradd --system --home /opt/space-duel --shell /usr/sbin/nologin spaceduel
+#   sudo mkdir -p /opt/space-duel && sudo chown spaceduel:spaceduel /opt/space-duel
+#   # copy server/dist/server.mjs (built by `npm run build -w @space-duel/server`)
+#   # to /opt/space-duel/server.mjs, then:
+#   sudo cp deploy/space-duel.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now space-duel
+#
+# The process listens on localhost:2567 only — the TLS reverse proxy
+# (deploy/Caddyfile or deploy/nginx-play.conf) is the public face.
+
+[Unit]
+Description=space-duel Colyseus game server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=spaceduel
+Group=spaceduel
+WorkingDirectory=/opt/space-duel
+Environment=NODE_ENV=production
+Environment=PORT=2567
+ExecStart=/usr/bin/env node /opt/space-duel/server.mjs
+Restart=always
+RestartSec=3
+
+# Hardening — the server needs nothing but its bundle and a listen socket.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

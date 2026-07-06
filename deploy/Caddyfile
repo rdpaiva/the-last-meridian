@@ -1,0 +1,14 @@
+# Caddy reverse proxy for the space-duel game server (option A — pick this OR
+# deploy/nginx-play.conf, not both; docs/DEPLOY.md → "Reverse proxy").
+#
+# Caddy provisions + renews the Let's Encrypt certificate automatically and
+# proxies WebSocket upgrades out of the box, so this is the whole config.
+# The GitHub Pages client is HTTPS, so the socket MUST be wss:// — this
+# terminates TLS and forwards to the systemd unit on localhost:2567.
+#
+# Replace play.example.com with the real subdomain (DNS A record → this VM),
+# then:  sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
+
+play.example.com {
+	reverse_proxy localhost:2567
+}

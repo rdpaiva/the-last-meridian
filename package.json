@@ -12,6 +12,7 @@
     "dev": "npm run dev -w @space-duel/client",
     "server": "npm run dev -w @space-duel/server",
     "build": "npm run build -w @space-duel/client",
+    "build:server": "npm run build -w @space-duel/server",
     "preview": "npm run preview -w @space-duel/client",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
