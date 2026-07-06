@@ -1,14 +1,22 @@
-# Caddy reverse proxy for the space-duel game server (option A — pick this OR
-# deploy/nginx-play.conf, not both; docs/DEPLOY.md → "Reverse proxy").
-#
-# Caddy provisions + renews the Let's Encrypt certificate automatically and
-# proxies WebSocket upgrades out of the box, so this is the whole config.
-# The GitHub Pages client is HTTPS, so the socket MUST be wss:// — this
+# Caddy config for the whole game — MIRROR of the live /etc/caddy/Caddyfile
+# on the droplet (docs/DEPLOY.md). Two sites, both auto-TLS:
+#   apex  = the static client bundle (deployed by the "Deploy game" workflow)
+#   play. = the Colyseus server (WebSocket upgrade proxied out of the box)
+# The client is HTTPS, so the socket MUST be wss:// — the play. site
 # terminates TLS and forwards to the systemd unit on localhost:2567.
 #
-# Replace play.example.com with the real subdomain (DNS A record → this VM),
-# then:  sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
+# After editing here, apply on the droplet:
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
 
-play.example.com {
+# Game client — static Vite bundle deployed by the "Deploy game" workflow
+# (swapped atomically into this root).
+the-last-meridian.com {
+	root * /var/www/the-last-meridian
+	encode zstd gzip
+	file_server
+}
+
+# Game server — Colyseus behind TLS (WebSocket upgrade handled by Caddy).
+play.the-last-meridian.com {
 	reverse_proxy localhost:2567
 }

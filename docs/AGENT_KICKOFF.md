@@ -42,35 +42,34 @@ exercised (low risk, integration-tested): the I key and the 60s banner
 linger. Hosting artifacts are in `docs/DEPLOY.md`. PROTOCOL_VERSION **17**.
 
 **Owner goal**: a friends playtest — HOSTING IS LIVE (provisioned
-2026-07-06). Topology as designed in `docs/DEPLOY.md`: client =
-`https://rdpaiva.github.io/the-last-meridian/` (Pages off `main`, deployed
-bundle verified to carry `wss://play.the-last-meridian.com` — the
-`VITE_SERVER_URL` repo variable took); server = DigitalOcean droplet
-(1GB, Ubuntu 24.04, hostname `Meridian-Multiplayer-Server`) running Caddy
-(auto-TLS) → systemd unit `space-duel` on :2567, protocol v17 answering
-"Colyseus 0.17.44" at `https://play.the-last-meridian.com`. CI deploy =
-Actions → "Deploy game server" (manual dispatch; secrets `DEPLOY_SSH_KEY` +
-`DEPLOY_HOST` = `spaceduel-deploy@play.the-last-meridian.com`; the deploy
-user's write access + passwordless `systemctl restart space-duel` are
-sanity-verified). The old "don't push main" constraint is **RETIRED** —
-`main` was pushed 2026-07-06 (`93a5241`) and client + hand-deployed server
-are from that SAME commit. Standing rule going forward: every push to
-`main` auto-deploys the Pages client, so run the server deploy workflow on
-that same commit right after (the same-commit PROTOCOL_VERSION rule in
-`docs/DEPLOY.md` → "Every deploy after that").
+2026-07-06, CI-path verified same day). Topology in `docs/DEPLOY.md`
+("Provisioned state" section has every detail): ONE DigitalOcean droplet
+(1GB, Ubuntu 24.04, `Meridian-Multiplayer-Server`) serving both halves via
+Caddy — client = static bundle at `https://the-last-meridian.com`
+(`/var/www/the-last-meridian`, `wss://` URL verified baked in), server =
+systemd unit `space-duel` on :2567 behind
+`wss://play.the-last-meridian.com`, protocol v17 answering "Colyseus
+0.17.44". The client MOVED OFF GitHub Pages 2026-07-06 (Pages workflow
+deleted; Vite `base` is now `/`). CI deploy = Actions → **"Deploy game"**
+(manual dispatch, ships client + server from ONE checkout — the
+same-commit PROTOCOL_VERSION rule is automatic; agents' local `gh` token
+can NOT dispatch it, owner clicks). The old "don't push main" constraint
+is RETIRED; nothing auto-deploys on push anymore.
 
 **My playtest findings**: <fill in — deployment progress / friends
 playtest results: what broke, what felt off, overlay numbers if netcode>
 
 **Work order**:
 
-1. **Prove the CI deploy path + friends smoke test** — the last two
-   checkboxes: dispatch Actions → "Deploy game server" once (owner click;
-   the token agents get locally can't dispatch workflows) and confirm it
-   ships + restarts cleanly (`journalctl -u space-duel` → "protocol v17
-   listening"), then two-browser end-to-end match on the Pages URL and
-   invite friends. Provisioning itself is DONE — droplet, DNS, Caddy,
-   unit, deploy user, secrets all verified live 2026-07-06.
+1. **Finish the apex-domain move** (client → `the-last-meridian.com`,
+   started 2026-07-06; server side + client bundle already live on the
+   droplet): `[human]` add the apex A record (`@` → droplet IP — Caddy
+   auto-issues the cert once DNS resolves; it's already retrying),
+   `[human]` disable GitHub Pages in repo Settings (workflow is deleted,
+   the stale Pages copy should stop serving), then one owner dispatch of
+   Actions → **"Deploy game"** to prove the unified client+server path,
+   and a two-browser match at `https://the-last-meridian.com`. Then
+   invite friends.
 2. **Fixes from the friends playtest, if any** — rematch/lifecycle seams
    if something surfaces there: server `BattleRoom.onMatchEnded` (lock +
    delayed `disconnect()`), the `matchEnded` branch in `onLeave`, the

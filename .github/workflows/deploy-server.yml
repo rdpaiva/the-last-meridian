@@ -1,16 +1,22 @@
-name: Deploy game server
+name: Deploy game
 
-# MANUAL-ONLY by design (docs/DEPLOY.md): the Pages client deploys on every
-# push to main, and PROTOCOL_VERSION refuses mismatched joins — so the server
-# must be deployed from the SAME commit, deliberately, right after a client
-# deploy. A push trigger here could also surprise-restart live matches.
+# MANUAL-ONLY by design (docs/DEPLOY.md): PROTOCOL_VERSION refuses
+# mismatched joins, so client and server must ship from the SAME commit —
+# this workflow builds and deploys BOTH from one checkout, making that
+# automatic. A push trigger could also surprise-restart live matches.
+#
+# Topology (docs/DEPLOY.md): client = static bundle served by Caddy at
+# https://the-last-meridian.com (/var/www/the-last-meridian); server =
+# systemd unit `space-duel` behind wss://play.the-last-meridian.com.
 #
 # Required repo secrets (Settings → Secrets and variables → Actions):
 #   DEPLOY_SSH_KEY  private key whose public half is in the VM user's
 #                   authorized_keys
 #   DEPLOY_HOST     ssh target, e.g. spaceduel-deploy@play.example.com
+# Required repo variable:
+#   VITE_SERVER_URL e.g. wss://play.the-last-meridian.com
 # The VM user needs passwordless `sudo systemctl restart space-duel` only
-# (sudoers line in docs/DEPLOY.md).
+# (sudoers line in docs/DEPLOY.md) plus write access to /var/www.
 on:
   workflow_dispatch:
 
@@ -25,12 +31,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
       - run: npm run build -w @space-duel/server
-      - name: Ship bundle + restart unit
+      - run: npm run build -w @space-duel/client
+        env:
+          VITE_SERVER_URL: ${{ vars.VITE_SERVER_URL }}
+      - name: Ship client + server, restart unit
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           HOST: ${{ secrets.DEPLOY_HOST }}
@@ -39,8 +48,16 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "${HOST#*@}" >> ~/.ssh/known_hosts 2>/dev/null
-          # Upload beside the live bundle, then swap atomically before the
-          # restart — a half-written file must never be what systemd boots.
+          # Upload beside the live copies, then swap atomically — a
+          # half-written bundle must never be what systemd boots or what
+          # Caddy serves mid-request.
           scp -i ~/.ssh/deploy_key server/dist/server.mjs "$HOST:/opt/space-duel/server.mjs.new"
-          ssh -i ~/.ssh/deploy_key "$HOST" \
-            'mv /opt/space-duel/server.mjs.new /opt/space-duel/server.mjs && sudo systemctl restart space-duel'
+          scp -r -i ~/.ssh/deploy_key client/dist "$HOST:/var/www/the-last-meridian.new"
+          ssh -i ~/.ssh/deploy_key "$HOST" '
+            set -e
+            rm -rf /var/www/the-last-meridian.old
+            mv /var/www/the-last-meridian /var/www/the-last-meridian.old
+            mv /var/www/the-last-meridian.new /var/www/the-last-meridian
+            mv /opt/space-duel/server.mjs.new /opt/space-duel/server.mjs
+            sudo systemctl restart space-duel
+          '
