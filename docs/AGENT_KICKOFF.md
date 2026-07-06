@@ -10,12 +10,12 @@ editing instead of searching.
 
 ---
 
-Continue the multiplayer work. **Phase 3 is feature-complete** on
-`feat/reconnect-hosting` (2026-07-06, latest commits `cf0a2a7` room
-lifecycle + `fc3fcb8` invite key, on top of `a0caf6d` reconnection +
-`2200f5e` hosting artifacts; 20/20 tests green). The lifecycle + invite
-slices await my in-browser check — if I've merged the branch by the time
-you read this, branch off `main`; otherwise continue on that branch.
+Continue the multiplayer work. **Phase 3 is feature-complete and MERGED**:
+`feat/reconnect-hosting` landed in `main` (`d352660`, 2026-07-06; 20/20
+tests green) and the repo was branch-cleaned the same day — only `main`
+exists locally; `origin/dev` is the off-machine backup; every stale
+local + remote feature branch was deleted. Work from `main` (branch off
+it for anything nontrivial).
 
 **Read `docs/PHASE1_OPEN_ISSUES.md` first and trust it** — do NOT re-survey
 the codebase; that doc's Architecture notes + the anchors below are accurate.
@@ -27,7 +27,7 @@ slice (own-ship teal engine tint + callsigns/nameplates). Owner-verified on
 `feat/reconnect-hosting`: **reconnection** (tab close → RECONNECTING → seat
 back with callsign) and the **latency/jitter feel** at up to 120ms + 20ms
 jitter (expected cross-tab delay only — feel-tuning loop PARKED, no knob
-changes requested). Built 2026-07-06, awaiting my check: **room
+changes requested). Built 2026-07-06: **room
 lifecycle** (victory → room locks instantly + disposes after
 `GameConfig.net.endedRoomLingerSec` 60s; Enter on the banner clears the
 `#join=` hash and quick-matches into a FRESH room — this fixes my "Enter
@@ -36,8 +36,10 @@ hash rejoining the still-alive ended room; post-end leaves skip the
 reconnection seat-hold; the end banner survives the room's disposal) and
 **copy-invite-link** (the **I** key in an online match copies the address
 bar; MP-only HUD row flashes LINK COPIED; rejoin-last-match prompt
-deliberately skipped — see PHASE1_OPEN_ISSUES). Hosting artifacts are in
-`docs/DEPLOY.md`. PROTOCOL_VERSION **17**.
+deliberately skipped — see PHASE1_OPEN_ISSUES). OWNER-VERIFIED 2026-07-06:
+Enter after Victory lands in the right (fresh) room. Not individually
+exercised (low risk, integration-tested): the I key and the 60s banner
+linger. Hosting artifacts are in `docs/DEPLOY.md`. PROTOCOL_VERSION **17**.
 
 **Owner goal**: a friends playtest — GitHub Pages client + Colyseus on the
 owner's DigitalOcean VM behind `wss://play.<domain>` (Caddy or the VM's
@@ -51,28 +53,25 @@ ship a client with online entry points and no server behind them.
 Backup-without-deploy option: push a side branch (e.g. `origin/dev`) —
 Pages only tracks main.
 
-**My playtest findings**: <fill in — the rematch flow: win a match, hit
-Enter → lands in a NEW match (not the old banner); two tabs: both hit
-Enter after the end → both land in the SAME fresh room; press I mid-match
-→ invite link on the clipboard, LINK COPIED flashes; idle on the end
-banner ~60s → banner stays up (no CONNECTION LOST repaint), Enter still
-rematches>
+**My playtest findings**: <fill in — deployment progress / friends
+playtest results: what broke, what felt off, overlay numbers if netcode>
 
 **Work order**:
 
-1. **Fixes from my rematch-flow check, if any**: server seam is
-   `BattleRoom.onMatchEnded` (lock + delayed `disconnect()`), the
-   `matchEnded` branch in `onLeave`, and the `this.sim.ended` check in
-   `step()`; client seam is `NetworkGame.onKeyDown` (Enter/Esc +
-   `clearInviteHash`) and the `this.ended` early-return atop
+1. **`[human]` provisioning checklist** (docs/DEPLOY.md) — THE headline:
+   DNS for `play.<domain>`, proxy (Caddy or existing nginx), systemd
+   unit, CI secrets/vars, first same-commit deploy (that first push of
+   `main` is also what ships the MP client on Pages). Agent support as
+   asked: debugging a failed unit/proxy, tweaking `deploy/` configs,
+   reading `journalctl` output I paste.
+2. **Fixes from the friends playtest, if any** — rematch/lifecycle seams
+   if something surfaces there: server `BattleRoom.onMatchEnded` (lock +
+   delayed `disconnect()`), the `matchEnded` branch in `onLeave`, the
+   `this.sim.ended` check in `step()`; client `NetworkGame.onKeyDown`
+   (Enter/Esc + `clearInviteHash`) and the `this.ended` early-return atop
    `NetworkGame.updatePhase`. Test: "locks + disposes an ended match…" in
    `tests/server/battleRoom.test.ts` (it shrinks
    `GameConfig.net.endedRoomLingerSec` and restores it in `finally`).
-2. **`[human]` provisioning checklist** (docs/DEPLOY.md) — now the
-   headline: DNS for `play.<domain>`, proxy (Caddy or existing nginx),
-   systemd unit, CI secrets/vars, first same-commit deploy. Agent support
-   as asked (debugging a failed unit, tweaking configs), then merge
-   `feat/reconnect-hosting` → `main` and ship.
 3. **Feel-tuning loop** (parked, reopen only if the DEPLOYED game feels
    worse than the netsim predicted): knob → symptom map — remote ships
    stutter → `interpDelayMs` (overlay "headroom" ≤0 = buffer starvation);

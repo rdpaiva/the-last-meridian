@@ -10,7 +10,7 @@ test suite is **20/20 green** (`npm test`). PROTOCOL_VERSION is **17** —
 stale tabs get a clean join rejection (rendered as "NEW VERSION —
 refresh"), so always reload after pulling.
 
-## DONE 2026-07-06 — Phase 3 remainder: room lifecycle + lobby polish (`feat/reconnect-hosting`, awaiting owner check)
+## DONE 2026-07-06 — Phase 3 remainder: room lifecycle + lobby polish (merged to `main` same day; rematch flow owner-verified)
 
 Phase 3 is now feature-complete; docs/MULTIPLAYER.md Phase 3 items are all
 checked. Owner-verified the same session's earlier slice: reconnection
@@ -45,11 +45,18 @@ changes requested).
   DELIBERATELY skipped — reload keeps the hash, drops auto-reconnect,
   crash + quick match lands in the only live room; a stored-roomId prompt
   would only add a stale-room failure mode.
-- **Still pending**: owner in-browser check of the rematch flow (win →
-  Enter → NEW match; two-tab: both Enter → same fresh room; I → link on
-  the clipboard), then the `[human]` provisioning checklist (DEPLOY.md).
-  The netsim feel pass came back clean at 120/20 — `GameConfig.net.sim`
-  keeps those values committed as the dormant profile (`enabled: false`).
+- **Owner-verified 2026-07-06**: Enter after Victory now lands in the
+  right (fresh) room. Not individually exercised yet (low risk, covered
+  by the integration test): the I copy-invite key and the 60s banner
+  linger — flag anything odd during the friends playtest. The netsim feel
+  pass came back clean at 120/20 — `GameConfig.net.sim` keeps those
+  values committed as the dormant profile (`enabled: false`).
+- **Still pending**: the `[human]` provisioning checklist (DEPLOY.md) —
+  the deployment task, now the headline. Branch cleanup done the same
+  day: `feat/reconnect-hosting` merged (`d352660`) and deleted along with
+  every other stale branch; only `main` remains locally, `origin/dev` is
+  the off-machine backup, `origin/main` stays deliberately behind until
+  the server is hosted (first push = same-commit client + server ship).
 
 ## DONE 2026-07-05 — Phase 3 slice: reconnection + hosting artifacts (`feat/reconnect-hosting`, awaiting owner check)
 
