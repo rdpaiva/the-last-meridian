@@ -1,4 +1,4 @@
-import { Room, type Client, ServerError } from "colyseus";
+import { Room, type Client, ServerError, CloseCode } from "colyseus";
 import { StateView } from "@colyseus/schema";
 
 import {
@@ -49,6 +49,13 @@ interface Seat {
   /** This seat's generated AI callsign — worn while AI-flown, restored when
    *  a human occupant leaves (the bot resumes its own designation). */
   aiCallsign: string;
+  /** The occupant's resolved callsign (pilot name, or the AI callsign when
+   *  they joined anonymous) — kept across a disconnect so a reconnection
+   *  restores the name the seat wore. "" when no human is attached. */
+  pilotCallsign: string;
+  /** SessionId holding a reconnection-grace reservation on this seat (the AI
+   *  flies it meanwhile, but claimSeat won't give it away). null = free. */
+  reserved: string | null;
 }
 
 const SIM_HZ = 30;
@@ -201,6 +208,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     // Empty after sanitizing = keep the AI callsign; nobody flies anonymous.
     const pilotName = sanitizePilotName(options.pilotName);
     seat.schema.callsign = pilotName !== "" ? pilotName : seat.aiCallsign;
+    seat.pilotCallsign = seat.schema.callsign; // survives a disconnect for the reclaim
     this.seatBySession.set(client.sessionId, seat);
 
     // Sensor-filtered replication: this client's view starts with every
@@ -222,18 +230,51 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     this.retaskLeader(seat.faction);
   }
 
-  override onLeave(client: Client): void {
+  override async onLeave(client: Client, code?: number): Promise<void> {
     const seat = this.seatBySession.get(client.sessionId);
     if (!seat) return;
     this.seatBySession.delete(client.sessionId);
-    this.clientViews.delete(client.sessionId);
-    // Hand the seat back to its AI brain so the match stays balanced.
+    // Hand the seat back to its AI brain either way — the match stays
+    // balanced whether or not the pilot comes back.
     seat.occupant = null;
     seat.combatant.controller = seat.ai;
     seat.schema.isAI = true;
     seat.schema.owner = "";
     seat.schema.callsign = seat.aiCallsign; // the bot resumes its designation
     this.retaskLeader(seat.faction);
+
+    if (code === CloseCode.CONSENTED) {
+      // Intentional exit (menu/leave(true)): the seat is free immediately.
+      this.clientViews.delete(client.sessionId);
+      seat.pilotCallsign = "";
+      return;
+    }
+
+    // Unexpected drop: hold the seat for the same session while the AI flies
+    // it. The clientViews entry stays ALIVE through the window — sessionId
+    // and client.view both survive a Colyseus reconnection, and letting
+    // syncClientViews keep diffing prevents stale enemy entries from
+    // lingering in the surviving StateView.
+    seat.reserved = client.sessionId;
+    try {
+      await this.allowReconnection(client, GameConfig.net.reconnectGraceSec);
+      // Reclaimed: same restore as onJoin, wearing the name the seat had.
+      seat.reserved = null;
+      seat.occupant = client.sessionId;
+      seat.combatant.controller = seat.net;
+      seat.net.setInput(NEUTRAL_INPUT); // clears any stale pre-drop frames
+      seat.schema.isAI = false;
+      seat.schema.owner = client.sessionId;
+      seat.schema.callsign =
+        seat.pilotCallsign !== "" ? seat.pilotCallsign : seat.aiCallsign;
+      this.seatBySession.set(client.sessionId, seat);
+      this.retaskLeader(seat.faction);
+    } catch {
+      // Window elapsed (or the room disposed): the AI keeps the seat.
+      seat.reserved = null;
+      seat.pilotCallsign = "";
+      this.clientViews.delete(client.sessionId);
+    }
   }
 
   /**
@@ -589,6 +630,8 @@ export class BattleRoom extends Room<{ state: BattleState }> {
           schema,
           lastInputSeq: 0,
           aiCallsign: callsign,
+          pilotCallsign: "",
+          reserved: null,
         };
         this.seats.push(seat);
         this.seatByShip.set(ship, seat);
@@ -604,9 +647,12 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     );
   }
 
-  /** Claim a free AI seat on `faction`, preferring the requested ship type. */
+  /** Claim a free AI seat on `faction`, preferring the requested ship type.
+   *  Seats reserved for a reconnecting pilot are not up for grabs. */
   private claimSeat(faction: Faction, typeId: ShipTypeId): Seat | null {
-    const free = this.seats.filter((s) => s.faction === faction && s.occupant === null);
+    const free = this.seats.filter(
+      (s) => s.faction === faction && s.occupant === null && s.reserved === null,
+    );
     return free.find((s) => s.typeId === typeId) ?? free[0] ?? null;
   }
 

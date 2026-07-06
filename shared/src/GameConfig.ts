@@ -2400,6 +2400,15 @@ export const GameConfig = {
      */
     inputBacklogMax: 2,
     /**
+     * Reconnection grace window (seconds): after a NON-consented disconnect
+     * (tab killed, wifi blip) the server holds the seat this long for the
+     * same session (`allowReconnection`). The AI flies the ship meanwhile —
+     * the match stays balanced — and a successful reclaim restores the
+     * occupant, callsign, and formation leadership. Consented leaves (menu
+     * exit) skip the window entirely.
+     */
+    reconnectGraceSec: 60,
+    /**
      * DEV-ONLY network-condition simulator (like `debug` — not part of play):
      * artificial delay on every message BOTH ways (client→server input/ready
      * sends; server→client state patches + FX event batches), so netcode feel

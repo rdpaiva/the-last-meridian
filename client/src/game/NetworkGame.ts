@@ -382,6 +382,10 @@ export class NetworkGame {
   private cameraSnapped = false;
   private ended = false;
   private connectionLost = false;
+  /** A resume attempt is in flight (unexpected drop, grace window open). */
+  private reconnecting = false;
+  /** Set by dispose() so a room drop during teardown never tries to resume. */
+  private disposing = false;
 
   private static readonly SEND_INTERVAL_MS = 1000 / 30;
   private lastSendMs = 0;
@@ -567,17 +571,66 @@ export class NetworkGame {
         this.recordSnapshot(state);
       }
     });
-    this.net.room.onLeave(() => {
-      this.connectionLost = true;
+
+    // Reconnection (Phase 3): the SDK auto-reconnects the SAME Room object on
+    // a non-consented close (exponential backoff, ~60s of retries — matched
+    // to the server's net.reconnectGraceSec seat hold, where the AI flies our
+    // seat meanwhile). All handlers here survive the reconnect. onDrop marks
+    // the outage (overlay + send/prediction freeze), onReconnect resumes,
+    // onLeave is TERMINAL: consented exit, retries exhausted, or a drop
+    // before the SDK's min-uptime guard.
+    this.net.room.onDrop(() => {
+      if (this.disposing || this.ended) {
+        // Nothing worth resuming into — stop the SDK's retry loop before it
+        // starts (it consults this right after the drop signal), which routes
+        // the close to onLeave instead.
+        this.net.room.reconnection.enabled = false;
+        return;
+      }
+      this.reconnecting = true;
     });
-    this.net.room.onError(() => {
-      this.connectionLost = true;
+    this.net.room.onReconnect(() => this.onReconnected());
+    this.net.room.onLeave(() => {
+      this.reconnecting = false;
+      if (!this.disposing) this.connectionLost = true;
+    });
+    // Errors are informational only: every real disconnect also fires the
+    // close event, and onDrop/onLeave above decide the outcome there.
+    this.net.room.onError((code, message) => {
+      console.warn(`[net] room error ${code}: ${message ?? ""}`);
     });
 
     // End-screen + mute keys (mirrors Game.onKeyDown — the end banner's
     // "Press Enter to restart · Esc for menu" promise has to hold online too;
     // the reload keeps ?online, so restart rejoins a match).
     window.addEventListener("keydown", this.onKeyDown);
+    // A page unload (reload, ESC-to-menu, tab close) is an INTENTIONAL exit:
+    // best-effort consented leave so the server frees the seat immediately
+    // instead of holding it for the reconnection grace window.
+    window.addEventListener("pagehide", this.onPageHide);
+  }
+
+  /**
+   * Back in the room (same sessionId, same seat — the server restored our
+   * occupancy and callsign). The transport is new and the dead gap is
+   * unknowable, so every timeline-derived buffer restarts clean:
+   * interpolation snapshots, the wall↔sim clock offset (hard-resyncs on the
+   * first patch), prediction/reconciliation state, and queued FX — nothing
+   * may interpolate, replay, or play across the gap.
+   */
+  private onReconnected(): void {
+    this.snaps.clear();
+    this.clockOffsetMs = null;
+    this.pendingInputs.length = 0;
+    this.myServer.valid = false;
+    this.predictionActive = false;
+    this.correctionPos.set(0, 0, 0);
+    this.correctionRot = 0;
+    this.fxQueue.length = 0;
+    // Netsim-held inbound: drop, don't play — these predate the drop.
+    this.delayedSnaps.drain(Number.POSITIVE_INFINITY, () => {});
+    this.delayedEvents.drain(Number.POSITIVE_INFINITY, () => {});
+    this.reconnecting = false;
   }
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
@@ -853,6 +906,7 @@ export class NetworkGame {
     if (
       !this.ended &&
       !this.connectionLost &&
+      !this.reconnecting &&
       nowMs - this.lastSendMs >= NetworkGame.SEND_INTERVAL_MS
     ) {
       // Drift-free pacing: advance the send clock by the interval, not to
@@ -1500,7 +1554,14 @@ export class NetworkGame {
     // HP/ammo/pos off this Ship from the first snapshot, launch tube included.
     if (!this.predicted) this.predicted = this.buildPredictedShip(meta);
     const shouldPredict =
-      this.myAlive && !this.myLaunching && !this.ended && !this.connectionLost;
+      this.myAlive &&
+      !this.myLaunching &&
+      !this.ended &&
+      !this.connectionLost &&
+      // While the connection is down the prediction would fly blind (no acks,
+      // no reconciliation) and snap on resume — freeze at the last-known pose
+      // instead; onReconnected re-seeds from the first authoritative patch.
+      !this.reconnecting;
     if (!shouldPredict) {
       this.predictionActive = false;
       this.pendingInputs.length = 0;
@@ -1872,6 +1933,10 @@ export class NetworkGame {
       this.hud.setLaunchOverlay("CONNECTION LOST · refresh to rejoin");
       return;
     }
+    if (this.reconnecting) {
+      this.hud.setLaunchOverlay("CONNECTION LOST — RECONNECTING…");
+      return;
+    }
     if (phase === "ended") {
       if (!this.ended) {
         this.ended = true;
@@ -1892,8 +1957,15 @@ export class NetworkGame {
     this.engine.resize();
   }
 
+  private readonly onPageHide = (): void => {
+    // Best-effort consented leave — frees the seat immediately server-side.
+    void this.net.leave();
+  };
+
   dispose(): void {
+    this.disposing = true;
     window.removeEventListener("keydown", this.onKeyDown);
+    window.removeEventListener("pagehide", this.onPageHide);
     this.netDebug.dispose();
     this.nameplates.dispose(); // DOM layer — scene.dispose won't remove it
     this.input.detach();

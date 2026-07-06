@@ -276,6 +276,74 @@ describe("BattleRoom integration", () => {
   );
 
   it(
+    "holds a dropped seat for reconnection: AI flies it meanwhile, reclaim restores occupant + callsign + leadership",
+    async () => {
+      const room = await colyseus.createRoom(BATTLE_ROOM, {});
+      const inner = room as unknown as {
+        sim: { worldByFaction: Record<string, { leader: unknown }> };
+        seatBySession: Map<string, { combatant: { ship: unknown } }>;
+        seats: Array<{ schema: { id: string }; reserved: string | null }>;
+      };
+      const aiLeader = inner.sim.worldByFaction.humans.leader;
+
+      const client = await colyseus.connectTo(room, joinOpts({ pilotName: "Maverick" }));
+      const sessionId = client.sessionId;
+      const seat = inner.seatBySession.get(sessionId)!;
+      const seatId = [...room.state.ships.values()].find((s) => !s.isAI)!.id;
+      expect(inner.sim.worldByFaction.humans.leader).toBe(seat.combatant.ship);
+
+      // Drop WITHOUT consent (tab kill / wifi blip): close the socket raw.
+      // The test drives the reconnect manually, so the SDK's own auto-retry
+      // loop is disabled for this client.
+      client.reconnection.enabled = false;
+      const token = client.reconnectionToken;
+      await client.leave(false);
+
+      // The AI takes the seat immediately (match stays balanced during the
+      // grace window) and the wing re-forms on its default leader…
+      expect(
+        await waitUntil(() => {
+          const s = room.state.ships.get(seatId);
+          return s !== undefined && s.isAI && s.callsign !== "Maverick";
+        }),
+        "seat never handed back to AI on the drop",
+      ).toBe(true);
+      expect(inner.sim.worldByFaction.humans.leader).toBe(aiLeader);
+      // …but the seat is RESERVED: a new joiner asking for the same ship type
+      // must be given a different seat while the window is open.
+      const droppedSeat = inner.seats.find((s) => s.schema.id === seatId)!;
+      expect(droppedSeat.reserved).toBe(sessionId);
+      const other = await colyseus.connectTo(room, joinOpts({ pilotName: "Poacher" }));
+      const otherSeatId = [...room.state.ships.values()].find(
+        (s) => !s.isAI && s.callsign === "Poacher",
+      )!.id;
+      expect(otherSeatId).not.toBe(seatId);
+      await other.leave(); // consented — frees that seat immediately
+      expect(
+        await waitUntil(() => room.state.ships.get(otherSeatId)!.isAI),
+      ).toBe(true);
+
+      // Reclaim within the window: same session resumes the SAME seat wearing
+      // the pilot's name, and the escort wing re-forms on the human.
+      const resumed = await colyseus.sdk.reconnect(token);
+      expect(resumed.sessionId).toBe(sessionId);
+      expect(
+        await waitUntil(() => {
+          const s = room.state.ships.get(seatId);
+          return s !== undefined && !s.isAI && s.callsign === "Maverick" && s.owner === sessionId;
+        }),
+        "reconnection never restored the seat",
+      ).toBe(true);
+      expect(droppedSeat.reserved).toBeNull();
+      expect(inner.sim.worldByFaction.humans.leader).toBe(seat.combatant.ship);
+      expect(inner.seatBySession.get(sessionId)).toBeDefined();
+
+      await resumed.leave();
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
     "sensor-filters enemy replication (anti-wallhack), friendlies always on the wire",
     async () => {
       const room = await colyseus.createRoom(BATTLE_ROOM, {});
