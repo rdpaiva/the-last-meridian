@@ -114,9 +114,10 @@
 }
 
 #splash-story {
+  position: relative; /* the keyframes animate `top` (wrap-relative) */
   padding: 0 12px 3rem;
   text-align: center;
-  animation: story-scroll 80s linear 1 forwards;
+  animation: story-scroll 55s linear 1 forwards;
   /* Held until the intro state, so the crawl starts from the top each entry. */
   animation-play-state: paused;
 }
@@ -140,9 +141,13 @@
   margin-bottom: 1em;
 }
 
+/* `top` % resolves against the WRAP (the visible window), translateY %
+   against the STORY itself. Starting at top:100% puts the first line at the
+   window's bottom edge — text is visible within a beat instead of spending
+   the first ~30s scrolling a full story-height of dead space into view. */
 @keyframes story-scroll {
-  0%   { transform: translateY(100%); }
-  100% { transform: translateY(-100%); }
+  0%   { top: 100%; transform: translateY(0); }
+  100% { top: 0;    transform: translateY(-100%); }
 }
 
 /* ── Intro footer rail ── */
