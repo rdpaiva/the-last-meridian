@@ -10,28 +10,34 @@ editing instead of searching.
 
 ---
 
-Continue the multiplayer work. The Phase 3 slice (reconnection + hosting
-artifacts) is BUILT on `feat/reconnect-hosting` (2026-07-05, commits
-`a0caf6d` + `2200f5e`, 19/19 tests green) and awaits my in-browser check —
-if I've merged it by the time you read this, branch off `main`; otherwise
-continue on that branch.
+Continue the multiplayer work. **Phase 3 is feature-complete** on
+`feat/reconnect-hosting` (2026-07-06, latest commits `cf0a2a7` room
+lifecycle + `fc3fcb8` invite key, on top of `a0caf6d` reconnection +
+`2200f5e` hosting artifacts; 20/20 tests green). The lifecycle + invite
+slices await my in-browser check — if I've merged the branch by the time
+you read this, branch off `main`; otherwise continue on that branch.
 
 **Read `docs/PHASE1_OPEN_ISSUES.md` first and trust it** — do NOT re-survey
 the codebase; that doc's Architecture notes + the anchors below are accurate.
 
 **State**: online co-op is playable and feels close to single-player on
 LOCALHOST. Merged + owner-verified: Phases 1–2 core, the Phase 2 tail
-(netsim + NetDebugOverlay + sensor-filtered replication), and the identity
-slice (own-ship teal engine tint + callsigns/nameplates). Built this
-session on `feat/reconnect-hosting`: **reconnection** (server holds a
-dropped seat 60s — `GameConfig.net.reconnectGraceSec` — AI flies it
-meanwhile, reclaim restores occupant/callsign/leadership; client rides the
-0.17 SDK's built-in auto-reconnect on the SAME Room object — do NOT
-hand-roll a token loop; page unloads leave consented via `pagehide`) and
-**hosting artifacts** (esbuild ESM server bundle, systemd unit, Caddy +
-nginx configs, manual-only server-deploy workflow, `VITE_SERVER_URL` wired
-into the Pages build from a repo variable — full map in `docs/DEPLOY.md`).
-PROTOCOL_VERSION **16**.
+(netsim + NetDebugOverlay + sensor-filtered replication), the identity
+slice (own-ship teal engine tint + callsigns/nameplates). Owner-verified on
+`feat/reconnect-hosting`: **reconnection** (tab close → RECONNECTING → seat
+back with callsign) and the **latency/jitter feel** at up to 120ms + 20ms
+jitter (expected cross-tab delay only — feel-tuning loop PARKED, no knob
+changes requested). Built 2026-07-06, awaiting my check: **room
+lifecycle** (victory → room locks instantly + disposes after
+`GameConfig.net.endedRoomLingerSec` 60s; Enter on the banner clears the
+`#join=` hash and quick-matches into a FRESH room — this fixes my "Enter
+doesn't restart after Victory" finding, whose root cause was the reload's
+hash rejoining the still-alive ended room; post-end leaves skip the
+reconnection seat-hold; the end banner survives the room's disposal) and
+**copy-invite-link** (the **I** key in an online match copies the address
+bar; MP-only HUD row flashes LINK COPIED; rejoin-last-match prompt
+deliberately skipped — see PHASE1_OPEN_ISSUES). Hosting artifacts are in
+`docs/DEPLOY.md`. PROTOCOL_VERSION **17**.
 
 **Owner goal**: a friends playtest — GitHub Pages client + Colyseus on the
 owner's DigitalOcean VM behind `wss://play.<domain>` (Caddy or the VM's
@@ -45,52 +51,41 @@ ship a client with online entry points and no server behind them.
 Backup-without-deploy option: push a side branch (e.g. `origin/dev`) —
 Pages only tracks main.
 
-**My playtest findings**: <fill in — (a) reconnection check: kill the
-server / drop a tab mid-match → RECONNECTING overlay → seat back with my
-callsign; (b) netsim feel at 40/80/120ms ± jitter, with overlay numbers
-when something spikes>
+**My playtest findings**: <fill in — the rematch flow: win a match, hit
+Enter → lands in a NEW match (not the old banner); two tabs: both hit
+Enter after the end → both land in the SAME fresh room; press I mid-match
+→ invite link on the clipboard, LINK COPIED flashes; idle on the end
+banner ~60s → banner stays up (no CONNECTION LOST repaint), Enter still
+rematches>
 
 **Work order**:
 
-1. **`[human]` feel-tuning loop** (Phase 2 tail, docs/MULTIPLAYER.md — STILL
-   the headline): I fly with `GameConfig.net.sim` at 40/80/120ms
-   (+ `jitterMs` 10–30) and report; you translate reports into
-   `GameConfig.net` changes. Knob → symptom map:
-   - remote ships stutter/hitch → `interpDelayMs` (raise toward
-     patch-interval × 2 + worst jitter; overlay "headroom" going ≤0 =
-     buffer starvation, the smoking gun)
-   - own ship micro-jerks after bumps/combat → `correctionRate` (lower =
-     softer) or `correctionSnapUnits`
-   - own-input feel under jitter → server `inputBacklogMax` (each queued
-     frame ≈ 33ms hidden input latency; overlay "ack lag" creeping = too
-     high, reconciliation blips = too low)
-   Anchors: `shared/src/GameConfig.ts` → `net` (all knobs, commented);
+1. **Fixes from my rematch-flow check, if any**: server seam is
+   `BattleRoom.onMatchEnded` (lock + delayed `disconnect()`), the
+   `matchEnded` branch in `onLeave`, and the `this.sim.ended` check in
+   `step()`; client seam is `NetworkGame.onKeyDown` (Enter/Esc +
+   `clearInviteHash`) and the `this.ended` early-return atop
+   `NetworkGame.updatePhase`. Test: "locks + disposes an ended match…" in
+   `tests/server/battleRoom.test.ts` (it shrinks
+   `GameConfig.net.endedRoomLingerSec` and restores it in `finally`).
+2. **`[human]` provisioning checklist** (docs/DEPLOY.md) — now the
+   headline: DNS for `play.<domain>`, proxy (Caddy or existing nginx),
+   systemd unit, CI secrets/vars, first same-commit deploy. Agent support
+   as asked (debugging a failed unit, tweaking configs), then merge
+   `feat/reconnect-hosting` → `main` and ship.
+3. **Feel-tuning loop** (parked, reopen only if the DEPLOYED game feels
+   worse than the netsim predicted): knob → symptom map — remote ships
+   stutter → `interpDelayMs` (overlay "headroom" ≤0 = buffer starvation);
+   own-ship micro-jerks → `correctionRate`/`correctionSnapUnits`; input
+   feel under jitter → server `inputBacklogMax` (overlay "ack lag" creeping
+   = too high). Anchors: `shared/src/GameConfig.ts` → `net`;
    `client/src/game/NetworkGame.ts` → `recordSnapshot`/`reconcile`/
-   `updatePrediction`; `client/src/game/NetDebugOverlay.ts` (readout);
-   `client/src/net/NetClient.ts` `send` + `client/src/net/DelayQueue.ts`
-   (the netsim halves). Pure retunes of `GameConfig.net` numbers still
-   bump PROTOCOL_VERSION (GameConfig is shared).
-2. **Reconnection polish, if my check surfaces it**: server seam is
-   `BattleRoom.onLeave` (branch on `CloseCode.CONSENTED`; reserve/reclaim
-   around `allowReconnection`; `seat.pilotCallsign`/`seat.reserved`);
-   client seam is the `onDrop`/`onReconnect`/`onLeave` handlers in the
-   `NetworkGame` constructor + `NetworkGame.onReconnected()` (the buffer
-   wipe) + the `reconnecting` gates (input send, `updatePrediction`,
-   `updatePhase` overlay). Test: "holds a dropped seat…" in
-   `tests/server/battleRoom.test.ts` (gotcha: disable the test client's
-   `reconnection.enabled` before `leave(false)` or the SDK auto-reconnects
-   under your assertions).
-3. **Room lifecycle / rematch** (Phase 3 remainder): victory → room
-   disposal + Enter-rematch flow (today Enter reloads into a NEW quick
-   match — `NetworkGame.onKeyDown` `RESTART_FLAG`; `main.ts` `startOnline`
-   reads the `#join=` hash, so a disposed room falls back to quick match
-   already). Mid-match join already works (AI backfill); decide staleness
-   rules (join a nearly-decided match?), maybe `BattleRoom.onBeforeShutdown`.
-   Server room-side anchors: `BattleRoom.onCreate` (autoDispose default),
-   `step()` → `this.sim.state`/`winner`.
-4. **Lobby polish** (Phase 3 remainder, small): connecting/error states on
-   the PLAY ONLINE buttons (`LoadoutMenu.onPlay`, `main.ts startOnline`),
-   copy-invite-link button, rejoin-last-match prompt.
+   `updatePrediction`; `client/src/game/NetDebugOverlay.ts`;
+   `client/src/net/NetClient.ts` `send` + `client/src/net/DelayQueue.ts`.
+   The committed `net.sim` profile is the owner's 120/20 (dormant,
+   `enabled: false`).
+4. **Post-deploy niceties, only if asked**: player count / room browser,
+   spectate, persistent stats — none are scoped; propose before building.
 
 **Rules of the road** (already true in code — don't relearn them):
 
@@ -108,6 +103,7 @@ when something spikes>
   `ShipSchema` means adding it to `NetShip` + `cloneNetState` too.
 - Colyseus 0.17 idioms: server `onLeave(client, code)` + `CloseCode`;
   client SDK auto-reconnects the same Room object (`room.reconnection`
-  options) — work WITH it, never around it.
+  options) — work WITH it, never around it. An ended room LOCKS: joins are
+  refused by design; reconnection reservations still work through a lock.
 - Verify with `npm run typecheck` + `npm test` only — I run the dev server
   and playtest myself. Commit each landed change like previous sessions.

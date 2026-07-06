@@ -3,12 +3,53 @@
 Snapshot for resuming the multiplayer work. Phases 1–2 core, the Phase 2
 tail (netsim + overlay + sensor-filtered replication), AND the identity
 slice (own-ship tint + callsigns/nameplates) are MERGED to `main`
-(`5c162e8`, 2026-07-05, owner-verified); the PHASE 3 slice below
-(reconnection + hosting artifacts) lives on **`feat/reconnect-hosting`**.
-Everything builds + typechecks; the full test suite is **19/19 green**
-(`npm test`). PROTOCOL_VERSION is **16** — stale tabs get a clean join
-rejection (rendered as "NEW VERSION — refresh"), so always reload after
-pulling.
+(`5c162e8`, 2026-07-05, owner-verified); the PHASE 3 work below
+(reconnection + hosting artifacts + room lifecycle + lobby polish) lives
+on **`feat/reconnect-hosting`**. Everything builds + typechecks; the full
+test suite is **20/20 green** (`npm test`). PROTOCOL_VERSION is **17** —
+stale tabs get a clean join rejection (rendered as "NEW VERSION —
+refresh"), so always reload after pulling.
+
+## DONE 2026-07-06 — Phase 3 remainder: room lifecycle + lobby polish (`feat/reconnect-hosting`, awaiting owner check)
+
+Phase 3 is now feature-complete; docs/MULTIPLAYER.md Phase 3 items are all
+checked. Owner-verified the same session's earlier slice: reconnection
+works in-browser (tab close → seat reclaimed), latency/jitter at
+40–120ms + jitter felt as expected (feel-tuning loop parked — no knob
+changes requested).
+
+- **End-of-match room lifecycle** (`cf0a2a7`) — root-caused the owner's
+  "Enter doesn't restart after Victory" finding: nothing ended the ROOM,
+  so the Enter-reload's `#join=<roomId>` hash rejoined the same finished
+  match and the banner just came back. Server: the `playing → ended`
+  transition (`BattleRoom.step` → `onMatchEnded`) **locks** the room — a
+  decided match accepts no new pilots (the staleness rule), so rematch
+  quick-matches create FRESH rooms and stale invite joinByIds are refused
+  (the client already degrades those to a quick match) — then **disposes**
+  it after `GameConfig.net.endedRoomLingerSec` (new shared knob, 60s ⇒
+  PROTOCOL 16→17) via `this.disconnect()`. Leaves after the end skip the
+  reconnection seat-hold (`onLeave` treats them as consented — nothing to
+  reclaim into, and a reservation would delay disposal). Client: Enter/Esc
+  on the end banner clear the invite hash before reloading
+  (`NetworkGame.clearInviteHash`), and `updatePhase` early-returns once
+  `ended` — the room disconnecting under the banner is EXPECTED and may
+  not repaint it as CONNECTION LOST. Friends rematch flow: both hit Enter
+  → both quick-match → joinOrCreate lands them in the same fresh room.
+  Integration test ("locks + disposes an ended match…"): forced win →
+  lock + joinById refusal + fresh joinOrCreate room + reservation-free
+  post-end drop + timed disposal kicking the banner-watcher.
+- **Copy-invite-link key** (`fc3fcb8`): **I** in an online match copies
+  the address bar (which IS the invite link) — dim MP-only HUD row
+  (`Hud.showInviteHint`, pilots-row pattern) flashes LINK COPIED / COPY
+  FAILED. Disabled after the end (room locked). Rejoin-last-match prompt
+  DELIBERATELY skipped — reload keeps the hash, drops auto-reconnect,
+  crash + quick match lands in the only live room; a stored-roomId prompt
+  would only add a stale-room failure mode.
+- **Still pending**: owner in-browser check of the rematch flow (win →
+  Enter → NEW match; two-tab: both Enter → same fresh room; I → link on
+  the clipboard), then the `[human]` provisioning checklist (DEPLOY.md).
+  The netsim feel pass came back clean at 120/20 — `GameConfig.net.sim`
+  keeps those values committed as the dormant profile (`enabled: false`).
 
 ## DONE 2026-07-05 — Phase 3 slice: reconnection + hosting artifacts (`feat/reconnect-hosting`, awaiting owner check)
 

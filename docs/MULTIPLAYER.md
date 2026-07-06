@@ -389,10 +389,19 @@ so tuning passes don't need code changes.
 
 ## Phase 3 — Match flow & infrastructure
 
-- [ ] **Room lifecycle**: countdown/launch with N players, mid-match
-      join (humans replace an AI seat or spawn from a carrier bay),
-      disconnect → `AIController` takes over the ship (reconnect takes
-      it back), victory/defeat → room disposal.
+- [x] **Room lifecycle** (completed 2026-07-06, `feat/reconnect-hosting` —
+      the earlier pieces landed in Phases 1–2): countdown/launch with N
+      players, mid-match join (humans replace an AI seat; a decided match
+      accepts no new pilots), disconnect → `AIController` takes over the
+      ship (reconnect takes it back), victory/defeat → the room locks the
+      moment the phase flips (rematch quick-matches route to FRESH rooms;
+      stale `#join=` invite links fall back to one) and disposes after
+      `GameConfig.net.endedRoomLingerSec` (60s of banner-reading time; the
+      end banner survives the disconnect client-side). Post-end leaves skip
+      the reconnection seat-hold. Enter on the banner clears the invite
+      hash before the reload, so rematch lands in a new match — the owner's
+      "Enter doesn't restart after Victory" finding, root-caused to the
+      reload's hash rejoining the still-alive ended room.
 - [x] **Reconnection** (built 2026-07-05, `feat/reconnect-hosting` — awaiting
       owner in-browser check): non-consented drops hold the seat for
       `GameConfig.net.reconnectGraceSec` (60s) via `allowReconnection`; the
@@ -405,8 +414,15 @@ so tuning passes don't need code changes.
       inputs, fx/netsim queues). Page unloads leave CONSENTED (pagehide) so
       reloads free the seat at once. Integration-tested over the transport
       (drop → AI handback → poach attempt denied → token reclaim).
-- [ ] **Lobby polish**: smooth out the Phase 1 join paths — connecting/
-      error states, copy-invite-link button, rejoin-last-match prompt.
+- [x] **Lobby polish** (completed 2026-07-06): connecting/error states on
+      the PLAY ONLINE paths landed with the entry-polish slice
+      (CONNECTING… + readable failures on the pressed button); copy-invite
+      link = the **I** key in an online match (MP-only HUD row, flashes
+      LINK COPIED — the address bar carries `#join=<roomId>`). The
+      rejoin-last-match prompt was DELIBERATELY dropped: a reload keeps the
+      hash (quick play's primary already reads JOIN FRIENDS' MATCH),
+      in-page drops ride the SDK auto-reconnect, and after a browser crash
+      quick match routes into the only live unlocked room anyway.
 - [x] **Pilot identity — callsigns + nameplates** (owner ask 2026-07-05;
       DONE + owner-verified same day, merged `5c162e8`): CALLSIGN field on
       loadout page 2 → `lastMeridian_pilotName` → `JoinOptions.pilotName`
