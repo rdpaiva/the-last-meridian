@@ -599,7 +599,8 @@ Full design + as-built notes: `docs/JUMP-DRIVE-AND-RESUPPLY.md`. Built sim/view-
 ## Loadout + LoadoutMenu + ShipPreview (splash side/ship select)
 - `Loadout.ts`: the `PlayerLoadout {faction, shipType}` type + localStorage
   persistence under `lastMeridian_faction` / `lastMeridian_ship` /
-  `lastMeridian_introSeen` (the old single-JSON `space-duel-loadout` key is
+  `lastMeridian_introSeen` / `lastMeridian_mode` (solo|online) /
+  `lastMeridian_pilotName` (the old single-JSON `space-duel-loadout` key is
   still read as a fallback and removed on save). Loads are validated against
   `GameConfig.factionShips` (a saved ship that no longer exists falls back to
   the faction's first ship). `hasSavedLoadout()` ("did the player ever pick?")
@@ -607,14 +608,34 @@ Full design + as-built notes: `docs/JUMP-DRIVE-AND-RESUPPLY.md`. Built sim/view-
   GameConfig defaults) — only a real save unlocks the quick-play screen.
   `Game` takes the loadout as a constructor param and copies it —
   `GameConfig.player.faction/shipType` remain the build-time DEFAULTS only.
-- `LoadoutMenu.ts`: plain-DOM progressive reveal injected into `#loadout`:
-  faction cards → selected-faction description → ONLY that faction's ship
-  cards (thumbnail + role + 2 key bars) → the hangar preview panel (live 3D +
-  full stat bars) → PLAY. Fully keyboard-driven (←/→ select, ↑/↓ row; Enter
-  is owned by main.ts and shares the PLAY path). Stats read straight from
-  `GameConfig.shipTypes`, normalized against catalog maxima. Every selection
-  change saves immediately; `commit()` persists + detaches the key handler
-  before the Game's own keys come up.
+- `LoadoutMenu.ts`: plain-DOM THREE-STEP flow injected into `#loadout`,
+  rendered inside a fixed frame that cannot overlap on short screens: a
+  3-row grid of header rail (title · step dots MODE/HANGAR/MISSION · gold
+  PILOT chip) / scrollable stage / footer rail (CONTROLS + REPLAY INTRO +
+  MATCH SETTINGS links · BACK + NEXT/LAUNCH · key hint). Card heights scale
+  with the viewport (`clamp(..vh..)`), the stage scrolls as a last resort,
+  and nothing is position:fixed — that trio is the layout contract; don't
+  reintroduce hard min-heights or centered-flex overflow. The steps:
+  1. MODE — solo vs. multiplayer as big headline boxes + the callsign as a
+     "pilot registration" input (feeds the PILOT chip live; persists per
+     keystroke via `savePilotName`, always set as a DOM property, never
+     interpolated into innerHTML — sanitizePilotName allows `<>&`).
+  2. HANGAR — faction cards → the selected side's roster column beside the
+     live preview panel (3D turntable + full stat bars).
+  3. MISSION — solo: difficulty + arena cards; online: a quick-match/invite
+     briefing instead (the server owns the battlefield, so no pickers).
+  Fully keyboard-driven (←/→ select, ↑/↓ row, ENTER next-then-launch, ESC
+  back — LoadoutMenu owns Enter in factionSelect). LAUNCH fires
+  `onPlay(mode)` with the step-1 choice; an invite link preselects online.
+  Stats read straight from `GameConfig.shipTypes`, normalized against
+  catalog maxima. Every selection change saves immediately; `commit()`
+  persists + detaches the key handler before the Game's own keys come up.
+  The footer's action links come from main.ts as `LoadoutActions`
+  callbacks; the flight-controls overlay (`#controls-overlay`, index.html)
+  replaces the old always-visible key list — CLOSE/backdrop/Esc dismiss it.
+  The nebula backdrop behind the frame is `--splash-bg` (set by main.ts
+  from `images/Meridian-Splash.jpg`, BASE_URL-resolved) under a gradient
+  scrim, keyed to `data-state="factionSelect"`.
 - `ShipPreview.ts`: a SECOND, standalone Babylon engine/scene for the splash
   only — one live rotating GLB ("hangar" turntable) + cached one-frame
   data-URL thumbnails for the ship cards (never a render loop per card).

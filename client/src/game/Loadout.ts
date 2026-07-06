@@ -26,6 +26,7 @@ const FACTION_KEY = "lastMeridian_faction";
 const SHIP_KEY = "lastMeridian_ship";
 const INTRO_KEY = "lastMeridian_introSeen";
 const PILOT_NAME_KEY = "lastMeridian_pilotName";
+const MODE_KEY = "lastMeridian_mode";
 /** Pre-rename single-JSON key — still read as a fallback, removed on save. */
 const LEGACY_KEY = "space-duel-loadout";
 
@@ -116,6 +117,28 @@ export function savePilotName(name: string): void {
     localStorage.setItem(PILOT_NAME_KEY, sanitizePilotName(name));
   } catch {
     // Storage unavailable — the name just won't persist across sessions.
+  }
+}
+
+/**
+ * The launch mode picked on the splash mode screen ("solo" | "online"),
+ * persisted like every other loadout selection so the menu reopens on the
+ * mode the pilot last flew. An invite link in the URL overrides the saved
+ * value at menu construction (the player came to join a friend).
+ */
+export function loadSavedMode(): "solo" | "online" {
+  try {
+    return localStorage.getItem(MODE_KEY) === "online" ? "online" : "solo";
+  } catch {
+    return "solo";
+  }
+}
+
+export function saveMode(mode: "solo" | "online"): void {
+  try {
+    localStorage.setItem(MODE_KEY, mode);
+  } catch {
+    // Storage unavailable — the mode just won't persist across sessions.
   }
 }
 

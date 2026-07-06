@@ -27,8 +27,8 @@ import {
  *                 intro. Skip Intro is ALWAYS visible from second zero.
  *   intro         The cinematic: color fades up, music starts, the story
  *                 crawl plays once. Ends (or Skip) → factionSelect.
- *   factionSelect CHOOSE YOUR SIDE — faction cards, the selected faction's
- *                 ships, the rotating hangar preview, PLAY.
+ *   factionSelect The three-step loadout frame (LoadoutMenu.ts): mode +
+ *                 callsign → faction/ship hangar → mission setup → launch.
  *   quickPlay     Returning players (saved loadout + intro seen): Continue
  *                 line · [PLAY] · Change Faction / Replay Intro.
  *
@@ -73,6 +73,12 @@ applyStoredOverrides();
 
 // Set src via JS so BASE_URL is resolved correctly for GitHub Pages.
 splashPoster.src = `${import.meta.env.BASE_URL}images/The-Last-Meridian-Poster.jpg`;
+// The loadout screens' nebula backdrop (CSS reads --splash-bg under
+// data-state="factionSelect") — set here for the same BASE_URL reason.
+splash.style.setProperty(
+  "--splash-bg",
+  `url("${import.meta.env.BASE_URL}images/Meridian-Splash.jpg")`,
+);
 
 // ── Splash music / audio unlock ────────────────────────────────────────────
 // Routed through the Web Audio API, NOT an HTML5 <audio> element. This is the
@@ -258,10 +264,12 @@ let settings: SettingsMenu | null = null;
 let settingsReturn: SplashState = "landing";
 
 /** "Match Settings · N modified" when off defaults — the at-a-glance cue
- *  that the next launch won't run stock tuning. */
+ *  that the next launch won't run stock tuning. Mirrored into the loadout's
+ *  footer rail (which renders its own settings link) via menu.refresh(). */
 function updateSettingsBadge(): void {
   const n = overrideCount();
   settingsBtn!.textContent = n > 0 ? `Match Settings · ${n} modified` : "Match Settings";
+  menu?.refresh();
 }
 
 function setState(next: SplashState): void {
@@ -296,9 +304,23 @@ function setState(next: SplashState): void {
     }
     case "factionSelect":
       // Built lazily on first entry; both survive return visits (e.g. via
-      // Change Faction) with their loaded GLBs and thumbnails intact.
+      // Change Faction) with their loaded GLBs and thumbnails intact. The
+      // actions land in the loadout's footer rail (the old poster-overlay
+      // links don't show in this state anymore).
       if (!preview) preview = new ShipPreview();
-      if (!menu) menu = new LoadoutMenu(loadoutRoot!, preview, startGame);
+      if (!menu) {
+        menu = new LoadoutMenu(loadoutRoot!, preview, startGame, {
+          replayIntro: () => {
+            unlockAudio();
+            setState("intro");
+          },
+          openSettings: () => {
+            unlockAudio();
+            settingsReturn = state;
+            setState("settings");
+          },
+        });
+      }
       preview.start();
       break;
     case "settings":

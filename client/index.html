@@ -54,15 +54,23 @@
       </div>
       <div id="splash-panel">
         <div id="loadout"></div>
-        <div id="splash-controls">
-          <div class="ctrl-row"><span class="ctrl-key">W / ↑</span><span class="ctrl-desc">Thrust forward</span></div>
-          <div class="ctrl-row"><span class="ctrl-key">S / ↓</span><span class="ctrl-desc">Reverse thrust</span></div>
-          <div class="ctrl-row"><span class="ctrl-key">A / ← · D / →</span><span class="ctrl-desc">Rotate</span></div>
-          <div class="ctrl-row"><span class="ctrl-key">Q · E</span><span class="ctrl-desc">Strafe left / right</span></div>
-          <div class="ctrl-row"><span class="ctrl-key">Space</span><span class="ctrl-desc">Fire lasers</span></div>
-          <div class="ctrl-row"><span class="ctrl-key">Shift</span><span class="ctrl-desc">Launch missile</span></div>
-          <div class="ctrl-row"><span class="ctrl-key">+ / −</span><span class="ctrl-desc">Zoom</span></div>
-          <div class="ctrl-row"><span class="ctrl-key">Esc</span><span class="ctrl-desc">Back to menu</span></div>
+      </div>
+      <!-- Flight-controls overlay — opened from the loadout footer's CONTROLS
+           link (LoadoutMenu.ts); CLOSE, a backdrop click, or Esc dismisses. -->
+      <div id="controls-overlay">
+        <div id="controls-panel">
+          <div class="controls-title">Flight Controls</div>
+          <div class="ctrl-grid">
+            <span class="ctrl-key">W / ↑</span><span class="ctrl-desc">Thrust forward</span>
+            <span class="ctrl-key">S / ↓</span><span class="ctrl-desc">Reverse thrust</span>
+            <span class="ctrl-key">A / ← · D / →</span><span class="ctrl-desc">Rotate</span>
+            <span class="ctrl-key">Q · E</span><span class="ctrl-desc">Strafe left / right</span>
+            <span class="ctrl-key">Space</span><span class="ctrl-desc">Fire lasers</span>
+            <span class="ctrl-key">Shift</span><span class="ctrl-desc">Launch missile</span>
+            <span class="ctrl-key">+ / −</span><span class="ctrl-desc">Zoom</span>
+            <span class="ctrl-key">Esc</span><span class="ctrl-desc">Back to menu</span>
+          </div>
+          <button id="controls-close">CLOSE</button>
         </div>
       </div>
       <!-- Match-settings overlay (data-state="settings") — SettingsMenu.ts

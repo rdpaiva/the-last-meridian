@@ -2,7 +2,7 @@
 /* The splash is a state machine driven by main.ts via data-state on #splash:
      landing        title poster + ENTER THE MERIDIAN + Skip Intro
      intro          story crawl + Skip Intro
-     factionSelect  right panel revealed: factions → ships → hangar preview
+     factionSelect  the loadout frame: mode + callsign → hangar → mission
      quickPlay      Continue line + PLAY + Change Faction / Replay Intro
    Every state-dependent element is hidden by default and revealed by a
    data-state rule below — no JS show/hide beyond setting the attribute. */
@@ -70,20 +70,33 @@
   overflow-x: hidden;
 }
 
+/* The loadout screens trade black for the nebula backdrop (main.ts sets
+   --splash-bg with the BASE_URL-resolved image); the gradient scrim keeps
+   the cards legible over the bright meridian horizon. */
+#splash[data-state="factionSelect"] {
+  background-image:
+    linear-gradient(rgba(3, 4, 10, 0.62), rgba(3, 4, 10, 0.78)),
+    var(--splash-bg, none);
+  background-size: cover;
+  background-position: center;
+}
+
+/* Full-bleed frame: the panel stops being a centered column — #loadout
+   renders its own header/footer rails and the stage between them scrolls,
+   so nothing can overlap on short screens. */
 #splash[data-state="factionSelect"] #splash-panel {
   display: flex;
-  /* Centered column in the MIDDLE of the page (the poster is dropped below),
-     not a panel pinned to the poster's right edge. #splash's
-     justify-content:center does the centering once the poster column collapses. */
-  flex: 0 1 960px;
+  flex: 1 1 auto;
   width: 100%;
-  margin: 0 auto;
+  min-width: 0;
   border-left: none;
-  padding-bottom: 60px; /* clear the bottom-pinned Match Settings link */
+  padding: 0;
+  overflow: hidden; /* the stage scrolls, not the panel */
+  background: none;
 }
 
 /* Faction select trades the cinematic poster for room: collapse the poster
-   column to width 0 so the loadout sits centered in the page. */
+   column to width 0 so the loadout frame spans the page. */
 #splash[data-state="factionSelect"] #splash-poster {
   display: none;
 }
@@ -92,13 +105,6 @@
   flex: 0 0 0;
   width: 0;
   min-width: 0;
-}
-
-/* The Match Settings link normally rides the poster overlay; with the poster
-   gone it would squash into the collapsed column, so pin it to the viewport —
-   centered along the bottom — to keep it reachable. */
-#splash[data-state="factionSelect"] #splash-actions {
-  position: fixed;
 }
 
 /* ── Cinematic story crawl (over the poster's upper half) ── */
@@ -195,15 +201,14 @@
 #splash[data-state="landing"] #splash-skip,
 #splash[data-state="intro"] #splash-skip,
 #splash[data-state="quickPlay"] #splash-change,
-#splash[data-state="quickPlay"] #splash-replay,
-#splash[data-state="factionSelect"] #splash-replay {
+#splash[data-state="quickPlay"] #splash-replay {
   display: inline-block;
 }
 
-/* The dev tuning screen is reachable from every non-intro stage. */
+/* The dev tuning screen is reachable from every non-intro stage (the loadout
+   screens reach it via their own footer-rail link instead). */
 #splash[data-state="landing"] #splash-settings,
-#splash[data-state="quickPlay"] #splash-settings,
-#splash[data-state="factionSelect"] #splash-settings {
+#splash[data-state="quickPlay"] #splash-settings {
   display: inline-block;
 }
 
@@ -211,8 +216,8 @@
   display: flex;
 }
 
-/* In factionSelect the PLAY button lives in the panel; the per-element rules
-   above leave only the Match Settings link on the poster overlay. */
+/* In factionSelect every action (launch, replay intro, match settings) lives
+   in the loadout frame itself — the poster overlay shows nothing there. */
 
 /* Primary button — ENTER THE MERIDIAN on landing, PLAY on quick play. */
 #splash-primary {
@@ -331,16 +336,163 @@
   color: #f9e2af;
 }
 
-/* ── Loadout select (side + ship) ── */
+/* ── Loadout select (mode → hangar → mission) ── */
+/* The frame that makes overlap impossible: a 3-row grid of header rail /
+   stage / footer rail. The rails are always visible; the stage scrolls when
+   a short viewport can't fit a step's cards (their heights also scale with
+   vh via clamp(), so scrolling is the last resort, not the norm). */
 
 #loadout {
-  /* Grow into the panel's spare height — the faction row (below) absorbs
-     it, so the portrait cards get as tall as the viewport allows. */
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+/* ── The rails ── */
+
+.lo-rail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 26px;
+}
+
+.lo-rail-top {
+  border-bottom: 1px solid rgba(120, 140, 200, 0.12);
+  background: rgba(5, 7, 14, 0.4);
+}
+
+.lo-rail-bot {
+  border-top: 1px solid rgba(120, 140, 200, 0.12);
+  background: rgba(5, 7, 14, 0.4);
+  padding: 11px 26px;
+}
+
+.lo-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: #eef2ff;
+  white-space: nowrap;
+}
+
+.lo-steps {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.lo-step-dot {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: #5b6680;
+}
+
+.lo-step-dot::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid #5b6680;
+}
+
+.lo-step-dot.done::before {
+  background: #5b6680;
+}
+
+.lo-step-dot.now {
+  color: #89b4fa;
+}
+
+.lo-step-dot.now::before {
+  background: #89b4fa;
+  border-color: #89b4fa;
+  box-shadow: 0 0 8px rgba(137, 180, 250, 0.7);
+}
+
+/* PILOT · CALLSIGN — the registered identity riding every screen. */
+.lo-pilot {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #f9e2af;
+  border: 1px solid rgba(249, 226, 175, 0.35);
+  border-radius: 3px;
+  padding: 5px 10px;
+  white-space: nowrap;
+}
+
+.lo-pilot-label {
+  color: #5b6680;
+}
+
+/* Footer thirds: utils left, CTAs centered, key hint right. */
+.lo-utils {
+  flex: 1 1 0;
+  display: flex;
+  gap: 18px;
+}
+
+.lo-hint-side {
+  flex: 1 1 0;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.lo-util {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #5b6680;
+  padding: 4px 0;
+  border-bottom: 1px solid transparent;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.lo-util:hover {
+  color: #8a96b8;
+  border-bottom-color: rgba(120, 140, 200, 0.3);
+}
+
+.lo-ctas {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ── The stage (between the rails) ── */
+
+.lo-stage {
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  padding: 20px 26px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+}
+
+/* margin:auto centers the step vertically when there's spare height and
+   degrades to a normal scrolling block when there isn't (no centered-flex
+   overflow — the old page-2 bug). */
+.lo-stage-inner {
+  width: 100%;
+  max-width: 940px;
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(12px, 2.4vh, 22px);
 }
 
 .loadout-heading {
@@ -357,16 +509,6 @@
   display: flex;
   gap: 14px;
   justify-content: center;
-}
-
-/* The faction row soaks up whatever height the panel has to spare, so the
-   portraits show as much of the art as the screen allows; the ship row and
-   preview below keep their natural height. On short screens it bottoms out
-   at the cards' min-height and the panel scrolls instead. */
-#loadout-factions {
-  flex: 1 1 auto;
-  min-height: 0;
-  align-items: stretch;
 }
 
 .loadout-card {
@@ -404,7 +546,9 @@
   position: relative;
   flex: 1 1 0;
   max-width: 460px;
-  min-height: 200px;
+  /* Scales with the viewport instead of a hard 200px floor — the old fixed
+     min-height is what shoved the portraits over the ship row on laptops. */
+  height: clamp(120px, 22vh, 210px);
   padding: 0;
   border-width: 2px;
   border-radius: 10px;
@@ -644,20 +788,179 @@ video.faction-portrait-video {
   border-color: rgba(120, 140, 200, 0.45);
 }
 
-/* ── Mission-setup page (step 2): center the column so the cards aren't
-   crammed at the top, and let each section breathe. ── */
-#loadout[data-step="2"] {
+/* ── Step 1: mode select (the headline boxes) + pilot registration ── */
+
+.mode-row {
+  gap: 20px;
+}
+
+.mode-card {
+  flex: 1 1 0;
+  max-width: 380px;
+  padding: clamp(18px, 3.4vh, 34px) 30px clamp(16px, 3vh, 28px);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  border-radius: 10px;
+  color: #89b4fa; /* the glyph strokes (currentColor) */
+}
+
+.mode-glyph {
+  height: clamp(44px, 8vh, 74px);
+  display: flex;
+  align-items: center;
   justify-content: center;
-  gap: 26px;
 }
 
-#loadout[data-step="2"] .loadout-row {
-  gap: 18px;
+.mode-glyph svg {
+  height: 100%;
+  width: auto;
+  opacity: 0.9;
 }
 
-#loadout[data-step="2"] .loadout-subheading {
-  font-size: 13px;
-  margin-bottom: 2px;
+.mode-name {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: #eef2ff;
+}
+
+.mode-desc {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: #8a96b8;
+  max-width: 34ch;
+  margin: 0 auto;
+}
+
+/* "SELECTED" ribbon — mirrors the faction cards' treatment. */
+.mode-badge {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  padding: 4px 9px;
+  border-radius: 3px;
+  color: #05070e;
+  background: #89b4fa;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.18s, transform 0.18s;
+}
+
+.mode-card.selected {
+  border-color: #89b4fa;
+  background: rgba(137, 180, 250, 0.07);
+  box-shadow: 0 0 0 1px rgba(137, 180, 250, 0.5), 0 0 22px rgba(137, 180, 250, 0.25);
+}
+
+.mode-card.selected .mode-badge {
+  opacity: 1;
+  transform: none;
+}
+
+.loadout-row.active .mode-card:not(.selected) {
+  border-color: rgba(120, 140, 200, 0.45);
+}
+
+/* Callsign — pilot registration, the one gold moment on the splash. */
+.callsign-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.callsign-label {
+  font-size: 10px;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: #f9e2af;
+}
+
+.callsign-input {
+  width: min(420px, 90%);
+  padding: 13px 18px;
+  text-align: center;
+  background: rgba(11, 13, 22, 0.8);
+  color: #f9e2af;
+  border: 1px solid rgba(249, 226, 175, 0.4);
+  border-radius: 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  outline: none;
+  box-shadow: 0 0 0 1px rgba(249, 226, 175, 0.08), 0 0 24px rgba(249, 226, 175, 0.07);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.callsign-input:focus {
+  border-color: #f9e2af;
+  box-shadow: 0 0 0 1px rgba(249, 226, 175, 0.25), 0 0 34px rgba(249, 226, 175, 0.18);
+}
+
+.callsign-input::placeholder {
+  color: rgba(249, 226, 175, 0.28);
+  font-weight: 400;
+}
+
+.callsign-note {
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  color: #5b6680;
+}
+
+/* ── Step 2: the hangar grid — roster column beside the live preview ── */
+
+.hangar-grid {
+  display: grid;
+  grid-template-columns: 250px 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.loadout-roster {
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+}
+
+.loadout-roster .ship-card {
+  max-width: none;
+}
+
+/* ── Step 3 (online): the quick-match / invite briefing ── */
+
+.online-note {
+  text-align: center;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: #8a96b8;
+  border: 1px dashed rgba(249, 226, 175, 0.3);
+  border-radius: 6px;
+  padding: 16px 22px;
+  max-width: 540px;
+  margin: 0 auto;
+}
+
+.online-note b {
+  color: #f9e2af;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.mission-summary {
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: #7f8aa6;
 }
 
 /* When the faction row is the active one, frame the unselected side too. */
@@ -753,8 +1056,7 @@ video.faction-portrait-video {
   display: flex;
   gap: 16px;
   width: 100%;
-  max-width: 720px;
-  margin: 0 auto;
+  min-width: 0; /* grid item — don't force the hangar column wider */
   padding: 14px;
   box-sizing: border-box;
   border: 1px solid rgba(120, 140, 200, 0.25);
@@ -778,7 +1080,9 @@ video.faction-portrait-video {
 #ship-preview-stage {
   position: relative;
   flex: 1.25;
-  min-height: 230px;
+  /* vh-scaled like the faction cards — a hard floor here would push the
+     footer rail's content on short screens (the stage scrolls instead). */
+  min-height: clamp(140px, 24vh, 230px);
   border-radius: 6px;
   overflow: hidden;
   background: #04060c;
@@ -883,19 +1187,7 @@ video.faction-portrait-video {
   box-shadow: 0 0 18px rgba(243, 139, 168, 0.3);
 }
 
-/* Page 2's button row — BACK alongside PLAY. */
-.loadout-actions {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-}
-
-.loadout-actions .loadout-cta {
-  align-self: auto;
-}
-
-/* BACK — subdued secondary, steps to page 1. */
+/* BACK — subdued secondary, steps back one page. */
 .loadout-back {
   padding: 12px 28px;
   background: none;
@@ -914,96 +1206,89 @@ video.faction-portrait-video {
   color: #cdd6f4;
 }
 
-/* Pilot callsign field (page 2) — a field, not a menu: one labelled input
-   above the action row. The name persists per keystroke (Loadout.ts) and
-   rides the online join as the seat's callsign. */
-.pilot-name-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
-
-.pilot-name-row label {
-  font-size: 9px;
-  letter-spacing: 0.26em;
-  text-transform: uppercase;
-  color: #5b6680;
-}
-
-.pilot-name-row input {
-  width: 220px;
-  padding: 8px 12px;
-  background: rgba(11, 13, 22, 0.6);
-  border: 1px solid rgba(120, 140, 200, 0.3);
-  border-radius: 4px;
-  color: #cdd6f4;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
-  letter-spacing: 0.1em;
-  text-align: center;
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.pilot-name-row input:focus {
-  border-color: rgba(180, 196, 240, 0.55);
-}
-
-.pilot-name-row input::placeholder {
-  color: #4a5470;
-  letter-spacing: 0.08em;
-}
-
-/* "STEP n OF 2" — quiet page indicator above the action button. */
-.loadout-step {
-  text-align: center;
-  font-size: 9px;
-  letter-spacing: 0.26em;
-  text-transform: uppercase;
-  color: #5b6680;
-}
-
 .loadout-hint {
-  text-align: center;
+  text-align: right;
   font-size: 10px;
   letter-spacing: 0.08em;
   color: #5b6680;
 }
 
-/* ── Controls (right panel, beneath the loadout) ── */
+/* ── Flight-controls overlay ── */
+/* The old always-in-flow keyboard list (it cost ~260px and crushed the
+   mission page on laptops) is now a dismissable overlay behind the footer
+   rail's CONTROLS link. LoadoutMenu toggles .open; CLOSE / backdrop / Esc
+   dismiss. */
 
-#splash-controls {
-  flex-shrink: 0;
-  align-self: center;
-  width: 100%;
-  max-width: 420px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  border-top: 1px solid rgba(120, 140, 200, 0.15);
-  border-bottom: 1px solid rgba(120, 140, 200, 0.15);
-  padding: 12px 0;
+#controls-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(3, 4, 10, 0.86);
+  backdrop-filter: blur(3px);
+  align-items: center;
+  justify-content: center;
 }
 
-.ctrl-row {
+#controls-overlay.open {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+}
+
+#controls-panel {
+  border: 1px solid rgba(120, 140, 200, 0.3);
+  border-radius: 8px;
+  background: #0b0d16;
+  padding: 26px 36px 24px;
+  width: min(460px, 92%);
+}
+
+.controls-title {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: #eef2ff;
+  margin-bottom: 16px;
+}
+
+.ctrl-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 7px 16px;
   font-size: 12px;
 }
 
 .ctrl-key {
-  min-width: 150px;
   text-align: right;
   color: #89b4fa;
   letter-spacing: 0.04em;
-  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .ctrl-desc {
   color: #7f8aa6;
   letter-spacing: 0.02em;
+}
+
+#controls-close {
+  display: block;
+  margin: 20px auto 0;
+  padding: 9px 30px;
+  background: none;
+  border: 1px solid rgba(120, 140, 200, 0.3);
+  border-radius: 4px;
+  color: #8a96b8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+#controls-close:hover {
+  border-color: rgba(180, 196, 240, 0.55);
+  color: #cdd6f4;
 }
 
 /* ── Small screens: stack the columns, let the panel scroll ── */
@@ -1038,25 +1323,45 @@ video.faction-portrait-video {
     padding: 14px 14px 20px;
   }
 
-  /* Stacked layout: undo the desktop centered-column sizing so the panel
-     fills the narrow viewport top-to-bottom. */
+  /* The loadout frame already spans the viewport; just tighten the rails
+     and stack what was side-by-side. */
   #splash[data-state="factionSelect"] #splash-panel {
-    flex: 1 1 auto;
-    max-width: none;
-    margin: 0;
-    padding-bottom: 20px;
+    padding: 0;
   }
 
-  .faction-card {
-    min-height: 150px;
+  .lo-rail,
+  .lo-rail-bot {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  /* Step dots and the key hint are desktop niceties — the narrow rail
+     keeps title + pilot chip (top) and utils + CTAs (bottom). */
+  .lo-steps,
+  .lo-hint-side {
+    display: none;
+  }
+
+  .lo-utils {
+    flex: 0 1 auto;
+    gap: 12px;
+  }
+
+  .mode-row {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .mode-card {
+    width: 100%;
+  }
+
+  .hangar-grid {
+    grid-template-columns: 1fr;
   }
 
   #ship-preview {
     flex-direction: column;
-  }
-
-  #ship-preview-stage {
-    min-height: 190px;
   }
 
   #splash-actions {
