@@ -44,15 +44,20 @@ them. Status summary belongs in `docs/ROADMAP.md` as phases complete.
   sim halves land in `src/game/sim/`, views in `src/game/view/` — the
   Phase 1 restructure is then a history-preserving `git mv` in a
   commit with zero content changes.
-- **Hosting/deploy: single small VPS, kept boring.** Server = ONE
-  esbuild bundle (`--platform=node --bundle` over server+shared) run
-  under a systemd unit (`Restart=always`, logs in journald — no pm2,
+- **Hosting/deploy: single small VPS, kept boring.** LIVE since
+  2026-07-06 (docs/DEPLOY.md is the operational source of truth). Server
+  = ONE esbuild bundle (`--platform=node --bundle` over server+shared)
+  run under a systemd unit (`Restart=always`, logs in journald — no pm2,
   no Docker at this scale). Caddy in front for auto-TLS:
-  `play.<domain> → reverse_proxy localhost:2567` gives `wss://`; the
-  Node app never touches certificates. Deploy = GitHub Action on main:
-  typecheck + build all packages, scp the bundle, restart the unit,
-  publish the client static build. Client stays a static site
-  (GitHub/Cloudflare Pages); `VITE_SERVER_URL` baked at build time.
+  `play.the-last-meridian.com → reverse_proxy localhost:2567` gives
+  `wss://`; the Node app never touches certificates. The client ALSO
+  lives on the same droplet (decided 2026-07-06, superseding the
+  original GitHub Pages plan): static Vite bundle served by the same
+  Caddy at `https://the-last-meridian.com`; `VITE_SERVER_URL` baked at
+  build time. Deploy = ONE manual-dispatch GitHub Action ("Deploy
+  game"): typecheck + test + build both halves from one checkout, scp,
+  atomic swaps, unit restart — manual, not on-push, so a push can't
+  surprise-restart live matches.
   **Hard requirement: PLAY SOLO works with the server down.** Colyseus
   Cloud is the fallback if ops becomes a drag.
 - **Protocol version guards client/server skew.** `GameConfig` + the
@@ -444,10 +449,15 @@ so tuning passes don't need code changes.
       config (colyseus mirrors the origin; lock-down note in DEPLOY.md).
       The provisioning checklist for the `[human]` task below lives in
       DEPLOY.md.
-- [ ] `[human]` **Provisioning**: buy the VPS, point the subdomain's
-      DNS A record at it, install Caddy + the unit file per the
-      checklist, add the SSH deploy key as a repo secret, first
-      deploy. Accounts/credentials work — agents must not attempt it.
+- [x] `[human]` **Provisioning** (DONE 2026-07-06 — the game is LIVE):
+      DigitalOcean droplet (1GB, Ubuntu 24.04, Node 22 + Caddy via
+      cloud-init), DNS A records for `play.the-last-meridian.com`
+      (server) and the apex (client), deploy user + repo secrets, CI
+      path verified end-to-end. Same day, the client moved off GitHub
+      Pages onto the same droplet (`https://the-last-meridian.com`,
+      Pages unpublished, Vite base `/`) and the two deploy workflows
+      merged into one manual-dispatch **"Deploy game"** (same-commit
+      rule now automatic). Full provisioned-state record: docs/DEPLOY.md.
 - [ ] `[human]` **Playtest pass**: real humans, real latency (not
       localhost) — tune patch rate, interpolation delay, prediction
       smoothing via the Phase 2 tunables.

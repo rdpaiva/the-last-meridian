@@ -538,14 +538,16 @@ implemented yet. Roughly ordered by gameplay value.
   netcode feel (prediction + reconciliation, sim-clock interpolation,
   netsim + debug overlay), sensor-filtered replication (anti-wallhack) —
   plus the Phase 3 identity slice (own-ship teal engine tint, two-word AI
-  callsigns + nameplates, typed pilot name). Online co-op is PLAYABLE on
-  localhost. **Reconnection + hosting artifacts BUILT** (2026-07-05,
-  `feat/reconnect-hosting`, awaiting owner check): dropped seats held 60s
-  with AI cover + reclaim, and the full deploy kit (server bundle, systemd
-  unit, Caddy/nginx configs, workflows — `docs/DEPLOY.md`). Remaining
-  (Phase 3): the `[human]` netsim feel pass, the `[human]` provisioning
-  checklist (DNS/proxy/certs/first deploy on the owner's DigitalOcean VM),
-  room lifecycle/rematch, lobby polish. Full phased plan + status:
+  callsigns + nameplates, typed pilot name). Online co-op is **LIVE ON THE
+  INTERNET** (2026-07-06): client at `https://the-last-meridian.com`,
+  server at `wss://play.the-last-meridian.com` — one DigitalOcean
+  droplet, Caddy auto-TLS, one manual-dispatch "Deploy game" workflow
+  shipping both halves from the same commit (`docs/DEPLOY.md` records
+  the full provisioned state). Reconnection (dropped seats held 60s with
+  AI cover + reclaim), room lifecycle/rematch, and lobby polish are
+  merged and owner-verified; the feel-tuning loop stays parked unless
+  the deployed game feels worse than the netsim predicted. Remaining:
+  the friends playtest itself. Full phased plan + status:
   `docs/MULTIPLAYER.md`; session handoff: `docs/AGENT_KICKOFF.md`.
 
 > **Carry-over (FIXED in Phase 4):** the catapult launch is now oriented to the

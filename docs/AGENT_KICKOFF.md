@@ -61,15 +61,11 @@ playtest results: what broke, what felt off, overlay numbers if netcode>
 
 **Work order**:
 
-1. **Finish the apex-domain move** (client → `the-last-meridian.com`,
-   started 2026-07-06; server side + client bundle already live on the
-   droplet): `[human]` add the apex A record (`@` → droplet IP — Caddy
-   auto-issues the cert once DNS resolves; it's already retrying),
-   `[human]` disable GitHub Pages in repo Settings (workflow is deleted,
-   the stale Pages copy should stop serving), then one owner dispatch of
-   Actions → **"Deploy game"** to prove the unified client+server path,
-   and a two-browser match at `https://the-last-meridian.com`. Then
-   invite friends.
+1. **The friends playtest** — everything before it is DONE and
+   owner-verified working (2026-07-06): apex DNS + cert live, Pages
+   unpublished (old URL 404s), unified "Deploy game" workflow proven
+   end-to-end, matches join at `https://the-last-meridian.com`. Just
+   invite friends and play; bring findings back as work items.
 2. **Fixes from the friends playtest, if any** — rematch/lifecycle seams
    if something surfaces there: server `BattleRoom.onMatchEnded` (lock +
    delayed `disconnect()`), the `matchEnded` branch in `onLeave`, the
