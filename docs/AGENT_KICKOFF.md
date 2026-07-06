@@ -41,29 +41,36 @@ Enter after Victory lands in the right (fresh) room. Not individually
 exercised (low risk, integration-tested): the I key and the 60s banner
 linger. Hosting artifacts are in `docs/DEPLOY.md`. PROTOCOL_VERSION **17**.
 
-**Owner goal**: a friends playtest — GitHub Pages client + Colyseus on the
-owner's DigitalOcean VM behind `wss://play.<domain>` (Caddy or the VM's
-existing nginx). Everything agent-preparable is DONE; what remains is the
-`[human]` provisioning checklist in `docs/DEPLOY.md` (DNS, proxy, unit, CI
-secrets, first deploy) and deploys always ship client + server from the
-SAME commit. NOTE — DELIBERATE, do not suggest pushing: local `main` stays
-ahead of `origin/main` until the MP server is hosted. The deployed Pages
-build is the owner's LIVE single-player test channel; pushing main would
-ship a client with online entry points and no server behind them.
-Backup-without-deploy option: push a side branch (e.g. `origin/dev`) —
-Pages only tracks main.
+**Owner goal**: a friends playtest — HOSTING IS LIVE (provisioned
+2026-07-06). Topology as designed in `docs/DEPLOY.md`: client =
+`https://rdpaiva.github.io/the-last-meridian/` (Pages off `main`, deployed
+bundle verified to carry `wss://play.the-last-meridian.com` — the
+`VITE_SERVER_URL` repo variable took); server = DigitalOcean droplet
+(1GB, Ubuntu 24.04, hostname `Meridian-Multiplayer-Server`) running Caddy
+(auto-TLS) → systemd unit `space-duel` on :2567, protocol v17 answering
+"Colyseus 0.17.44" at `https://play.the-last-meridian.com`. CI deploy =
+Actions → "Deploy game server" (manual dispatch; secrets `DEPLOY_SSH_KEY` +
+`DEPLOY_HOST` = `spaceduel-deploy@play.the-last-meridian.com`; the deploy
+user's write access + passwordless `systemctl restart space-duel` are
+sanity-verified). The old "don't push main" constraint is **RETIRED** —
+`main` was pushed 2026-07-06 (`93a5241`) and client + hand-deployed server
+are from that SAME commit. Standing rule going forward: every push to
+`main` auto-deploys the Pages client, so run the server deploy workflow on
+that same commit right after (the same-commit PROTOCOL_VERSION rule in
+`docs/DEPLOY.md` → "Every deploy after that").
 
 **My playtest findings**: <fill in — deployment progress / friends
 playtest results: what broke, what felt off, overlay numbers if netcode>
 
 **Work order**:
 
-1. **`[human]` provisioning checklist** (docs/DEPLOY.md) — THE headline:
-   DNS for `play.<domain>`, proxy (Caddy or existing nginx), systemd
-   unit, CI secrets/vars, first same-commit deploy (that first push of
-   `main` is also what ships the MP client on Pages). Agent support as
-   asked: debugging a failed unit/proxy, tweaking `deploy/` configs,
-   reading `journalctl` output I paste.
+1. **Prove the CI deploy path + friends smoke test** — the last two
+   checkboxes: dispatch Actions → "Deploy game server" once (owner click;
+   the token agents get locally can't dispatch workflows) and confirm it
+   ships + restarts cleanly (`journalctl -u space-duel` → "protocol v17
+   listening"), then two-browser end-to-end match on the Pages URL and
+   invite friends. Provisioning itself is DONE — droplet, DNS, Caddy,
+   unit, deploy user, secrets all verified live 2026-07-06.
 2. **Fixes from the friends playtest, if any** — rematch/lifecycle seams
    if something surfaces there: server `BattleRoom.onMatchEnded` (lock +
    delayed `disconnect()`), the `matchEnded` branch in `onLeave`, the

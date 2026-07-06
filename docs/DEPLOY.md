@@ -21,11 +21,12 @@ the server refuses mismatches (clients render "NEW VERSION — refresh"). The
 server deploy workflow is `workflow_dispatch`-only for exactly this reason —
 run it against the same ref the Pages deploy just built.
 
-> **Standing constraint (2026-07-05, docs/AGENT_KICKOFF.md):** local `main`
-> stays ahead of `origin/main` until this hosting work is provisioned —
-> Pages tracks `main` and is the LIVE single-player test channel; pushing
-> would ship online entry points with no server behind them. Backup without
-> deploying: push a side branch (e.g. `origin/dev`) — Pages only tracks main.
+> **RETIRED 2026-07-06** — the former "local `main` stays ahead of
+> `origin/main` until hosting is provisioned" constraint ended when hosting
+> went live: droplet + DNS (`play.the-last-meridian.com`) + Caddy + unit +
+> deploy user + CI secrets all provisioned and verified, and `main`
+> (`93a5241`) pushed with client and server shipped from that same commit.
+> From here, follow "Every deploy after that" below.
 
 ## What's in the repo (agent-prepared, ready to use)
 
