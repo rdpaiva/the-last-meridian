@@ -1,5 +1,9 @@
 # Phase 1 — local two-tab acceptance checklist `[human]`
 
+> Procedure script, not queued work — the live queue is
+> `docs/AGENT_KICKOFF.md` (owner playtests of the deployed game have
+> largely superseded this local pass).
+
 This is the real definition of done for Phase 1 (docs/MULTIPLAYER.md). The
 Node integration tests already prove the pipe headlessly
 (`tests/server/battleRoom.test.ts`); this is the eyeball pass in a browser.

@@ -1,5 +1,11 @@
 # Agent kickoff prompt
 
+**THIS FILE IS THE SINGLE SOURCE OF TRUTH for what the next session works
+on.** The Work order below is the live task queue; every other doc is a
+status snapshot (`ROADMAP.md` — plus the long-term idea backlog), a phase
+record (`MULTIPLAYER.md`), a dated changelog (`PHASE1_OPEN_ISSUES.md`), or
+reference. If a task appears anywhere else but not here, it is not queued.
+
 Copy/paste the block below to start the next coding-agent session with zero
 re-discovery. **Maintenance rule**: whoever ends a session updates this
 prompt as part of the handoff commit — refresh the state line, the commit
@@ -74,6 +80,13 @@ playtest results: what broke, what felt off, overlay numbers if netcode>
    `NetworkGame.updatePhase`. Test: "locks + disposes an ended match…" in
    `tests/server/battleRoom.test.ts` (it shrinks
    `GameConfig.net.endedRoomLingerSec` and restores it in `finally`).
+   - **Known seam, filed 2026-07-06 — honest join-failure messaging**
+     (details in ROADMAP backlog): full/locked invite room silently
+     quick-matches (`client/src/main.ts` joinOnline invite catch); a full
+     FACTION throws `ServerError(4002)` from `BattleRoom.onJoin`/`claimSeat`
+     (`server/src/rooms/BattleRoom.ts`) and the client shows the misleading
+     "SERVER UNAVAILABLE". A friends playtest with >7 pilots on one side
+     WILL hit this — if it does, this bullet is the work item.
 3. **Feel-tuning loop** (parked, reopen only if the DEPLOYED game feels
    worse than the netsim predicted): knob → symptom map — remote ships
    stutter → `interpDelayMs` (overlay "headroom" ≤0 = buffer starvation);

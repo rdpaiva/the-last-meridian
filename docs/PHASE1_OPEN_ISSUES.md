@@ -1,5 +1,13 @@
 # Phase 1/2 — status + handoff notes
 
+> **This is a dated CHANGELOG + architecture record, not a task list.** The
+> live work queue is `docs/AGENT_KICKOFF.md` (the single source of truth for
+> next-session tasks). Entries below are newest-first session notes; the
+> "Architecture notes" section at the bottom is the part that stays current.
+> Status lines in older entries (branch names, test counts, protocol
+> versions) reflect their date — e.g. `feat/reconnect-hosting` has since
+> merged to `main`.
+
 Snapshot for resuming the multiplayer work. Phases 1–2 core, the Phase 2
 tail (netsim + overlay + sensor-filtered replication), AND the identity
 slice (own-ship tint + callsigns/nameplates) are MERGED to `main`
@@ -389,22 +397,11 @@ runs on a client-side sensor picture** — full state still replicates, so
 nebula stealth is honest UI but NOT anti-wallhack. Fine for co-op vs AI;
 server-side sensor-filtered replication stays a pre-deploy Phase 2 item.
 
-## NEXT SESSION — suggested order
+## ~~NEXT SESSION — suggested order~~ (HISTORICAL — every item below landed)
 
-1. **`[human]` acceptance pass** (`docs/PHASE1_TWOTAB_CHECKLIST.md`, rewritten
-   for this build): solo-online first — specifically confirm the full-thrust
-   judder is gone, the HUD slice behaves (radar/RWR/kills/lock/sig), the
-   escorts form on YOU — then the two-tab half (invite link → same room,
-   both see each other move/fire + white halos, leave hands the seat back).
-   Known non-bugs: **no hitstop online** (deliberate); remote engine glow
-   rides a speed proxy, not real thrust input. Feel knobs in
-   `GameConfig.net`; `window.__netGame` is the live debug handle.
-2. **Merge `feat/phase1-multiplayer` → `main`** once the pass is clean.
-3. Later (Phase 2 tail, pre-deploy): **sensor-filtered replication**
-   (decided: client-side picture for now — see above; the server filter
-   makes stealth anti-wallhack before any public deploy), clock-sync
-   **debug overlay**, **network-condition simulator**, then Phase 3 (room
-   lifecycle, reconnection, hosting).
+> Superseded 2026-07-06: the acceptance pass, the phase1 merge, the Phase 2
+> tail, and all of Phase 3 shipped. Kept only as a record of the plan at the
+> time. **For the current work order, read `docs/AGENT_KICKOFF.md`.**
 
 ## Architecture notes for whoever picks this up
 

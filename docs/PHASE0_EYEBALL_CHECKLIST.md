@@ -1,5 +1,9 @@
 # Phase 0 — Local eyeball pass checklist
 
+> **SPENT — Phase 0 was signed off (see `docs/MULTIPLAYER.md`, all Phase 0
+> boxes ticked). Kept as a template for future sim/view-split eyeball
+> passes; nothing here is queued work. Live queue: `docs/AGENT_KICKOFF.md`.**
+
 > The `[human]` task that closes Phase 0 (`docs/MULTIPLAYER.md`). Headless
 > proves the **sim** didn't change (baseline trace clean); this proves the
 > **depiction** didn't. Phase 0 cut the sim away from its Babylon view across

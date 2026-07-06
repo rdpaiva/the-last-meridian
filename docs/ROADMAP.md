@@ -557,6 +557,20 @@ implemented yet. Roughly ordered by gameplay value.
 > Z. Flipping `GameConfig.player.faction` to `"machines"` now launches correctly
 > from the north pod.
 
+- **Multiplayer polish: honest join-failure messaging** — today a 15th
+  player (room full, `maxClients` = both fleets' 14 seats) or an 8th pilot
+  on one side (faction full, 7 seats each) never gets told WHY the join
+  went sideways. An invite link into a full/locked room throws in
+  `NetClient.joinById` and silently degrades to quick match
+  (`client/src/main.ts` joinOnline invite catch) — friends land in a
+  DIFFERENT room with no explanation. Faction-full with room space left
+  throws `ServerError(4002, "no free seat on faction …")` from
+  `BattleRoom.onJoin`/`claimSeat` (`server/src/rooms/BattleRoom.ts`), which
+  the client surfaces as the generic "SERVER UNAVAILABLE — try again, or
+  play solo" (`main.ts` joinOnline outer catch). Fix when picked up:
+  distinct splash statuses ("ROOM FULL — finding another…", "FACTION FULL —
+  try the other side"), and/or steer `joinOrCreate` away from faction-full
+  rooms so quick match never hits 4002.
 - **Combo multiplier** — quick consecutive kills build a score multiplier.
   (Base kills/score + localStorage best landed in Phase 6.)
 - **Wave system** — replace single respawning enemy with escalating

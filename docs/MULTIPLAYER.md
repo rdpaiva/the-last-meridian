@@ -5,6 +5,11 @@ online multiplayer. Update checkboxes as work lands; record new
 decisions in the Decisions section so future sessions don't re-litigate
 them. Status summary belongs in `docs/ROADMAP.md` as phases complete.
 
+> **The checkboxes here are the phase RECORD, not the live work queue** —
+> what the next session works on is `docs/AGENT_KICKOFF.md` (the single
+> source of truth). Per-phase "Status" blurbs are dated snapshots and may
+> lag reality; when they disagree with AGENT_KICKOFF, AGENT_KICKOFF wins.
+
 ---
 
 ## Decisions (made 2026-06-12)
@@ -247,10 +252,12 @@ timing).
 > collisions (no invisible walls), and the FULL HUD online: radar w/ sensor
 > picture + stealth + human halos, RWR, kills/score, lock/sig cues, pilot
 > counts, homing missile depiction, server-side human missile locks.
-> Branch `feat/phase1-multiplayer` (not yet merged); 10/10 tests green;
-> PROTOCOL_VERSION 8. Remaining before merge: PLAY ONLINE/invite entry,
-> friendly commander, the `[human]` two-tab acceptance pass + feel tuning.
-> **Resume notes: `docs/PHASE1_OPEN_ISSUES.md`.**
+> **[Updated 2026-07-06]** Everything above has long since MERGED to `main`
+> (the phase branches are deleted); the full suite is 20/20 green and
+> PROTOCOL_VERSION is 17. PLAY ONLINE/invite entry and the friendly
+> commander shipped; the `[human]` two-tab pass was superseded by owner
+> playtests of the deployed game. **Resume notes:
+> `docs/PHASE1_OPEN_ISSUES.md`; live work queue: `docs/AGENT_KICKOFF.md`.**
 
 - [x] **Restructure into workspaces** (first task of this phase): npm
       workspaces with `shared/` + `client/` + `server/` per the layout
@@ -285,12 +292,14 @@ timing).
       later refinement (single preset at launch — see Decisions). Honesty
       rule shipped 2026-07-04: HUD `pilots` row (N human · M ai) + white halo
       rings on human-piloted radar blips, friend or foe.
-- [ ] **Friendly-side `FleetCommander`**: the player faction gets a
-      commander (enemy side already has one) whose doctrine assigns the
-      team's AI ships to human players as escort wings (`cover` w/ that
-      human as leader, via `setOrder()`), re-distributing on human
-      join/leave/death. Replaces the static per-wingman standing orders
-      in multiplayer rooms.
+- [x] **Friendly-side `FleetCommander`**: DONE (box was stale — ticked
+      2026-07-06 after code verification). `BattleRoom.buildFleet` runs for
+      BOTH factions and registers a `FleetCommander` each
+      (`server/src/rooms/BattleRoom.ts` → `sim.addCommander`); shipped
+      shape is a single formation leader rather than per-human wings:
+      `retaskLeader()` points the faction's `cover` wing + loitering
+      hunters at the senior HUMAN pilot on join/leave/reconnect, and the
+      default AI leader takes the wing back when no humans remain.
 - [x] **Dumb client rendering**: `client/game/NetworkGame.ts` runs no sim —
       reuses the single-player view stack, builds a `ShipView` per replicated
       ship and snaps it to the raw server pose each frame (local ship found via

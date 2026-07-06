@@ -436,12 +436,24 @@ for one, do it. Otherwise: don't.
 
 ## See also
 
+**Task-tracking hierarchy** (decided 2026-07-06): `docs/AGENT_KICKOFF.md`
+is the SINGLE SOURCE OF TRUTH for what the next session works on;
+`docs/ROADMAP.md` holds feature status + the long-term idea backlog;
+everything else is reference or historical record. File new work items in
+AGENT_KICKOFF (queued) or the ROADMAP backlog (someday) — nowhere else.
+
+- `docs/AGENT_KICKOFF.md` — THE next-session work queue + copy/paste
+  kickoff prompt (whoever ends a session updates it — see its header).
+- `docs/ROADMAP.md` — status of every feature (done / in flight / future)
+  + the backlog of candidate features.
 - `docs/SUBSYSTEMS.md` — per-subsystem deep-dives (read before editing one).
 - `docs/RECIPES.md` — step-by-step playbooks for common extensions.
 - `README.md` — project setup for humans, screenshots, contributor notes.
-- `docs/ROADMAP.md` — status of every feature (done / in flight / future).
 - `docs/MULTIPLAYER.md` — multiplayer decisions + phased task list
-  (sim/view split → Colyseus skeleton → netcode feel → match flow/infra).
-- `docs/AGENT_KICKOFF.md` — copy/paste prompt template for starting a
-  fresh chat with a coding agent.
+  (sim/view split → Colyseus skeleton → netcode feel → match flow/infra);
+  the checkboxes are the phase RECORD, not the live queue.
+- `docs/PHASE1_OPEN_ISSUES.md` — dated changelog + architecture notes from
+  the multiplayer build-out (AGENT_KICKOFF tells you when to read it).
+- `docs/DEPLOY.md` — live hosting topology + provisioned state (droplet,
+  Caddy, "Deploy game" workflow).
 - `public/sounds/SOURCES.md` — CC0 sound asset attribution.
