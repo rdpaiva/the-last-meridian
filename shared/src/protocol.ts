@@ -9,7 +9,7 @@ import type { InputState } from "./types";
  * message protocol or to GameConfig (balance lives in shared, so a tweak is a
  * both-sides deploy) — see docs/MULTIPLAYER.md → Decisions (protocol version).
  */
-export const PROTOCOL_VERSION = 15;
+export const PROTOCOL_VERSION = 17;
 
 /** Room name registered on the server + asked for by the client. */
 export const BATTLE_ROOM = "battle";

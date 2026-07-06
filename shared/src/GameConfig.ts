@@ -2400,6 +2400,24 @@ export const GameConfig = {
      */
     inputBacklogMax: 2,
     /**
+     * Reconnection grace window (seconds): after a NON-consented disconnect
+     * (tab killed, wifi blip) the server holds the seat this long for the
+     * same session (`allowReconnection`). The AI flies the ship meanwhile —
+     * the match stays balanced — and a successful reclaim restores the
+     * occupant, callsign, and formation leadership. Consented leaves (menu
+     * exit) skip the window entirely.
+     */
+    reconnectGraceSec: 60,
+    /**
+     * How long (seconds) an ENDED room lingers before the server disposes it
+     * (SERVER-read). The match end locks the room immediately — a decided
+     * battle accepts no new pilots, so quick matches and invite links route
+     * to fresh rooms — and this window just lets the players read the
+     * victory/defeat banner before the room disconnects under it. Enter
+     * (rematch) and Esc (menu) both leave well within it.
+     */
+    endedRoomLingerSec: 60,
+    /**
      * DEV-ONLY network-condition simulator (like `debug` — not part of play):
      * artificial delay on every message BOTH ways (client→server input/ready
      * sends; server→client state patches + FX event batches), so netcode feel
@@ -2412,9 +2430,9 @@ export const GameConfig = {
     sim: {
       enabled: false,
       /** Simulated ROUND-TRIP time (ms) — half is applied to each direction. */
-      latencyMs: 80,
+      latencyMs: 120,
       /** Uniform-random extra delay (ms), 0..jitterMs per message, each way. */
-      jitterMs: 0,
+      jitterMs: 20,
     },
   },
 

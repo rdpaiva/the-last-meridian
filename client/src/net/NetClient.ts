@@ -21,10 +21,12 @@ export interface NetLoadout {
 /**
  * Default server endpoint. Baked at build time via VITE_SERVER_URL so the
  * static client can point at a deployed server; falls back to localhost for
- * dev (`npm run server` listens on :2567).
+ * dev (`npm run server` listens on :2567). `||` (not `??`) on purpose: CI
+ * passes the var through from a repo variable that may not exist yet, and an
+ * EMPTY string must fall back too, not bake an unusable endpoint.
  */
 export const SERVER_URL: string =
-  (import.meta.env.VITE_SERVER_URL as string | undefined) ?? "ws://localhost:2567";
+  (import.meta.env.VITE_SERVER_URL as string | undefined) || "ws://localhost:2567";
 
 /**
  * The WITH FRIENDS invite payload: `#join=<roomId>` in the page URL. Read

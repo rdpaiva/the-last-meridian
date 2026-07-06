@@ -27,6 +27,10 @@ export class Hud {
   private readonly scoreEl: HTMLElement | null;
   private readonly pilotsRowEl: HTMLElement | null;
   private readonly pilotsEl: HTMLElement | null;
+  private readonly inviteRowEl: HTMLElement | null;
+  private readonly inviteEl: HTMLElement | null;
+  /** Pending revert timer for the invite row's LINK COPIED flash. */
+  private inviteFlashTimer: number | null = null;
   private readonly zoomEl: Element | null;
   private readonly sfxEl: HTMLElement | null;
   private readonly launchOverlayEl: HTMLElement | null;
@@ -62,6 +66,7 @@ export class Hud {
       <div><span class="label">kills</span><span id="hud-kills">0</span></div>
       <div><span class="label">score</span><span id="hud-score">0</span></div>
       <div id="hud-pilots-row" style="display:none"><span class="label">pilots</span><span id="hud-pilots">---</span></div>
+      <div id="hud-invite-row" style="display:none"><span class="label">invite</span><span id="hud-invite">I · copy link</span></div>
       <div><span class="label">zoom</span><span id="hud-zoom">1.00</span></div>
       <div><span class="label">sfx</span><span id="hud-sfx">on</span></div>
     `;
@@ -79,6 +84,9 @@ export class Hud {
     this.scoreEl = root.querySelector<HTMLElement>("#hud-score");
     this.pilotsRowEl = root.querySelector<HTMLElement>("#hud-pilots-row");
     this.pilotsEl = root.querySelector<HTMLElement>("#hud-pilots");
+    this.inviteRowEl = root.querySelector<HTMLElement>("#hud-invite-row");
+    this.inviteEl = root.querySelector<HTMLElement>("#hud-invite");
+    if (this.inviteEl) this.inviteEl.style.color = "#6c7086"; // dim hint
     this.zoomEl = root.querySelector("#hud-zoom");
     this.sfxEl = root.querySelector<HTMLElement>("#hud-sfx");
 
@@ -260,6 +268,28 @@ export class Hud {
     this.lastPilots = text;
     if (this.pilotsRowEl) this.pilotsRowEl.style.display = "";
     if (this.pilotsEl) this.pilotsEl.textContent = text;
+  }
+
+  /**
+   * Reveal the invite-link row (multiplayer-only, like the pilots row — the
+   * address bar carries `#join=<roomId>`, and I copies it for a friend).
+   */
+  showInviteHint(): void {
+    if (this.inviteRowEl) this.inviteRowEl.style.display = "";
+  }
+
+  /** Flash the invite row's result, then revert to the dim key hint. */
+  flashInviteCopied(ok: boolean): void {
+    if (!this.inviteEl) return;
+    if (this.inviteFlashTimer !== null) window.clearTimeout(this.inviteFlashTimer);
+    this.inviteEl.textContent = ok ? "LINK COPIED" : "COPY FAILED";
+    this.inviteEl.style.color = ok ? "#a6e3a1" : "#f38ba8";
+    this.inviteFlashTimer = window.setTimeout(() => {
+      this.inviteFlashTimer = null;
+      if (!this.inviteEl) return;
+      this.inviteEl.textContent = "I · copy link";
+      this.inviteEl.style.color = "#6c7086";
+    }, 2000);
   }
 
   setMuted(muted: boolean): void {

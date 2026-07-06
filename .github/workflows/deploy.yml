@@ -28,12 +28,20 @@ jobs:
         with:
           node-version: 20
       - run: npm ci && npm run build
+        env:
+          # The hosted game server's public endpoint (wss://play.<domain>),
+          # baked into the client at build time (client/src/net/NetClient.ts).
+          # Set as a repo VARIABLE (Settings → Secrets and variables →
+          # Actions → Variables); until it exists this is empty and the
+          # client keeps its ws://localhost:2567 dev fallback — online play
+          # simply stays local-only. Deploy the server from the SAME commit
+          # (deploy-server.yml) — PROTOCOL_VERSION refuses mismatched joins.
+          VITE_SERVER_URL: ${{ vars.VITE_SERVER_URL }}
       - uses: actions/upload-pages-artifact@v3
         with:
           # The client workspace's build output (the npm-workspace
           # restructure moved it from ./dist — root `npm run build` runs
-          # the @space-duel/client build). When the MP server is hosted,
-          # add VITE_SERVER_URL (wss://…) as an env on the build step.
+          # the @space-duel/client build).
           path: client/dist
       - id: deployment
         uses: actions/deploy-pages@v4

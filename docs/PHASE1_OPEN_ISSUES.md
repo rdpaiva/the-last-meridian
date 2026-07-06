@@ -1,13 +1,94 @@
 # Phase 1/2 — status + handoff notes
 
-Snapshot for resuming the multiplayer work. Phases 1–2 core AND the Phase 2
-tail (netsim + overlay + sensor-filtered replication) are MERGED to `main`
-(`0667a72`, 2026-07-05, owner-accepted); the IDENTITY slice below (own-ship
-marker + callsigns/nameplates) lives on **`feat/own-ship-marker`**.
-Everything builds + typechecks; the full test suite is **18/18 green**
-(`npm test`). PROTOCOL_VERSION is **15** — stale tabs get a clean join
-rejection (rendered as "NEW VERSION — refresh"), so always reload after
-pulling.
+Snapshot for resuming the multiplayer work. Phases 1–2 core, the Phase 2
+tail (netsim + overlay + sensor-filtered replication), AND the identity
+slice (own-ship tint + callsigns/nameplates) are MERGED to `main`
+(`5c162e8`, 2026-07-05, owner-verified); the PHASE 3 work below
+(reconnection + hosting artifacts + room lifecycle + lobby polish) lives
+on **`feat/reconnect-hosting`**. Everything builds + typechecks; the full
+test suite is **20/20 green** (`npm test`). PROTOCOL_VERSION is **17** —
+stale tabs get a clean join rejection (rendered as "NEW VERSION —
+refresh"), so always reload after pulling.
+
+## DONE 2026-07-06 — Phase 3 remainder: room lifecycle + lobby polish (`feat/reconnect-hosting`, awaiting owner check)
+
+Phase 3 is now feature-complete; docs/MULTIPLAYER.md Phase 3 items are all
+checked. Owner-verified the same session's earlier slice: reconnection
+works in-browser (tab close → seat reclaimed), latency/jitter at
+40–120ms + jitter felt as expected (feel-tuning loop parked — no knob
+changes requested).
+
+- **End-of-match room lifecycle** (`cf0a2a7`) — root-caused the owner's
+  "Enter doesn't restart after Victory" finding: nothing ended the ROOM,
+  so the Enter-reload's `#join=<roomId>` hash rejoined the same finished
+  match and the banner just came back. Server: the `playing → ended`
+  transition (`BattleRoom.step` → `onMatchEnded`) **locks** the room — a
+  decided match accepts no new pilots (the staleness rule), so rematch
+  quick-matches create FRESH rooms and stale invite joinByIds are refused
+  (the client already degrades those to a quick match) — then **disposes**
+  it after `GameConfig.net.endedRoomLingerSec` (new shared knob, 60s ⇒
+  PROTOCOL 16→17) via `this.disconnect()`. Leaves after the end skip the
+  reconnection seat-hold (`onLeave` treats them as consented — nothing to
+  reclaim into, and a reservation would delay disposal). Client: Enter/Esc
+  on the end banner clear the invite hash before reloading
+  (`NetworkGame.clearInviteHash`), and `updatePhase` early-returns once
+  `ended` — the room disconnecting under the banner is EXPECTED and may
+  not repaint it as CONNECTION LOST. Friends rematch flow: both hit Enter
+  → both quick-match → joinOrCreate lands them in the same fresh room.
+  Integration test ("locks + disposes an ended match…"): forced win →
+  lock + joinById refusal + fresh joinOrCreate room + reservation-free
+  post-end drop + timed disposal kicking the banner-watcher.
+- **Copy-invite-link key** (`fc3fcb8`): **I** in an online match copies
+  the address bar (which IS the invite link) — dim MP-only HUD row
+  (`Hud.showInviteHint`, pilots-row pattern) flashes LINK COPIED / COPY
+  FAILED. Disabled after the end (room locked). Rejoin-last-match prompt
+  DELIBERATELY skipped — reload keeps the hash, drops auto-reconnect,
+  crash + quick match lands in the only live room; a stored-roomId prompt
+  would only add a stale-room failure mode.
+- **Still pending**: owner in-browser check of the rematch flow (win →
+  Enter → NEW match; two-tab: both Enter → same fresh room; I → link on
+  the clipboard), then the `[human]` provisioning checklist (DEPLOY.md).
+  The netsim feel pass came back clean at 120/20 — `GameConfig.net.sim`
+  keeps those values committed as the dormant profile (`enabled: false`).
+
+## DONE 2026-07-05 — Phase 3 slice: reconnection + hosting artifacts (`feat/reconnect-hosting`, awaiting owner check)
+
+- **Reconnection** (`a0caf6d`): server holds a NON-consented leaver's seat
+  for `GameConfig.net.reconnectGraceSec` (60s, new shared knob ⇒ PROTOCOL
+  15→16) via `allowReconnection` in `BattleRoom.onLeave` — the AI takes the
+  ship immediately (match stays balanced), `claimSeat` skips reserved seats,
+  the `clientViews` entry stays alive through the window (sessionId +
+  `client.view` survive a Colyseus reconnection), and reclaim restores
+  occupant/controller/callsign (`seat.pilotCallsign`) + re-tasks the
+  formation leader on both edges. Colyseus 0.17 note: `onLeave(client,
+  code)` — branch on `CloseCode.CONSENTED` (4000); there is no `consented`
+  boolean anymore. CLIENT rides the 0.17 SDK's BUILT-IN auto-reconnect (the
+  same Room object retries with backoff ~60s and keeps every handler — do
+  NOT hand-roll a token/room-swap loop, we deleted one): `room.onDrop` →
+  RECONNECTING overlay + input/prediction freeze; `room.onReconnect` →
+  `NetworkGame.onReconnected()` wipes every timeline-derived buffer
+  (snapshots, clock offset hard-resync, pending inputs/correction, fx +
+  netsim queues); `room.onLeave` is TERMINAL. Page unloads (reload, ESC)
+  now leave CONSENTED via `pagehide` so the seat frees immediately.
+  Integration test ("holds a dropped seat…"): drop without consent → AI
+  handback + reservation denies a poaching joiner → `colyseus.sdk.reconnect`
+  restores seat/callsign/leadership. Test gotcha: disable the test client's
+  `reconnection.enabled` before `leave(false)` or the SDK auto-reconnects
+  under the assertions.
+- **Hosting artifacts** (`2200f5e`): everything agent-preparable for the
+  friends playtest — see **docs/DEPLOY.md** (topology, artifact table, the
+  `[human]` provisioning checklist, per-deploy procedure). Highlights:
+  `npm run build:server` → `server/dist/server.mjs` (self-contained ESM;
+  esbuild CJS breaks on deps' `import.meta.url`, hence ESM + aliased
+  `createRequire` banner; smoke-verified serving a real SDK join),
+  systemd unit + Caddy/nginx configs under `deploy/`, manual-only
+  `deploy-server.yml` (same-commit rule), Pages workflow bakes
+  `VITE_SERVER_URL` from a repo variable (NetClient falls back via `||` —
+  an unset repo var arrives as an EMPTY string, `??` would bake it).
+- **Still pending**: the `[human]` netsim feel pass (headline), the
+  `[human]` provisioning checklist (DEPLOY.md), owner in-browser check of
+  reconnection (kill the server tab-side mid-match → RECONNECTING → seat
+  back with callsign).
 
 ## DONE + OWNER-VERIFIED 2026-07-05 — identity slice
 

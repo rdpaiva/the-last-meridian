@@ -389,13 +389,40 @@ so tuning passes don't need code changes.
 
 ## Phase 3 — Match flow & infrastructure
 
-- [ ] **Room lifecycle**: countdown/launch with N players, mid-match
-      join (humans replace an AI seat or spawn from a carrier bay),
-      disconnect → `AIController` takes over the ship (reconnect takes
-      it back), victory/defeat → room disposal.
-- [ ] **Reconnection**: Colyseus `allowReconnection` for brief drops.
-- [ ] **Lobby polish**: smooth out the Phase 1 join paths — connecting/
-      error states, copy-invite-link button, rejoin-last-match prompt.
+- [x] **Room lifecycle** (completed 2026-07-06, `feat/reconnect-hosting` —
+      the earlier pieces landed in Phases 1–2): countdown/launch with N
+      players, mid-match join (humans replace an AI seat; a decided match
+      accepts no new pilots), disconnect → `AIController` takes over the
+      ship (reconnect takes it back), victory/defeat → the room locks the
+      moment the phase flips (rematch quick-matches route to FRESH rooms;
+      stale `#join=` invite links fall back to one) and disposes after
+      `GameConfig.net.endedRoomLingerSec` (60s of banner-reading time; the
+      end banner survives the disconnect client-side). Post-end leaves skip
+      the reconnection seat-hold. Enter on the banner clears the invite
+      hash before the reload, so rematch lands in a new match — the owner's
+      "Enter doesn't restart after Victory" finding, root-caused to the
+      reload's hash rejoining the still-alive ended room.
+- [x] **Reconnection** (built 2026-07-05, `feat/reconnect-hosting` — awaiting
+      owner in-browser check): non-consented drops hold the seat for
+      `GameConfig.net.reconnectGraceSec` (60s) via `allowReconnection`; the
+      AI flies it meanwhile (immediate handback, match stays balanced),
+      `claimSeat` won't give a reserved seat away, and reclaim restores
+      occupant + callsign + formation leadership. Client rides the 0.17
+      SDK's auto-reconnect (same Room object; ~60s backoff): onDrop freezes
+      input/prediction behind a RECONNECTING overlay, onReconnect wipes
+      every timeline-derived buffer (snapshots, clock offset, pending
+      inputs, fx/netsim queues). Page unloads leave CONSENTED (pagehide) so
+      reloads free the seat at once. Integration-tested over the transport
+      (drop → AI handback → poach attempt denied → token reclaim).
+- [x] **Lobby polish** (completed 2026-07-06): connecting/error states on
+      the PLAY ONLINE paths landed with the entry-polish slice
+      (CONNECTING… + readable failures on the pressed button); copy-invite
+      link = the **I** key in an online match (MP-only HUD row, flashes
+      LINK COPIED — the address bar carries `#join=<roomId>`). The
+      rejoin-last-match prompt was DELIBERATELY dropped: a reload keeps the
+      hash (quick play's primary already reads JOIN FRIENDS' MATCH),
+      in-page drops ride the SDK auto-reconnect, and after a browser crash
+      quick match routes into the only live unlocked room anyway.
 - [x] **Pilot identity — callsigns + nameplates** (owner ask 2026-07-05;
       DONE + owner-verified same day, merged `5c162e8`): CALLSIGN field on
       loadout page 2 → `lastMeridian_pilotName` → `JoinOptions.pilotName`
@@ -407,13 +434,16 @@ so tuning passes don't need code changes.
       dark backing pill for readability over exhaust plumes. The
       related-but-separate own-ship self-identification cue also landed:
       YOUR ship burns a teal exhaust tint (`GameConfig.ownShipTint`).
-- [ ] **Hosting artifacts** (cloud-preparable): esbuild bundle config,
-      systemd unit file, Caddyfile (`play.<domain> → reverse_proxy
-      localhost:2567`), CORS config for the static-site origin, GitHub
-      Action workflow (typecheck + build all packages, scp bundle +
-      restart unit, publish client build with `VITE_SERVER_URL` per
-      environment) — plus a step-by-step provisioning checklist for
-      the `[human]` task below.
+- [x] **Hosting artifacts** (built 2026-07-05, `feat/reconnect-hosting` —
+      see **docs/DEPLOY.md** for the full picture): `npm run build:server`
+      esbuild bundle (self-contained ESM, smoke-verified serving a real SDK
+      join), `deploy/space-duel.service` systemd unit, `deploy/Caddyfile` OR
+      `deploy/nginx-play.conf` (pick one), manual-only
+      `.github/workflows/deploy-server.yml` (same-commit rule), Pages
+      workflow bakes `VITE_SERVER_URL` from a repo variable. CORS needs no
+      config (colyseus mirrors the origin; lock-down note in DEPLOY.md).
+      The provisioning checklist for the `[human]` task below lives in
+      DEPLOY.md.
 - [ ] `[human]` **Provisioning**: buy the VPS, point the subdomain's
       DNS A record at it, install Caddy + the unit file per the
       checklist, add the SSH deploy key as a repo secret, first

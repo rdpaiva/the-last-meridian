@@ -539,12 +539,14 @@ implemented yet. Roughly ordered by gameplay value.
   netsim + debug overlay), sensor-filtered replication (anti-wallhack) —
   plus the Phase 3 identity slice (own-ship teal engine tint, two-word AI
   callsigns + nameplates, typed pilot name). Online co-op is PLAYABLE on
-  localhost. Remaining (Phase 3): the `[human]` netsim feel pass,
-  reconnection, room lifecycle, hosting artifacts + deploy (the GitHub
-  Pages client needs `wss://` ⇒ subdomain + reverse proxy in front of the
-  Colyseus process; owner plans to host on his DigitalOcean VM). Full
-  phased plan + status: `docs/MULTIPLAYER.md`; session handoff:
-  `docs/AGENT_KICKOFF.md`.
+  localhost. **Reconnection + hosting artifacts BUILT** (2026-07-05,
+  `feat/reconnect-hosting`, awaiting owner check): dropped seats held 60s
+  with AI cover + reclaim, and the full deploy kit (server bundle, systemd
+  unit, Caddy/nginx configs, workflows — `docs/DEPLOY.md`). Remaining
+  (Phase 3): the `[human]` netsim feel pass, the `[human]` provisioning
+  checklist (DNS/proxy/certs/first deploy on the owner's DigitalOcean VM),
+  room lifecycle/rematch, lobby polish. Full phased plan + status:
+  `docs/MULTIPLAYER.md`; session handoff: `docs/AGENT_KICKOFF.md`.
 
 > **Carry-over (FIXED in Phase 4):** the catapult launch is now oriented to the
 > carrier's facing. `Mothership.getLaunchForward()` + `getLaunchExitDistance()`
