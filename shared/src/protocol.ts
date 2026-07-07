@@ -17,6 +17,12 @@ export const BATTLE_ROOM = "battle";
 /** Colyseus error code the server throws on a protocol mismatch. */
 export const PROTOCOL_MISMATCH = 4001;
 
+/** Colyseus error code the server throws when the requested faction has no
+ *  free seat (the room itself may still have space on the other side). The
+ *  client renders it as "faction full" — on an invite it means "switch sides
+ *  to join your friend"; on a quick match the client starts a fresh room. */
+export const FACTION_FULL = 4002;
+
 /** Options the client passes to joinOrCreate (the loadout becomes the payload). */
 export interface JoinOptions {
   protocolVersion: number;

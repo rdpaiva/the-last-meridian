@@ -5,7 +5,7 @@ import { IntroCinematic } from "./game/IntroCinematic";
 import { LoadoutMenu, type LaunchMode } from "./game/LoadoutMenu";
 import { ShipPreview } from "./game/ShipPreview";
 import { SettingsMenu } from "./game/SettingsMenu";
-import { PROTOCOL_MISMATCH } from "@space-duel/shared";
+import { PROTOCOL_MISMATCH, FACTION_FULL } from "@space-duel/shared";
 import { applyStoredOverrides } from "./game/ConfigOverrides";
 import { applyMap, resolveMapId, loadSavedMapSelection } from "./game/Maps";
 import { applyDifficulty, loadSavedDifficulty } from "./game/Difficulty";
@@ -224,13 +224,33 @@ async function startOnline(base: ReturnType<typeof loadSavedLoadout>): Promise<v
         net = await NetClient.joinById(invite, loadout);
       } catch (err) {
         // Protocol mismatch would fail a fresh match the same way — surface
-        // it. Anything else (room disposed/full) degrades to a quick match.
+        // it. Faction-full is the one case where the friend's room is ALIVE:
+        // quick-matching would strand the player in a different room with no
+        // explanation, so stay on the splash and tell them the actual fix
+        // (the hash survives, so switching sides and relaunching retries the
+        // same room). Anything else (room disposed/locked/full) means the
+        // friend's match is truly unreachable — degrade to a quick match,
+        // but say so.
         if ((err as { code?: number }).code === PROTOCOL_MISMATCH) throw err;
+        if ((err as { code?: number }).code === FACTION_FULL) {
+          setStatus("FRIEND'S MATCH — that side is full; switch factions to join");
+          return;
+        }
         console.warn("[online] invite room unavailable — quick-matching:", err);
+        setStatus("FRIEND'S MATCH UNAVAILABLE — finding a new room…");
         net = await NetClient.quickMatch(loadout);
       }
     } else {
-      net = await NetClient.quickMatch(loadout);
+      try {
+        net = await NetClient.quickMatch(loadout);
+      } catch (err) {
+        // joinOrCreate seated us in a room whose <faction> side is full (the
+        // matchmaker counts CLIENTS, not seats-per-faction). Retrying would
+        // match the same room again — start a fresh one instead.
+        if ((err as { code?: number }).code !== FACTION_FULL) throw err;
+        setStatus("MATCH FULL — starting a fresh room…");
+        net = await NetClient.createMatch(loadout);
+      }
     }
     // Shareable WITH FRIENDS link (replaceState: no scroll/history spam).
     history.replaceState(null, "", `#join=${net.roomId}`);

@@ -24,6 +24,7 @@ import defineConfig from "@colyseus/tools";
 import {
   BATTLE_ROOM,
   PROTOCOL_VERSION,
+  FACTION_FULL,
   MSG,
   NEUTRAL_INPUT,
   GameConfig,
@@ -574,6 +575,36 @@ describe("BattleRoom integration", () => {
       await expect(
         colyseus.connectTo(room, joinOpts({ protocolVersion: PROTOCOL_VERSION + 999 })),
       ).rejects.toBeDefined();
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    "refuses a faction-full join with the typed FACTION_FULL code",
+    async () => {
+      const room = await colyseus.createRoom(BATTLE_ROOM, {});
+      // Fill every humans seat (claimSeat falls back across ship types, so
+      // faction-full means ALL of the faction's seats are taken).
+      const seats = fleetCount("humans");
+      for (let i = 0; i < seats; i++) {
+        await colyseus.connectTo(room, joinOpts({ pilotName: `Pilot${i}` }));
+      }
+      // The room itself still has machines seats free — this is the
+      // faction-full case, NOT room-full, so the error must be the typed
+      // code the client renders as "switch sides" / "starting a fresh room".
+      let code: number | undefined;
+      try {
+        await colyseus.connectTo(room, joinOpts({ pilotName: "Latecomer" }));
+      } catch (err) {
+        code = (err as { code?: number }).code;
+      }
+      expect(code).toBe(FACTION_FULL);
+      // …and the other faction still accepts a pilot.
+      const machinesClient = await colyseus.connectTo(
+        room,
+        joinOpts({ faction: "machines", shipType: "wraith" }),
+      );
+      expect(machinesClient.sessionId).toBeTruthy();
     },
     TEST_TIMEOUT,
   );

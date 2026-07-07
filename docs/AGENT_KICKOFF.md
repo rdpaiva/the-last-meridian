@@ -115,13 +115,17 @@ playtest results: what broke, what felt off, overlay numbers if netcode>
    `NetworkGame.updatePhase`. Test: "locks + disposes an ended match…" in
    `tests/server/battleRoom.test.ts` (it shrinks
    `GameConfig.net.endedRoomLingerSec` and restores it in `finally`).
-   - **Known seam, filed 2026-07-06 — honest join-failure messaging**
-     (details in ROADMAP backlog): full/locked invite room silently
-     quick-matches (`client/src/main.ts` joinOnline invite catch); a full
-     FACTION throws `ServerError(4002)` from `BattleRoom.onJoin`/`claimSeat`
-     (`server/src/rooms/BattleRoom.ts`) and the client shows the misleading
-     "SERVER UNAVAILABLE". A friends playtest with >7 pilots on one side
-     WILL hit this — if it does, this bullet is the work item.
+   - **FIXED 2026-07-07 — honest join-failure messaging**: faction-full is
+     now the typed `FACTION_FULL` (4002) in `shared/src/protocol.ts`.
+     Client (`client/src/main.ts` startOnline) differentiates: invite +
+     faction-full → stays on splash with "switch factions to join" (the
+     `#join=` hash survives, so relaunch retries the friend's room); invite
+     room gone/locked → visible "finding a new room…" before the quick-match
+     fallback; quick-match faction-full → `NetClient.createMatch` (fresh
+     room via `Client.create` — joinOrCreate would re-match the same full
+     room). Test: "refuses a faction-full join…" in
+     `tests/server/battleRoom.test.ts`. NO protocol bump (4002 was already
+     on the wire; only newly named/handled). NOT owner-verified in-game.
 3. **Feel-tuning loop** (parked, reopen only if the DEPLOYED game feels
    worse than the netsim predicted): knob → symptom map — remote ships
    stutter → `interpDelayMs` (overlay "headroom" ≤0 = buffer starvation);

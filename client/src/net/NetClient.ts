@@ -74,6 +74,14 @@ export class NetClient {
     return new NetClient(room);
   }
 
+  /** Start a FRESH room. The quick-match fallback when the matched room's
+   *  faction is full (FACTION_FULL) — retrying joinOrCreate would just match
+   *  the same fullest room again; create is guaranteed a free seat. */
+  static async createMatch(loadout: NetLoadout, url = SERVER_URL): Promise<NetClient> {
+    const room = await new Client(url).create(BATTLE_ROOM, NetClient.options(loadout));
+    return new NetClient(room);
+  }
+
   /** Join a FRIEND'S room by id (the `#join=<roomId>` invite link). Throws if
    *  the room is gone/full — the caller decides the fallback. */
   static async joinById(

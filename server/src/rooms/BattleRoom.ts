@@ -21,6 +21,7 @@ import {
   type EventsMessage,
   PROTOCOL_VERSION,
   PROTOCOL_MISMATCH,
+  FACTION_FULL,
   MSG,
   aiCallsign,
   sanitizePilotName,
@@ -199,7 +200,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     }
     const seat = this.claimSeat(options.faction, options.shipType);
     if (!seat) {
-      throw new ServerError(4002, `no free seat on faction ${options.faction}`);
+      throw new ServerError(FACTION_FULL, `no free seat on faction ${options.faction}`);
     }
     seat.occupant = client.sessionId;
     seat.combatant.controller = seat.net; // input arrives via the MSG.input handler
