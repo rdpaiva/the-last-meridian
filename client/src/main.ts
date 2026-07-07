@@ -1,6 +1,6 @@
 import { Game, RESTART_FLAG } from "./game/Game";
 import { NetworkGame } from "./game/NetworkGame";
-import { NetClient, inviteRoomId } from "./net/NetClient";
+import { NetClient, inviteRoomId, clearInviteHash } from "./net/NetClient";
 import { IntroCinematic } from "./game/IntroCinematic";
 import { LoadoutMenu, type LaunchMode } from "./game/LoadoutMenu";
 import { ShipPreview } from "./game/ShipPreview";
@@ -225,20 +225,24 @@ async function startOnline(base: ReturnType<typeof loadSavedLoadout>): Promise<v
       } catch (err) {
         // Protocol mismatch would fail a fresh match the same way — surface
         // it. Faction-full is the one case where the friend's room is ALIVE:
-        // quick-matching would strand the player in a different room with no
-        // explanation, so stay on the splash and tell them the actual fix
-        // (the hash survives, so switching sides and relaunching retries the
-        // same room). Anything else (room disposed/locked/full) means the
-        // friend's match is truly unreachable — degrade to a quick match,
-        // but say so.
+        // stay on the splash and tell them the actual fix (the hash
+        // survives, so switching sides and relaunching retries the same
+        // room). Anything else (room disposed/locked/full) means the
+        // friend's match is unreachable — STOP on the splash with the
+        // reason rather than auto-quick-matching: a successful fallback
+        // hides the splash within a few hundred ms, so any status set here
+        // flashes unreadably and the player lands in a stranger's room with
+        // no explanation. Dropping the dead hash makes the next launch
+        // press an ordinary quick match.
         if ((err as { code?: number }).code === PROTOCOL_MISMATCH) throw err;
         if ((err as { code?: number }).code === FACTION_FULL) {
           setStatus("FRIEND'S MATCH — that side is full; switch factions to join");
           return;
         }
-        console.warn("[online] invite room unavailable — quick-matching:", err);
-        setStatus("FRIEND'S MATCH UNAVAILABLE — finding a new room…");
-        net = await NetClient.quickMatch(loadout);
+        console.warn("[online] invite room unavailable:", err);
+        clearInviteHash();
+        setStatus("FRIEND'S MATCH UNAVAILABLE (full or ended) — relaunch for a new room");
+        return;
       }
     } else {
       try {

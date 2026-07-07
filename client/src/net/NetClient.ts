@@ -38,6 +38,12 @@ export function inviteRoomId(): string | null {
   return m ? m[1] : null;
 }
 
+/** Drop the `#join=<roomId>` invite hash — the room it names is full, locked,
+ *  or gone, and keeping it would retry the dead room on every (re)launch. */
+export function clearInviteHash(): void {
+  history.replaceState(null, "", window.location.pathname + window.location.search);
+}
+
 /**
  * Thin wrapper over the Colyseus client. Owns the connection + the joined room;
  * the NetworkGame reads `room.state` each frame and `send`s input. The room's

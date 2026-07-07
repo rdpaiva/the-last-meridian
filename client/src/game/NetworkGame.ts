@@ -64,7 +64,7 @@ import { Nameplates } from "./Nameplates";
 import { SecondaryThrusters } from "./SecondaryThrusters";
 import { NetDebugOverlay } from "./NetDebugOverlay";
 import { DelayQueue } from "../net/DelayQueue";
-import type { NetClient } from "../net/NetClient";
+import { clearInviteHash, type NetClient } from "../net/NetClient";
 
 /** The shape of a replicated ship (decoded from the server schema). */
 interface NetShip {
@@ -705,22 +705,17 @@ export class NetworkGame {
       // invite hash must go first — it points at THIS room, which the server
       // locked at match end; keeping it would make the reload try the dead
       // room and burn a failed joinById before falling back to quick match.
-      this.clearInviteHash();
+      clearInviteHash();
       sessionStorage.setItem(RESTART_FLAG, "online");
       window.location.reload();
     }
     if (e.code === "Escape") {
       // Mid-match the hash stays: rejoining the still-live room from the
       // splash is the invite-link flow working as intended.
-      if (this.ended) this.clearInviteHash();
+      if (this.ended) clearInviteHash();
       window.location.reload();
     }
   };
-
-  /** Drop the `#join=<roomId>` invite hash — the room it names is finished. */
-  private clearInviteHash(): void {
-    history.replaceState(null, "", window.location.pathname + window.location.search);
-  }
 
   /** Preload the ship GLBs, then start the render loop. */
   async start(): Promise<void> {
