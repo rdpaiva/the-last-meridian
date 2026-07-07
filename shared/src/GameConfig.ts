@@ -333,85 +333,42 @@ export const GameConfig = {
      * Orders are STATIC (assigned at spawn, no in-game command UI yet); in a
      * future multiplayer build the wing self-organizes instead.
      *
-     * By DEFAULT wingmen fly the PLAYER's ship TYPE
-     * (GameConfig.shipTypes[player.shipType]) — the same guns, turn rate,
-     * reverse/strafe, and HP, so an ally is mechanically identical to you and
-     * never faster. Set `shipTypes` below to mix the wing instead (e.g. fly
-     * the Breaker with Spitfire escorts).
+     * The wing is described by ROLE COUNTS, resolved against the player's
+     * RUNTIME loadout at spawn (a static type list can't express "the same
+     * ship the player chose") — see `resolveWingPlan` (WingPlan.ts), the ONE
+     * place counts become concrete {shipType, order} slots for both the
+     * client (Game.ts) and the headless harness (tests/sim/HeadlessBattle).
      *
-     * `orders[i]`, `slots[i]`, and `shipTypes[i]` configure wingman i; if
-     * there are more wingmen than entries the list wraps. Orders:
-     *   "cover"     — escort the leader in a slot, break to engage any opponent
-     *                 within `ai.coverBreakRange` of the leader, then reform.
-     *   "formation" — hold the slot on the leader's wing; fire only at targets
-     *                 that wander into the cone (no breaking off).
-     *   "hunt"      — seek & destroy: always chase the nearest enemy fighter
-     *                 (ignores the mothership); loiter on the leader if none.
-     *   "strike"    — press the enemy mothership and fire on it; engage fighters
-     *                 only in close self-defense.
-     *   "defend"    — loiter near the friendly mothership; intercept any enemy
-     *                 that enters `ai.defendRadius` of the carrier.
+     * Caveats for a wingman whose type differs from the player's:
+     * - It is built like an enemy fleet clone: muzzles come from the type's
+     *   config list (not GLB markers) and the engine glow sits at a nozzle
+     *   derived from the mesh bounds.
+     * - Formation quality depends on relative speed: a wingman SLOWER than
+     *   the leader's ship (e.g. a Breaker escorting a Spitfire) cannot hold
+     *   a slot at your full speed — it will trail when you burn flat-out.
      */
     wingmen: {
-      /** How many AI wingmen launch on the player's side. 0 disables the wing. */
-      count: 6,
       /**
-       * DEFAULT wing composition by ROLE, resolved against the player's RUNTIME
-       * loadout at spawn (a static type list can't express "the same ship the
-       * player chose"). Each entry is one wingman: a role that maps to a
-       * concrete catalog type given the chosen faction + ship, plus its order.
-       *   "self"    → the player's chosen ship type (clones the player's model)
-       *   "other"   → the OTHER ship type in the player's faction
-       *   "gunship" → the player's faction heavy gunship (factionShips[*][1])
-       * `count` ships are taken from this list (wraps if shorter). The default
-       * baseline (every match) is 4 wingmen on your wing — 2 flying your ship,
-       * 2 flying the other type — plus 2 heavy gunships guarding your carrier.
-       *
-       * Set this to an EMPTY array to fall back to the legacy per-slot
-       * `shipTypes`/`orders` lists below (and their match-settings dropdowns).
+       * How many wingmen of each ROLE launch on the player's side (all zeros
+       * disables the wing). Each role carries a fixed standing order — the
+       * wing's doctrine is escorts up front, gunships on the boat:
+       *   "self"    → the player's chosen ship type (a clone of the loaded
+       *               model — same guns/turn/HP, never faster), order "cover":
+       *               escort the player in a slot, break to engage anything
+       *               within `ai.coverBreakRange` of the player, reform.
+       *   "other"   → the OTHER ship type in the player's faction, order
+       *               "cover" like the self escorts.
+       *   "gunship" → the faction's heavy gunship (factionShips[*] last
+       *               entry), order "defend": guard the mothership, intercept
+       *               anything inside `ai.defendRadius` of it.
+       * These are the "Your Wing" rows on the match-settings screen
+       * (TuningSchema) — count knobs, not per-slot dropdowns.
        */
-      composition: [
-        { role: "self", order: "cover" },
-        { role: "self", order: "cover" },
-        { role: "other", order: "cover" },
-        { role: "other", order: "cover" },
-        { role: "gunship", order: "defend" },
-        { role: "gunship", order: "defend" },
-      ] as ReadonlyArray<{ role: "self" | "other" | "gunship"; order: WingOrder }>,
-      /**
-       * Per-wingman SHIP TYPE, one list per side the player might fly (the
-       * wing has to match the chosen faction). Within a list, entries wrap if
-       * shorter than count, like `orders`. A wingman whose type matches the
-       * player's flies a CLONE of the player's loaded model — mechanically
-       * identical to you (never faster, same drag); an EMPTY list defaults
-       * every wingman to that same clone-the-player behavior.
-       *
-       * One EXPLICIT entry per slot, padded to the max wing size (6) — the
-       * match-settings screen exposes one ship-type dropdown per slot
-       * (TuningSchema reads this array's length, mirroring `orders`). The
-       * defaults give either side's pilot a light-fighter escort (fly the
-       * gunship and the interceptors fly with you).
-       *
-       * Caveats for a wingman whose type differs from the player's:
-       * - It is built like an enemy fleet clone: muzzles come from the type's
-       *   config list (not GLB markers) and the engine glow sits at a nozzle
-       *   derived from the mesh bounds.
-       * - Formation quality depends on relative speed: a wingman SLOWER than
-       *   the leader's ship (e.g. a Breaker escorting a Spitfire) cannot hold
-       *   a slot at your full speed — it will trail when you burn flat-out.
-       */
-      shipTypes: {
-        humans: ["spitfire", "spitfire", "spitfire", "spitfire", "spitfire", "spitfire"],
-        machines: ["wraith", "wraith", "wraith", "wraith", "wraith", "wraith"],
-      } as Record<Faction, ReadonlyArray<ShipTypeId>>,
-      /**
-       * Per-wingman standing order (wraps if shorter than count). One
-       * explicit entry per slot, padded to the max wing size (6) — the
-       * match-settings screen exposes one order dropdown per slot
-       * (TuningSchema reads this array's length), and behavior is identical
-       * to the old single wrapped ["cover"] entry.
-       */
-      orders: ["cover", "cover", "cover", "cover", "cover", "cover"] as ReadonlyArray<WingOrder>,
+      composition: {
+        self: 2,
+        other: 2,
+        gunship: 2,
+      },
       /**
        * Returns the formation slot for wingman `index` in leader-local units
        * (+x = starboard, -z = behind). Generates an expanding V so any count

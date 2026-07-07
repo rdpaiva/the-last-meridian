@@ -10,7 +10,7 @@ import { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
 // the PBR (metallic) GLB ships, which need an environment to reflect.
 import { EquiRectangularCubeTexture } from "@babylonjs/core/Materials/Textures/equiRectangularCubeTexture";
 
-import { GameConfig, aiCallsign, type ShipTypeId, type WingOrder } from "@space-duel/shared";
+import { GameConfig, aiCallsign, resolveWingPlan, type ShipTypeId } from "@space-duel/shared";
 import { InputManager } from "./InputManager";
 import { Arena } from "./Arena";
 import { AssetLoader } from "./AssetLoader";
@@ -603,42 +603,6 @@ export class Game {
     };
   }
 
-  /**
-   * Resolve the player's wing for this match from the RUNTIME loadout. The
-   * default `player.wingmen.composition` is role-based ("self"/"other"/
-   * "gunship") because a static type list can't express "the same ship the
-   * player chose" — so the roles are mapped to concrete catalog types here,
-   * given the picked faction + ship:
-   *   self    → the player's chosen type (a clone of the loaded model)
-   *   other   → the other ship type in the player's faction
-   *   gunship → the faction's heavy gunship (factionShips[*] last entry)
-   * `count` ships are taken from the composition (wrapping). When the
-   * composition is emptied, the legacy per-slot `shipTypes`/`orders` lists
-   * (and their match-settings dropdowns) drive the wing instead.
-   */
-  private resolveWingPlan(): { typeId: ShipTypeId; order: WingOrder }[] {
-    const w = GameConfig.player.wingmen;
-    const ships = GameConfig.factionShips[this.playerFaction];
-    const self = this.playerShipTypeId;
-    const other = ships.find((t) => t !== self) ?? self;
-    const gunship = ships[ships.length - 1];
-    const resolveRole = (role: "self" | "other" | "gunship"): ShipTypeId =>
-      role === "self" ? self : role === "other" ? other : gunship;
-
-    const plan: { typeId: ShipTypeId; order: WingOrder }[] = [];
-    for (let i = 0; i < w.count; i++) {
-      if (w.composition.length > 0) {
-        const c = w.composition[i % w.composition.length];
-        plan.push({ typeId: resolveRole(c.role), order: c.order });
-      } else {
-        const types = w.shipTypes[this.playerFaction];
-        const typeId = types.length > 0 ? types[i % types.length] : self;
-        plan.push({ typeId, order: w.orders[i % w.orders.length] });
-      }
-    }
-    return plan;
-  }
-
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
@@ -660,10 +624,10 @@ export class Game {
     // The AI opposition flies the OTHER faction's fleet; the wing list is the
     // player's faction's.
     const enemyFleet = GameConfig.fleets[this.enemyFaction];
-    // The wing is resolved from the RUNTIME loadout (roles → concrete types),
-    // so "2 of your ship + 2 of the other type + 2 gunship guards" tracks the
-    // ship you actually picked. See resolveWingPlan.
-    const wingPlan = this.resolveWingPlan();
+    // The wing is resolved from the RUNTIME loadout (role counts → concrete
+    // types), so "2 of your ship + 2 of the other type + 2 gunship guards"
+    // tracks the ship you actually picked. See WingPlan.resolveWingPlan.
+    const wingPlan = resolveWingPlan(this.playerFaction, this.playerShipTypeId);
     // One clone template per unique GLB an AI ship needs: the enemy fleet
     // composition, plus any wingman flying a type OTHER than the player's
     // (same-type wingmen clone the player's loaded model instead). A type
@@ -702,11 +666,11 @@ export class Game {
     });
 
     // Player-side AI wingmen (Phase 5): real fighters like the player, each
-    // carrying a standing order/slot. By default (wingmen.shipTypes empty) a
-    // wingman flies the player's TYPE and gets a CLONE of the player's actual
-    // loaded model, so the wing always looks like whatever you fly. A wingman
-    // assigned a DIFFERENT type via wingmen.shipTypes is built like an enemy
-    // fleet clone of that type instead (config muzzles, derived rear glow).
+    // carrying a standing order/slot. A "self"-role wingman flies the
+    // player's TYPE and gets a CLONE of the player's actual loaded model, so
+    // the wing always looks like whatever you fly. A wingman resolved to a
+    // DIFFERENT type ("other"/"gunship" roles) is built like an enemy fleet
+    // clone of that type instead (config muzzles, derived rear glow).
     const wcfg = GameConfig.player.wingmen;
     for (let i = 0; i < wingPlan.length; i++) {
       const typeId = wingPlan[i].typeId;

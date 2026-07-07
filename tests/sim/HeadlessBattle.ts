@@ -31,8 +31,7 @@ import { Ship } from "../../shared/src/sim/Ship";
 import { AIController, type AIOrder } from "../../shared/src/AIController";
 import { FleetCommander, type CommandedPilot } from "../../shared/src/FleetCommander";
 import { BattleSim } from "../../shared/src/sim/BattleSim";
-
-type ShipTypeId = keyof typeof GameConfig.shipTypes;
+import { resolveWingPlan } from "../../shared/src/WingPlan";
 
 export interface HeadlessBattleOptions {
   /** Sim RNG seed — same seed, same battle. */
@@ -123,27 +122,14 @@ export class HeadlessBattle {
       respawnDelayMs: GameConfig.combat.playerRespawnDelayMs,
     });
 
-    // Resolve the wing exactly as Game.resolveWingPlan does.
+    // Resolve the wing exactly as Game does — same shared helper.
     const wcfg = GameConfig.player.wingmen;
-    const ships = GameConfig.factionShips[this.playerFaction];
-    const otherType = ships.find((t) => t !== playerTypeId) ?? playerTypeId;
-    const gunshipType = ships[ships.length - 1];
-    const wingTypes = wcfg.shipTypes[this.playerFaction];
-    for (let i = 0; i < wcfg.count; i++) {
-      let typeId: ShipTypeId;
-      let order: (typeof wcfg.orders)[number];
-      if (wcfg.composition.length > 0) {
-        const c = wcfg.composition[i % wcfg.composition.length];
-        typeId = c.role === "self" ? playerTypeId : c.role === "other" ? otherType : gunshipType;
-        order = c.order;
-      } else {
-        typeId = wingTypes.length > 0 ? wingTypes[i % wingTypes.length] : playerTypeId;
-        order = wcfg.orders[i % wcfg.orders.length];
-      }
-      const ship = this.sim.spawnShip(this.playerFaction, GameConfig.shipTypes[typeId], {
+    const wingPlan = resolveWingPlan(this.playerFaction, playerTypeId);
+    for (let i = 0; i < wingPlan.length; i++) {
+      const ship = this.sim.spawnShip(this.playerFaction, GameConfig.shipTypes[wingPlan[i].typeId], {
         respawnDelayMs: GameConfig.combat.enemyRespawnDelayMs,
       });
-      const controller = new AIController({ order, slot: wcfg.formationSlot(i) });
+      const controller = new AIController({ order: wingPlan[i].order, slot: wcfg.formationSlot(i) });
       this.sim.addCombatant({ ship, controller });
     }
 

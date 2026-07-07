@@ -15,6 +15,7 @@ export * from "./math";
 export * from "./types";
 export * from "./Faction";
 export * from "./Callsigns";
+export * from "./WingPlan";
 
 // AI + awareness
 export * from "./AIController";

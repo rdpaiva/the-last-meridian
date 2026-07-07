@@ -69,6 +69,7 @@ export class SettingsMenu {
       return `
         <details class="set-group" data-group="${g.title}"${open ? " open" : ""}>
           <summary>${g.title}<span class="set-group-mod"></span></summary>
+          ${g.note ? `<p class="set-group-note">${g.note}</p>` : ""}
           <div class="set-rows">${g.entries.map((e) => this.rowHtml(e)).join("")}</div>
         </details>`;
     }).join("");

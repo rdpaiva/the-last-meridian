@@ -45,12 +45,12 @@ bar; MP-only HUD row flashes LINK COPIED; rejoin-last-match prompt
 deliberately skipped — see PHASE1_OPEN_ISSUES). OWNER-VERIFIED 2026-07-06:
 Enter after Victory lands in the right (fresh) room. Not individually
 exercised (low risk, integration-tested): the I key and the 60s banner
-linger. Hosting artifacts are in `docs/DEPLOY.md`. PROTOCOL_VERSION **19**
-(18 = 2026-07-07 match scoreboard; 19 = 2026-07-07 gunship balance pass —
-balance lives in shared GameConfig, so it's a both-sides deploy; the
-DEPLOYED server still answers v17 until the next "Deploy game" dispatch —
-old clients get the refresh prompt, so deploy both halves together as
-always).
+linger. Hosting artifacts are in `docs/DEPLOY.md`. PROTOCOL_VERSION **20**
+(18 = 2026-07-07 match scoreboard; 19 = 2026-07-07 gunship balance pass;
+20 = 2026-07-07 wing-composition GameConfig restructure — config lives in
+shared, so it's a both-sides deploy; the DEPLOYED server still answers
+v17 until the next "Deploy game" dispatch — old clients get the refresh
+prompt, so deploy both halves together as always).
 
 **Built 2026-07-07 — match scoreboard/leaderboard** (owner-requested):
 every pilot ranked by kills (K/D/score columns), player row gold, human
@@ -107,6 +107,34 @@ owner-verified in-game; feel-check levers if the Reaver oppresses: the
 "Missiles per launch" match-settings slider, `ai.missileCooldownSec`, or
 Reaver rack 24→20. PROTOCOL_VERSION bumped to **19** (balance lives in
 shared GameConfig = both-sides deploy, per the protocol.ts rule).
+
+**Built 2026-07-07 — match-settings "Fleets & Wing" redesign**
+(owner-requested; the old section was hard to use AND mostly dead): the 19
+wing rows (count + 6 per-slot order dropdowns + 12 per-faction ship
+dropdowns) edited the LEGACY `player.wingmen.orders`/`shipTypes` arrays,
+which the sim only read when `composition` was emptied — and nothing could
+empty it, so those dropdowns did NOTHING. Replaced by structure:
+`GameConfig.player.wingmen` is now ROLE COUNTS
+(`composition: { self: 2, other: 2, gunship: 2 }`; `count`/`orders`/
+`shipTypes` deleted), resolved by the NEW shared
+`resolveWingPlan(faction, shipType)` in `shared/src/WingPlan.ts` — the one
+resolver for both `Game.start` (private copy deleted) and
+`tests/sim/HeadlessBattle.ts` (duplicated loop deleted). Settings screen:
+"Fleets & Wing" split into "Your Wing" (3 count rows,
+`player.wingmen.composition.*`) + "Enemy Fleet" (the per-faction
+count rows), each with a new one-line group `note` (rendered by
+`SettingsMenu.render`, styled `.set-group-note` in `client/src/style.css`)
+carrying the "AI flies the side you didn't pick" context once.
+`TuningSchema.choice()` helper deleted (no entries left; the `choice` KIND
+is still supported end-to-end). Old persisted per-slot overrides in
+`lastMeridian_tuning` drop harmlessly on load (unknown paths are skipped —
+they never worked anyway). 22/22 tests green, smoke baseline UNCHANGED
+(the default plan expands to the identical 6-ship wing in the same order —
+that's the proof the restructure is behavior-neutral). PROTOCOL_VERSION
+bumped to **20** (GameConfig shape change). Docs synced: CLAUDE.md
+`player.wingmen` row, SUBSYSTEMS.md (wingmen + match-settings sections),
+RECIPES.md, ROADMAP.md. NOT yet owner-verified in the browser (the new
+rows + notes need one visual pass).
 
 **Owner goal**: a friends playtest — HOSTING IS LIVE (provisioned
 2026-07-06, CI-path verified same day). Topology in `docs/DEPLOY.md`

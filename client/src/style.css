@@ -1804,6 +1804,17 @@ body {
   font-size: 11px;
 }
 
+/* Optional one-line context under a group's header (TuningGroup.note) —
+   e.g. "the AI flies the side you didn't pick", stated once instead of
+   repeated in every row's hint. */
+.set-group-note {
+  margin: 0;
+  padding: 0 14px 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #8a96b8;
+}
+
 .set-rows {
   padding: 4px 14px 12px;
   display: flex;

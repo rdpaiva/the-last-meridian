@@ -63,18 +63,18 @@ and explicitly skipped. Update this when you finish or start work.
 - Tuning: slower than the player so the duel is beatable
 
 ### Player wingmen (Phase 5)
-- **AI wingmen on the player's side** — `GameConfig.player.wingmen.count` (default 6)
-  player-faction `Ship`s wearing an `AIController`, the same seam that drives the
-  enemy fighters. Friendly-fire-free by construction (per-faction LaserSystems);
+- **AI wingmen on the player's side** — player-faction `Ship`s wearing an
+  `AIController`, the same seam that drives the enemy fighters.
+  Friendly-fire-free by construction (per-faction LaserSystems);
   they appear on the radar as friendly blips and are missile-immune to the player.
-- **Default wing composition is role-based** (`player.wingmen.composition`,
-  resolved from the RUNTIME loadout in `Game.resolveWingPlan`): every match
+- **Wing composition is ROLE COUNTS** (`player.wingmen.composition:
+  { self, other, gunship }`, default 2/2/2, resolved from the RUNTIME loadout
+  by the shared `resolveWingPlan` in WingPlan.ts): by default every match
   fields 2 wingmen flying your chosen ship + 2 flying the other type in your
   faction (all on `cover`) + 2 heavy gunships guarding your carrier (on
   `defend`). Roles (`self`/`other`/`gunship`) map to concrete catalog types
   given your pick — a static type list can't say "the same ship the player
-  chose". Empty the composition to fall back to the legacy per-slot
-  `shipTypes`/`orders` lists (and their match-settings dropdowns).
+  chose". The counts are the "Your Wing" rows in match settings.
 - **Standing orders** (`AIController` `AIOrder`, static per-wingman, no command UI
   yet — multiplayer would re-issue them): `cover` (escort the leader in a slot,
   break to engage threats within `ai.coverBreakRange` of the leader, reform),

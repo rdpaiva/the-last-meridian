@@ -98,11 +98,12 @@
     its root (the player's are separate instances), driven from the inputs the
     wingman emits each frame — so it lights its exhaust under thrust instead of
     floating silently.
-  - **By default they fly the player's EXACT ship type** (`movement:
+  - **"self"-role wingmen fly the player's EXACT ship type** (`movement:
     GameConfig.shipTypes[player.shipType]`), so an ally is mechanically
     identical to you — same thrust, drag (currently none), top speed, guns,
-    HP. `player.wingmen.shipTypes` assigns per-wingman types instead (wraps
-    like `orders`); a wingman on a DIFFERENT type than the player's is built
+    HP. The wing mix is ROLE COUNTS (`player.wingmen.composition`, resolved
+    by the shared `resolveWingPlan` in WingPlan.ts); a wingman resolved to a
+    DIFFERENT type than the player's ("other"/"gunship" roles) is built
     like an enemy fleet clone (config muzzles, bounds-derived engine glow,
     config-position RCS plumes), and one slower than your ship can't hold a
     slot at your full speed.
@@ -739,15 +740,20 @@ Full design + as-built notes: `docs/JUMP-DRIVE-AND-RESUPPLY.md`. Built sim/view-
   - `TuningSchema.ts` — the CURATED declarative knob list (`{path, label,
     kind, min, max, step, options, hint}` grouped into sections; kinds:
     `number` = slider+field, `boolean` = checkbox, `choice` = dropdown over
-    `options` — e.g. the per-wingman order dropdowns, one per slot of the
-    padded `player.wingmen.orders` array). The GUI renders itself from
-    this; adding an entry is the WHOLE job of exposing a new knob (it
-    auto-persists and round-trips through JSON). Deliberately
-    gameplay-only (~70 knobs: arena/asteroids, per-ship stats, weapons,
-    fleets, AI/commander, sensors, objective) — juice/visuals stay out.
-    `hint` is REQUIRED and plain-language: it feeds each row's clickable ⓘ
-    popover (what the knob does in play + its default), written for testers
-    who've never read GameConfig.ts.
+    `options` — currently unused but still supported end-to-end). The GUI
+    renders itself from this; adding an entry is the WHOLE job of exposing
+    a new knob (it auto-persists and round-trips through JSON).
+    Deliberately gameplay-only (~70 knobs: arena/asteroids, per-ship stats,
+    weapons, wing/fleets, AI/commander, sensors, objective) — juice/visuals
+    stay out. `hint` is REQUIRED and plain-language: it feeds each row's
+    clickable ⓘ popover (what the knob does in play + its default), written
+    for testers who've never read GameConfig.ts. A group can carry a `note`
+    — one line of shared context rendered under its header (e.g. "Enemy
+    Fleet: the AI flies the side you didn't pick") — instead of repeating
+    the same caveat in every row's hint. The wing is exposed as the three
+    "Your Wing" ROLE-COUNT rows (`player.wingmen.composition.*`), NOT
+    per-slot dropdowns — the old slot dropdowns edited legacy arrays the
+    sim no longer reads.
   - `ConfigOverrides.ts` — a sparse `{dot-path: value}` override map
     persisted under `lastMeridian_tuning`, written INTO the live GameConfig
     object. Every external value (localStorage, pasted JSON) is validated

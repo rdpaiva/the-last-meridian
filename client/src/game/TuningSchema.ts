@@ -46,6 +46,12 @@ export interface TuningEntry {
 
 export interface TuningGroup {
   title: string;
+  /**
+   * Optional one-liner rendered under the group's header — for context that
+   * applies to the WHOLE group (e.g. "the AI flies the side you didn't
+   * pick"), so it isn't repeated in every row's hint.
+   */
+  note?: string;
   entries: ReadonlyArray<TuningEntry>;
 }
 
@@ -64,14 +70,9 @@ function bool(path: string, label: string, hint: string): TuningEntry {
   return { path, label, kind: "boolean", hint };
 }
 
-function choice(
-  path: string,
-  label: string,
-  options: ReadonlyArray<{ value: string; label: string }>,
-  hint: string,
-): TuningEntry {
-  return { path, label, kind: "choice", options, hint };
-}
+// NOTE: `kind: "choice"` (a <select> row) has no current entries but stays a
+// supported kind — SettingsMenu renders it and ConfigOverrides validates it.
+// To add one, build the entry literal with its `options` list.
 
 /** "spitfire" → "Spitfire" — the catalog ids are already the canon names. */
 function capitalize(id: string): string {
@@ -121,7 +122,7 @@ function fleetEntries(faction: Faction): TuningEntry[] {
       0,
       12,
       1,
-      `How many ${capitalize(pick.type)}s launch when the AI flies the ${side.toLowerCase()} side. (Your own side fields you and your wingmen instead.)`,
+      `How many ${capitalize(pick.type)}s launch when the AI flies the ${side.toLowerCase()} side.`,
     ),
   );
   rows.push(
@@ -137,55 +138,23 @@ function fleetEntries(faction: Faction): TuningEntry[] {
   return rows;
 }
 
-/** The standing orders an AI wingman can fly (AIController's AIOrder). */
-const WINGMAN_ORDER_OPTIONS = [
-  { value: "cover", label: "Cover" },
-  { value: "formation", label: "Formation" },
-  { value: "hunt", label: "Hunt" },
-  { value: "strike", label: "Strike" },
-  { value: "defend", label: "Defend" },
-];
-
 /**
- * One order dropdown per wingman SLOT — generated from the orders array's
- * length (GameConfig pads it to the max wing size), so slot i's dropdown is
- * exactly `player.wingmen.orders[i]`.
+ * The wing rows: one COUNT per role (mirroring the fleet rows' shape) instead
+ * of per-slot dropdowns. Roles are resolved against the runtime loadout
+ * (WingPlan.resolveWingPlan) — "your ship" / "the other type" track whatever
+ * faction + fighter the player picks in the hangar, so one set of rows serves
+ * both sides. Each role's standing order is fixed doctrine (escorts cover
+ * you, gunships guard the carrier); tune WHO flies, not micromanage slots.
  */
-function wingmanOrderEntries(): TuningEntry[] {
-  return GameConfig.player.wingmen.orders.map((_, i) =>
-    choice(
-      `player.wingmen.orders.${i}`,
-      `Wingman ${i + 1} order`,
-      WINGMAN_ORDER_OPTIONS,
-      "This wingman's standing order for the whole match. Cover = fly your wing and break off to attack anything that threatens you. Formation = hold position on your wing, only shooting what crosses its nose. Hunt = roam and chase down enemy fighters. Strike = press the attack on the enemy mothership. Defend = guard your own mothership. (Only matters if you field this many wingmen.)",
-    ),
-  );
-}
-
-/**
- * One ship-type dropdown per wingman SLOT, PER faction — generated from the
- * shipTypes list's length (GameConfig pads each to the max wing size), so slot
- * i's dropdown is exactly `player.wingmen.shipTypes.<faction>.i`. Per-faction
- * because a ship type is faction-specific (a humans wing can't fly a wraith);
- * only the side the player actually picks is read at launch. Options come from
- * the faction's roster (factionShips) — and picking your OWN ship's type makes
- * that wingman a clone of your loaded fighter (Game.ts), so "match me" is just
- * "pick the same type".
- */
-function wingmanShipEntries(faction: Faction): TuningEntry[] {
-  const side = capitalize(faction);
-  const options = GameConfig.factionShips[faction].map((id) => ({
-    value: id,
-    label: capitalize(id),
-  }));
-  return GameConfig.player.wingmen.shipTypes[faction].map((_, i) =>
-    choice(
-      `player.wingmen.shipTypes.${faction}.${i}`,
-      `${side} wing — ship ${i + 1}`,
-      options,
-      `Which ship wingman ${i + 1} flies when you pick the ${side.toLowerCase()} side. Picking your own ship's type makes that wingman a clone of your loaded fighter. (Only matters if you fly this side and field this many wingmen.)`,
-    ),
-  );
+function wingEntries(): TuningEntry[] {
+  return [
+    num("player.wingmen.composition.self", "Escorts flying your ship", 0, 6, 1,
+      "Wingmen flying the same ship you picked in the hangar — exact clones of your fighter. They fly your wing on cover: holding formation and breaking off to attack anything that threatens you."),
+    num("player.wingmen.composition.other", "Escorts flying the other type", 0, 6, 1,
+      "Wingmen flying your faction's OTHER ship type, rounding out the wing. They fly cover like your clone escorts: on your wing, breaking off to engage whatever threatens you."),
+    num("player.wingmen.composition.gunship", "Gunships guarding your carrier", 0, 6, 1,
+      "Heavy gunships on defend: they loiter at your mothership and intercept anything that gets close. Your rear guard while you're out front."),
+  ];
 }
 
 export const TUNING_SCHEMA: ReadonlyArray<TuningGroup> = [
@@ -245,16 +214,16 @@ export const TUNING_SCHEMA: ReadonlyArray<TuningGroup> = [
     ],
   },
   {
-    title: "Fleets & Wing",
-    entries: [
-      num("player.wingmen.count", "Player wingmen", 0, 6, 1,
-        "How many AI teammates fly at your side. 0 = you fly alone."),
-      ...wingmanOrderEntries(),
-      ...wingmanShipEntries("humans"),
-      ...wingmanShipEntries("machines"),
-      ...fleetEntries("humans"),
-      ...fleetEntries("machines"),
-    ],
+    title: "Your Wing",
+    note:
+      "The AI teammates launching at your side. “Your ship” and “the other type” resolve against whatever faction and fighter you pick in the hangar. All zeros = you fly alone.",
+    entries: wingEntries(),
+  },
+  {
+    title: "Enemy Fleet",
+    note:
+      "The AI flies whichever side you did NOT pick in the hangar — only that side’s rows shape a given match (your own side fields you and your wing instead).",
+    entries: [...fleetEntries("humans"), ...fleetEntries("machines")],
   },
   {
     title: "AI & Commander",

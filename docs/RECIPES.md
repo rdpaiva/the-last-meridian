@@ -58,8 +58,9 @@ weapons, `maxHp`, per-bolt `laserDamage`, `missileAmmo`, `hitRadius`,
    `shipModels` scale): the player path reads the GLB markers, but enemy
    fleet CLONES read only the config list.
 4. **Fly it / fight it**:
-   - Player: set `GameConfig.player.shipType` (wingmen clone it by default;
-     `player.wingmen.shipTypes` assigns per-wingman types for a mixed wing).
+   - Player: set `GameConfig.player.shipType` ("self"-role wingmen clone it;
+     the wing mix is the `player.wingmen.composition` role counts, resolved
+     by `resolveWingPlan` in shared/src/WingPlan.ts).
    - Enemy: add `{ type, count }` to `GameConfig.enemy.fleet` — mixed fleets
      are fine; entries spawn in order and the first `enemy.strikeCount` ships
      across the whole fleet fly the "strike" order.
