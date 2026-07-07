@@ -15,7 +15,7 @@ export class InputManager {
     reverse: false,
     rotateLeft: false,
     rotateRight: false,
-    turn: 0, // keyboard turns via the booleans; MouseSteering writes this.
+    turn: 0, // keyboard turns via the booleans; Mouse/GamepadSteering write this.
     strafeLeft: false,
     strafeRight: false,
     fire: false,
@@ -51,9 +51,9 @@ export class InputManager {
   }
 
   update(): void {
-    // Reset the analog channel every frame — MouseSteering re-writes it
-    // AFTER update() when engaged; without this a last mouse-commanded turn
-    // would stick forever once the mouse goes idle.
+    // Reset the analog channel every frame — MouseSteering/GamepadSteering
+    // re-write it AFTER update() when engaged; without this a last commanded
+    // turn would stick forever once the device goes idle.
     this.state.turn = 0;
     this.state.thrust = this.held.has("KeyW") || this.held.has("ArrowUp");
     this.state.reverse = this.held.has("KeyS") || this.held.has("ArrowDown");

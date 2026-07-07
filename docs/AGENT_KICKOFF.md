@@ -68,6 +68,20 @@ knob `GameConfig.scoreboard.panelMaxRows`. Test: "replicates the match
 scoreboard…" in `tests/server/battleRoom.test.ts`. NOT owner-verified
 in-game yet (solo end board, MP panel, late-joiner board).
 
+**Built 2026-07-07 — gamepad input** (owner-requested): left stick =
+desired heading, screen-relative (honors the flipped north-end view),
+driving the same `InputState.turn` P-controller as the mouse — no new
+sim/protocol surface, NO PROTOCOL_VERSION bump needed (client-only, same
+precedent as the mouse commit `9cba35f`). RT/LT thrust/reverse, A fire,
+X missile, Y jump (edge), LB/RB strafe, d-pad zoom; stick self-gates vs
+keyboard/mouse (deflected = wins, centered = leaves the channel alone).
+Anchors: `client/src/game/GamepadSteering.ts` (the whole feature);
+merge sites `Game.tick` + `NetworkGame.tick` right after `mouse.apply()`;
+knobs `shared/src/GameConfig.ts` → `gamepad`; controls overlay rows in
+`client/index.html`; doc `docs/SUBSYSTEMS.md` → GamepadSteering. NOT
+owner-verified in-game yet (needs a physical pad; menu/splash stays
+keyboard-only by design).
+
 **Owner goal**: a friends playtest — HOSTING IS LIVE (provisioned
 2026-07-06, CI-path verified same day). Topology in `docs/DEPLOY.md`
 ("Provisioned state" section has every detail): ONE DigitalOcean droplet

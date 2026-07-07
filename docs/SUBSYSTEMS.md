@@ -188,8 +188,35 @@ friendly-fire-free without per-bolt faction checks.
 - In multiplayer the mouse-commanded `turn` rides the existing input message
   untouched; the server sim clamps summed turn to ±1, so out-of-range values
   from a modified client can't exceed keyboard turn rates.
-- Tuning lives in `GameConfig.mouse`. Gamepad later: map the stick to the same
-  `turn` channel — no new sim/protocol surface needed.
+- Tuning lives in `GameConfig.mouse`.
+
+## GamepadSteering (gamepad input for the local pilot)
+- CLIENT-ONLY input source, same contract as MouseSteering: merges into the
+  keyboard's `InputState` after `InputManager.update()` and `mouse.apply()`
+  each frame (`Game.tick` + `NetworkGame.tick`) — the sim, the wire protocol,
+  and the server never know a pad exists. No new sim/protocol surface.
+- **Left stick = desired heading, screen-relative** (twin-stick style). The
+  stick vector maps to world X/Z through the view's `flipped` flag (the
+  north-end pilot's 180° camera — one sign negation, same trick as
+  CameraRig/Radar), then the heading error drives `InputState.turn` with the
+  same P-controller shape as mouse/AI steering. The ship still turns at its
+  per-type `rotationSpeed` — pad, mouse, and keyboard pilots are physically
+  identical. Same balance invariant as the mouse: no heading snaps.
+- **Arbitration is self-gating**: a released stick re-centers inside
+  `gamepad.stickDeadzone` and leaves the turn channel alone (keyboard/mouse
+  keep it); a deflected stick is explicit intent and overwrites the mouse's
+  turn (pad applies last). A held rotate key wins outright, mirroring the
+  mouse rule. Buttons always OR-merge regardless of stick state.
+- **Standard mapping**: RT thrust, LT reverse (analog triggers count as held
+  past `triggerThreshold`), A/Cross fire, X/Square missile, Y/Triangle jump
+  (edge-detected like the J key), LB/RB strafe, d-pad up/down zoom.
+- The Gamepad API is poll-based: `apply()` snapshots via
+  `navigator.getGamepads()` per frame; connect/disconnect listeners just
+  maintain an "any pad present" early-out so padless players never pay the
+  poll. A pad connected before page load only surfaces after its first
+  button press (browser privacy rule) — that press fires `gamepadconnected`.
+- Tuning lives in `GameConfig.gamepad`. Menu/splash navigation is still
+  keyboard-only — the pad is a flight input, not a UI device.
 
 ## SensorSystem (per-faction awareness)
 - The keystone of the stealth loop: each faction has ONE shared sensor picture

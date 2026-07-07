@@ -194,6 +194,7 @@ src/
     ShipController.ts      controller interface + ControllerWorld (opponents/mothership/leader → InputState)
     LocalInputController.ts  keyboard controller (surfaces InputManager.state) = the player
     MouseSteering.ts         client-only mouse input: cursor = desired heading → InputState.turn (same P-controller as the AI; ship still turns at its normal rate), LMB/RMB = fire/missile; last-touched device wins vs keyboard (docs/SUBSYSTEMS.md → MouseSteering)
+    GamepadSteering.ts       client-only gamepad input: left stick = desired heading (screen-relative, honors the flipped north-end view) → same InputState.turn P-controller; RT/LT thrust/reverse, A/X/Y fire/missile/jump, LB/RB strafe, d-pad zoom; stick self-gates vs keyboard/mouse (docs/SUBSYSTEMS.md → GamepadSteering)
     AIController.ts        order-driven AI (patrol/strike/hunt/cover/formation/defend), emits InputState; targets SENSOR CONTACTS; missile launch doctrine (fresh-track + envelope + LOS + pacing); setOrder() = runtime re-task seam
     FighterMesh.ts         faction-themed procedural fighter mesh + randomFighterSpawn helper
     Laser.ts               single bolt entity (position, age, kill flag)
@@ -419,11 +420,10 @@ for one, do it. Otherwise: don't.
   work follows `docs/MULTIPLAYER.md` — don't ad-hoc networking outside it.
 - **Physics engine** (cannon, ammo, havok). Motion is hand-rolled.
 - **ECS framework**. The handful of entities don't need it.
-- **Mobile / touch controls**. Keyboard + mouse only (mouse added
-  2026-07-06 — heading control via `MouseSteering`, not aim control).
-- **Gamepad input**. Planned next input method — when asked, map the stick
-  onto the same `InputState.turn` channel the mouse uses; don't build a
-  parallel path.
+- **Mobile / touch controls**. Keyboard + mouse + gamepad only (mouse added
+  2026-07-06 — heading control via `MouseSteering`, not aim control; gamepad
+  added 2026-07-07 — `GamepadSteering`, left stick = desired heading on the
+  same `InputState.turn` channel, no parallel path).
 - **A complex menu system**. The splash flow (the three-step loadout frame
   as the front door, the intro cinematic as a first-run gate, one-press CONTINUE
   for returning players) is the deliberate ceiling — keyboard-first, saved

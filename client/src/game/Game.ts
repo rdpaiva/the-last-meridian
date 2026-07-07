@@ -53,6 +53,7 @@ import { LaunchSequence } from "@space-duel/shared";
 import { opposing, FACTION_THEME, type Faction } from "@space-duel/shared";
 import { LocalInputController } from "./LocalInputController";
 import { MouseSteering } from "./MouseSteering";
+import { GamepadSteering } from "./GamepadSteering";
 import { AIController } from "@space-duel/shared";
 import { loadPilotName, type PlayerLoadout } from "./Loadout";
 import { ScoreBoard } from "./ScoreBoard";
@@ -126,6 +127,8 @@ export class Game {
   private readonly input: InputManager;
   /** Mouse heading-steer + fire buttons, merged into input.state each tick. */
   private readonly mouse: MouseSteering;
+  /** Gamepad stick-steer + buttons, merged into input.state after the mouse. */
+  private readonly gamepad: GamepadSteering;
   private readonly arena: Arena;
   private readonly asteroids: AsteroidFieldView;
   /** Placed derelict wrecks (map hazards) — indestructible, slowly-rotating
@@ -553,6 +556,10 @@ export class Game {
     // after the rig. It merges into input.state each tick (see tick()).
     this.mouse = new MouseSteering(this.cameraRig.camera);
     this.mouse.attach(canvas);
+    // Gamepad steering maps the stick into screen-relative headings, so it
+    // shares the camera's flipped flag rather than the camera itself.
+    this.gamepad = new GamepadSteering(this.viewFlipped);
+    this.gamepad.attach();
     // Jump shockwave refraction — needs the camera, so it's built after the rig
     // (the jumpFired handler wired above reads it lazily, only at jump time).
     this.jumpRipple = new JumpRipple(this.scene, this.cameraRig.camera);
@@ -1583,9 +1590,12 @@ export class Game {
 
       this.input.update();
       if (this.input.consumeDebugToggle()) this.toggleGodMode();
-      // Merge mouse steering + buttons into the same InputState the keyboard
-      // filled — everything downstream (controller, sim, HUD) sees one state.
+      // Merge mouse then gamepad steering + buttons into the same InputState
+      // the keyboard filled — everything downstream (controller, sim, HUD)
+      // sees one state. Pad goes last: a deflected stick is explicit intent
+      // and overrides a parked-but-recent mouse on the turn channel.
       this.mouse.apply(this.input.state, this.playerShip, nowMs);
+      this.gamepad.apply(this.input.state, this.playerShip);
 
       const anyInputHeld =
         this.input.state.thrust ||

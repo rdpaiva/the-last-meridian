@@ -46,6 +46,7 @@ import { buildPostPipeline } from "./PostPipeline";
 import { Hud, type ScoreRow } from "./Hud";
 import { InputManager } from "./InputManager";
 import { MouseSteering } from "./MouseSteering";
+import { GamepadSteering } from "./GamepadSteering";
 import { AssetLoader } from "./AssetLoader";
 import { buildFighterMesh } from "./FighterMesh";
 import { ShipView } from "./view/ShipView";
@@ -235,6 +236,8 @@ export class NetworkGame {
   private readonly input: InputManager;
   /** Mouse heading-steer + fire buttons, merged into input.state each frame. */
   private readonly mouse: MouseSteering;
+  /** Gamepad stick-steer + buttons, merged into input.state after the mouse. */
+  private readonly gamepad: GamepadSteering;
   private readonly loader: AssetLoader;
   /** Per-ship-type GLB template (null = procedural fallback), cloned per ship. */
   private readonly templates = new Map<ShipTypeId, TransformNode | null>();
@@ -506,6 +509,11 @@ export class NetworkGame {
     // so the server receives the mouse-commanded turn like any other input.
     this.mouse = new MouseSteering(this.cameraRig.camera);
     this.mouse.attach(canvas);
+    // Gamepad steering maps the stick into screen-relative headings via the
+    // same flipped flag the camera/radar use; its commanded turn rides the
+    // input message to the server like any other input.
+    this.gamepad = new GamepadSteering(this.viewFlipped);
+    this.gamepad.attach();
     // ACES tone mapping + FXAA + vignette — the SAME full-frame grade as the
     // offline Game (shared helper), so both modes render identical colors.
     buildPostPipeline(this.scene, this.cameraRig.camera);
@@ -972,6 +980,12 @@ export class NetworkGame {
       this.input.state,
       this.predictionActive ? this.predicted : null,
       nowMs,
+    );
+    // Pad merges after the mouse: a deflected stick is explicit intent and
+    // overrides a parked-but-recent mouse on the turn channel.
+    this.gamepad.apply(
+      this.input.state,
+      this.predictionActive ? this.predicted : null,
     );
     // Audio unlock rides the first real input gesture (mirrors Game.tick).
     const held = this.input.state;
@@ -2130,6 +2144,7 @@ export class NetworkGame {
     this.nameplates.dispose(); // DOM layer — scene.dispose won't remove it
     this.input.detach();
     this.mouse.detach();
+    this.gamepad.detach();
     void this.net.leave();
     // Stop the track explicitly — a queued locked-context play or the
     // onEnded chain would otherwise outlive scene.dispose().

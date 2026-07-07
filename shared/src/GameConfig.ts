@@ -1370,6 +1370,35 @@ export const GameConfig = {
     steerDeadband: 0.02,
   },
 
+  /**
+   * Gamepad flight (CLIENT-ONLY input, same contract as `mouse`: it merges
+   * into the keyboard's InputState, so the sim and the wire protocol never
+   * see the pad). The LEFT STICK sets a DESIRED HEADING relative to the
+   * screen (the flipped north-end view included) and the heading error
+   * drives `InputState.turn` through the same P-controller shape as
+   * mouse/AI steering — pad pilots turn at the same per-type rate as
+   * everyone else. Standard mapping: RT thrust, LT reverse, A fire,
+   * X missile, Y jump, LB/RB strafe, d-pad up/down zoom.
+   * See client GamepadSteering.ts.
+   */
+  gamepad: {
+    /**
+     * Radial deadzone on the left stick (0..1). Below it the stick counts
+     * as centered and the turn channel is left to the keyboard/mouse; also
+     * absorbs the resting drift cheap sticks report.
+     */
+    stickDeadzone: 0.25,
+    /**
+     * Heading error (rad) at which the commanded turn saturates to full
+     * rate; below it the rate scales linearly (same shape as mouse.steerBand).
+     */
+    steerBand: 0.5,
+    /** Heading error (rad) below which the nose holds — anti-jitter floor. */
+    steerDeadband: 0.02,
+    /** Analog trigger travel (0..1) past which LT/RT count as held. */
+    triggerThreshold: 0.35,
+  },
+
   starfield: {
     /**
      * The starfield is a CAMERA-LOCKED WRAPPING field. Instead of scattering

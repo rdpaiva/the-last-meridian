@@ -622,8 +622,10 @@ benefit.
   `Ship` and that's a feature, not a bug — keeps the control feel tunable.
 - **ECS framework** (bitecs, etc.). The entity count is too small to
   benefit; the explicit class-per-entity pattern is easier to read.
-- **Mobile / touch controls**. Game is keyboard-only.
-- **Gamepad input** (could be added later, not core).
+- **Mobile / touch controls**. Keyboard + mouse + gamepad only.
+- ~~**Gamepad input**~~ — DONE 2026-07-07 (`GamepadSteering`: left stick =
+  desired heading on the same `InputState.turn` channel as the mouse; RT/LT
+  thrust/reverse, A fire, X missile, Y jump, LB/RB strafe, d-pad zoom).
 - **Complex menu system** (main menu, options screen, pause). Game
   starts directly into play.
 - **Asset preloading splash screen**. Sounds load lazily; the procedural
