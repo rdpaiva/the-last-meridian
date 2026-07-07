@@ -230,6 +230,7 @@ export class NetworkGame {
   private readonly arena: Arena;
   private readonly cameraRig: CameraRig;
   private readonly starfield: Starfield;
+  private readonly backdrop: Backdrop;
   private readonly hud: Hud;
   private readonly input: InputManager;
   /** Mouse heading-steer + fire buttons, merged into input.state each frame. */
@@ -461,7 +462,7 @@ export class NetworkGame {
 
     // --- Scenery ---
     this.arena = new Arena(this.scene);
-    new Backdrop(this.scene);
+    this.backdrop = new Backdrop(this.scene);
     new Nebulas(this.scene, this.arena.halfWidth, this.arena.halfDepth);
     new CapitalShips(this.scene, this.arena.halfWidth, this.arena.halfDepth, this.glowLayer);
 
@@ -1103,6 +1104,7 @@ export class NetworkGame {
     const zoomInput = this.input.state.zoomIn ? 1 : this.input.state.zoomOut ? -1 : 0;
     this.cameraRig.update(dt, this.camPos, this.camVel, zoomInput);
     this.starfield.update();
+    this.backdrop.update(this.cameraRig.camera.getTarget());
 
     // 3.5 Transient FX: play each queued server fact once the render clock
     // reaches its sim time (aligning FX with the interpolated poses), then
