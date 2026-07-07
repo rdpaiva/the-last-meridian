@@ -242,6 +242,7 @@ export class BattleSim {
       maxHp: type.maxHp,
       respawnDelayMs: opts.respawnDelayMs,
       startMissileAmmo: type.missileAmmo,
+      missileSalvo: type.missileSalvo,
       startCannonAmmo: type.cannonAmmo,
       movement: type,
       laserDamage: type.laserDamage,
@@ -399,8 +400,8 @@ export class BattleSim {
       }
 
       if (ship.isAlive && input.fireMissile) {
-        const missilePos = ship.tryFireMissile();
-        if (missilePos) {
+        const missilePositions = ship.tryFireMissile();
+        if (missilePositions.length > 0) {
           // AI pilots home on the contact their controller chose; a HUMAN
           // seat (NetworkController) gets the same lock rule the offline
           // player's HUD applies (Game.computeLockTarget) — without this,
@@ -409,12 +410,14 @@ export class BattleSim {
             c.controller instanceof AIController
               ? c.controller.missileTarget
               : this.computeLockFor(ship);
-          this.factionMissiles[ship.faction].spawn(
-            missilePos,
-            ship.rotationY,
-            homing,
-            ship,
-          );
+          for (const p of missilePositions) {
+            this.factionMissiles[ship.faction].spawn(
+              p,
+              ship.rotationY,
+              homing,
+              ship,
+            );
+          }
           this.events.emit("missileFired", { ship, target: homing });
         }
       }

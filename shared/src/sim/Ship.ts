@@ -40,6 +40,12 @@ export interface ShipTypeConfig extends ShipMovementConfig {
   /** Heat-seeker rack size (0 = no missile capability). */
   missileAmmo: number;
   /**
+   * Missiles per trigger pull (1 = single launch). Each round in the salvo
+   * spends one ammo and homes on the same lock; the launcher's cooldown still
+   * gates the NEXT pull, so a salvo multiplies alpha, not sustained rate.
+   */
+  missileSalvo: number;
+  /**
    * Cannon magazine: total laser rounds (bolts) before the guns run dry. NO
    * passive regen — empty = defenseless on cannons until refilled at the
    * carrier (docs/JUMP-DRIVE-AND-RESUPPLY.md). Each bolt fired spends one.
@@ -64,6 +70,8 @@ export interface ShipOptions {
   respawnDelayMs: number;
   /** Missiles to start/refill with (the ship type's rack — 0 = no rack). */
   startMissileAmmo: number;
+  /** Missiles per trigger pull (the ship type's missileSalvo; defaults to 1). */
+  missileSalvo?: number;
   /** Cannon rounds to start/refill with (the ship type's magazine). */
   startCannonAmmo: number;
   /** Movement/weapon tuning (a GameConfig.shipTypes entry). */
@@ -175,6 +183,7 @@ export class Ship implements DamageTarget, ShipPose {
   private readonly cfg: ShipMovementConfig;
   private readonly respawnDelayMs: number;
   private readonly startMissileAmmo: number;
+  private readonly missileSalvo: number;
   private readonly startCannonAmmo: number;
 
   /**
@@ -237,6 +246,7 @@ export class Ship implements DamageTarget, ShipPose {
     this.respawnDelayMs = opts.respawnDelayMs;
     this.startMissileAmmo = opts.startMissileAmmo;
     this.missileAmmo = opts.startMissileAmmo;
+    this.missileSalvo = opts.missileSalvo ?? 1;
     this.startCannonAmmo = opts.startCannonAmmo;
     this.cannonAmmo = opts.startCannonAmmo;
     this.maxCannonAmmo = opts.startCannonAmmo;
@@ -422,23 +432,38 @@ export class Ship implements DamageTarget, ShipPose {
   }
 
   /**
-   * Attempts to launch a heat-seeking missile. Returns the world-space spawn
-   * position (along the nose), or null when on cooldown or out of ammo.
+   * Attempts to launch heat-seeking missiles — one per salvo round (the ship
+   * type's missileSalvo, usually 1). Returns the world-space spawn positions
+   * (along the nose, spread laterally so a twin launch reads as two tubes),
+   * or an empty array when on cooldown or out of ammo. Each round spends one
+   * ammo; a short rack fires whatever is left.
    */
-  tryFireMissile(): Vector3 | null {
+  tryFireMissile(): Vector3[] {
     if (this.missileCooldownRemainingMs > 0 || this.missileAmmo < 1) {
-      return null;
+      return [];
     }
     this.missileCooldownRemainingMs = GameConfig.missile.fireCooldownMs;
-    this.missileAmmo--;
+    const count = Math.min(this.missileSalvo, this.missileAmmo);
+    this.missileAmmo -= count;
 
     const fwd = this.forward();
+    // Starboard perpendicular of forward=(sin r, 0, cos r) is (cos r, 0, -sin r).
+    const rightX = fwd.z;
+    const rightZ = -fwd.x;
     const off = GameConfig.missile.spawnOffset;
-    return new Vector3(
-      this.position.x + fwd.x * off,
-      this.position.y,
-      this.position.z + fwd.z * off,
-    );
+    const spread = GameConfig.missile.salvoSpread;
+    const positions: Vector3[] = [];
+    for (let i = 0; i < count; i++) {
+      const lateral = (i - (count - 1) / 2) * spread;
+      positions.push(
+        new Vector3(
+          this.position.x + fwd.x * off + rightX * lateral,
+          this.position.y,
+          this.position.z + fwd.z * off + rightZ * lateral,
+        ),
+      );
+    }
+    return positions;
   }
 
   /**

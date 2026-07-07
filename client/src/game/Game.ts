@@ -691,6 +691,7 @@ export class Game {
       maxHp: playerType.maxHp,
       respawnDelayMs: GameConfig.combat.playerRespawnDelayMs,
       startMissileAmmo: playerType.missileAmmo,
+      missileSalvo: playerType.missileSalvo,
       startCannonAmmo: playerType.cannonAmmo,
       movement: playerType,
       laserDamage: playerType.laserDamage,
@@ -726,6 +727,7 @@ export class Game {
           maxHp: playerType.maxHp,
           respawnDelayMs: GameConfig.combat.enemyRespawnDelayMs,
           startMissileAmmo: playerType.missileAmmo,
+          missileSalvo: playerType.missileSalvo,
           startCannonAmmo: playerType.cannonAmmo,
           movement: playerType,
           laserDamage: playerType.laserDamage,
@@ -1725,19 +1727,21 @@ export class Game {
       // the round spawns into the SHOOTER's faction system carrying the
       // shooter for attribution.
       if (ship.isAlive && input.fireMissile) {
-        const missilePos = ship.tryFireMissile();
-        if (missilePos) {
+        const missilePositions = ship.tryFireMissile();
+        if (missilePositions.length > 0) {
           const homing = isPlayer
             ? this.lockTarget
             : c.controller instanceof AIController
               ? c.controller.missileTarget
               : null;
-          this.factionMissiles[ship.faction].spawn(
-            missilePos,
-            ship.rotationY,
-            homing,
-            ship,
-          );
+          for (const p of missilePositions) {
+            this.factionMissiles[ship.faction].spawn(
+              p,
+              ship.rotationY,
+              homing,
+              ship,
+            );
+          }
           this.events.emit("missileFired", { ship, target: homing });
         }
       }
@@ -2200,6 +2204,7 @@ export class Game {
       maxHp: type.maxHp,
       respawnDelayMs: GameConfig.combat.enemyRespawnDelayMs,
       startMissileAmmo: type.missileAmmo,
+      missileSalvo: type.missileSalvo,
       startCannonAmmo: type.cannonAmmo,
       movement: type,
       laserDamage: type.laserDamage,

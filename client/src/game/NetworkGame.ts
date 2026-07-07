@@ -1741,16 +1741,18 @@ export class NetworkGame {
       }
     }
     if (this.input.state.fireMissile) {
-      const missilePos = ship.tryFireMissile();
-      if (missilePos) {
-        // The depicted round homes on the same lock the HUD advertises (the
+      const missilePositions = ship.tryFireMissile();
+      if (missilePositions.length > 0) {
+        // The depicted rounds home on the same lock the HUD advertises (the
         // server computes its own identical lock — BattleSim.computeLockFor).
-        this.cosmeticMissiles[meta.faction].spawn(
-          missilePos,
-          ship.rotationY,
-          this.lockStub ? (this.lockStub as unknown as Ship) : null,
-          null,
-        );
+        for (const p of missilePositions) {
+          this.cosmeticMissiles[meta.faction].spawn(
+            p,
+            ship.rotationY,
+            this.lockStub ? (this.lockStub as unknown as Ship) : null,
+            null,
+          );
+        }
         this.sound.playMissileLaunch();
       }
     }
@@ -1877,6 +1879,7 @@ export class NetworkGame {
       maxHp: type.maxHp,
       respawnDelayMs: GameConfig.combat.playerRespawnDelayMs,
       startMissileAmmo: type.missileAmmo,
+      missileSalvo: type.missileSalvo,
       startCannonAmmo: type.cannonAmmo,
       movement: type,
       laserDamage: type.laserDamage,

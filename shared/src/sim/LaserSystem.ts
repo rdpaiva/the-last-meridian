@@ -153,7 +153,10 @@ export class LaserSystem {
       new Laser(
         position,
         velocity,
-        cfg.lifetimeMs,
+        // Turret flak lives longer than fighter fire: the carrier's guns
+        // engage a bigger bubble (turrets.range) than laser.lifetimeMs can
+        // cover, so their bolts get the matching endurance.
+        turret ? GameConfig.mothership.turrets.boltLifetimeMs : cfg.lifetimeMs,
         rotationY,
         shooter,
         damage ?? this.damage,

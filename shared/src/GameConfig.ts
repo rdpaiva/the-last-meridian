@@ -68,6 +68,8 @@ const shipTypes = {
     laserDamage: 20,
     /** Heat-seeker rack size. */
     missileAmmo: 10,
+    /** Single-tube launcher. */
+    missileSalvo: 1,
     /**
      * Cannon magazine (laser rounds). ~240 ≈ 30s of sustained fire at the
      * 120ms cycle — a disciplined pilot rarely empties it; a trigger-holder
@@ -85,9 +87,10 @@ const shipTypes = {
    * capital ships and mothership subsystems). Slower and far less nimble than
    * the Spitfire, but it has the best sustained gun DPS in the catalog, soaks
    * twice the damage, and carries double the missile rack. Versus the Reaver
-   * it's the gunship proper: better guns and handling, smaller target — the
-   * Reaver answers with more armor, heavier alpha, and a bigger rack. Four gun
-   * muzzles (two nose pairs + two wing turrets) ripple in alternate mode.
+   * it's slightly faster on all fronts — quicker hull, better strafe, equal
+   * turn, smaller target — the Reaver answers with more armor, heavier
+   * alpha, and twin missile tubes. Four gun muzzles (two nose pairs + two
+   * wing turrets) ripple in alternate mode.
    */
   breaker: {
     model: "breaker.glb",
@@ -97,8 +100,12 @@ const shipTypes = {
     /** Noticeably slower than the Spitfire's 24 — a weapons truck, not a racer. */
     maxSpeed: 17,
     dragRate: 0.9,
-    /** Ponderous turn — lead your targets. */
-    rotationSpeed: 2.9,
+    /**
+     * Ponderous next to the fighters, but matched to the Reaver (3.2): the
+     * gunships turn as equals, so the Breaker's speed/strafe edge — not a
+     * turn deficit — decides the knife fight (raised from 2.9, 2026-07-07).
+     */
+    rotationSpeed: 3.2,
     /** Heavy bolts on a brisk cycle — 227 DPS, the catalog's best guns. */
     fireCooldownMs: 150,
     /**
@@ -120,6 +127,8 @@ const shipTypes = {
     laserDamage: 34,
     /** Double rack for the strike role. */
     missileAmmo: 20,
+    /** Single-tube launcher — the Reaver is the twin-launch barge. */
+    missileSalvo: 1,
     /** Big drum for the gunship's sustained-fire role (~63s at the 150ms cycle). */
     cannonAmmo: 420,
     /** Physically bigger ship, bigger capture circle. */
@@ -158,6 +167,8 @@ const shipTypes = {
     laserDamage: 20,
     /** A light rack — guns and agility are still the core, with a few missiles to fall back on. */
     missileAmmo: 5,
+    /** Single-tube launcher. */
+    missileSalvo: 1,
     /**
      * Smaller drum than the Spitfire — a pure knife-fighter rewards burst
      * discipline (~18s at its hot 100ms cycle). Only a slim missile rack to
@@ -173,11 +184,13 @@ const shipTypes = {
   /**
    * Reaver — the Novari HEAVY GUNSHIP (story bible: the machines' answer to
    * the Breaker — more aggressive and alien, built to crack the Bastion).
-   * The ARMORED MISSILE BARGE: biggest hull, heaviest alpha per bolt, and the
-   * biggest missile rack in the catalog — but the slowest guns, the slowest
-   * hull, and the biggest target. Versus the Breaker it trades gun DPS and
-   * handling for armor and ordnance. Four muzzles (twin long chin cannons +
-   * the two wing gun pods) ripple in alternate mode. Reverse/strafe sit at
+   * The ARMORED MISSILE BARGE: biggest hull, heaviest alpha per bolt, the
+   * biggest missile rack in the catalog, and a TWIN missile launcher (two
+   * rounds per trigger pull) — but the slowest guns, the slowest hull, and
+   * the biggest target. Versus the Breaker it trades gun DPS and mobility
+   * (the Breaker is slightly faster on all fronts; turn is equal) for armor
+   * and double ordnance. Four muzzles (twin long chin cannons + the two
+   * wing gun pods) ripple in alternate mode. Reverse/strafe sit at
    * Breaker-class authority so a human can fly it off the loadout menu.
    */
   reaver: {
@@ -188,8 +201,13 @@ const shipTypes = {
     /** Slowest hull in the catalog (Breaker: 17) — armor over engines. */
     maxSpeed: 16,
     dragRate: 0.9,
-    /** Even more ponderous than the Breaker's 2.9. */
-    rotationSpeed: 2.7,
+    /**
+     * Matched to the Breaker (3.2) — the gunships turn as equals, and the
+     * Reaver's edge is armor + the twin missile tubes, not handling. Raised
+     * from 2.7 after playtests found the old value left the Reaver with no
+     * answer at all (2026-07-07).
+     */
+    rotationSpeed: 3.2,
     /** Slow cycle — 190 DPS, below the Breaker; each bolt hits hardest. */
     fireCooldownMs: 200,
     /**
@@ -210,6 +228,13 @@ const shipTypes = {
     laserDamage: 38,
     /** Biggest rack in the game (matters when the player flies one). */
     missileAmmo: 24,
+    /**
+     * TWIN LAUNCH — the Reaver's signature: every trigger pull ripples two
+     * missiles (each spends one ammo, both home on the same lock), so the
+     * 24-rack is 12 double punches. The launcher cooldown still paces pulls;
+     * this doubles the alpha, not the sustained missile rate.
+     */
+    missileSalvo: 2,
     /** Biggest drum to match the barge role (~96s at its slow 200ms cycle). */
     cannonAmmo: 480,
     /** Big scythe-winged silhouette, big capture circle. */
@@ -450,6 +475,13 @@ export const GameConfig = {
     /** Offset from ship origin where the missile spawns (along ship forward). */
     spawnOffset: 1.2,
     /**
+     * Lateral gap (world units) between adjacent rounds of a multi-missile
+     * salvo (shipTypes[*].missileSalvo > 1) — a twin launch spawns at
+     * ±salvoSpread/2 so the pair reads as two tubes, then homing converges
+     * them. Irrelevant to single-tube ships.
+     */
+    salvoSpread: 1.1,
+    /**
      * Minimum time between launches (ms). Gates the held key so the whole
      * ammo pool can't dump in a single frame; tuned slow to read as a
      * deliberate, weighty shot vs. the laser's rapid fire.
@@ -476,8 +508,16 @@ export const GameConfig = {
     /** Damage is rolled uniformly in [minDamage, maxDamage] per hit. */
     minDamage: 30,
     maxDamage: 50,
-    /** Distance within which a lock can be acquired (world units). */
-    lockRange: 400,
+    /**
+     * Distance within which a lock can be acquired (world units). Kept AT
+     * OR UNDER the missile's actual reach (speed 45 × lifetime 3.2s ≈ 144
+     * of straight flight, less against a fleeing target) so the HUD "LOCK"
+     * honestly means "this shot can connect" — the same discipline the AI
+     * flies with (ai.missileMaxRange 110). Was 400 for a long stretch,
+     * which lit the lock at ~3× the missile's endurance and invited wasted
+     * rounds (2026-07-07).
+     */
+    lockRange: 130,
     /** Half-angle of the frontal lock cone (rad). 0.5 ≈ 28.6°. */
     lockConeAngle: 0.5,
     /**
@@ -1001,12 +1041,28 @@ export const GameConfig = {
        * takes the hit instead of the carrier behind it.
        */
       hitRadius: 8,
-      /** Max engagement range (world units). Inside the carrier's AWADS bubble. */
-      range: 320,
+      /**
+       * Max engagement range (world units). Deliberately OUT-RANGES the
+       * fighters (a fighter bolt expires after laser.speed × laser.lifetimeMs
+       * ≈ 114 units) — the carrier's guns own a bigger bubble — but stays
+       * under the turret bolt's own reach (boltLifetimeMs below, ≈ 209) so
+       * the flak only opens up on targets its rounds can actually get to.
+       * Was 320: turrets fired at anything the AWACS saw and the bolts died
+       * two-thirds of the way there (2026-07-07).
+       */
+      range: 180,
       /** Slew rate (radians/sec) the barrel tracks a target at. */
       turnRate: 1.8,
       /** Seconds between shots (per turret). */
       fireCooldownSec: 0.85,
+      /**
+       * Turret bolt lifetime (ms) — turret flak overrides the shared
+       * laser.lifetimeMs (1200 ≈ 114 units of reach) so the carrier's guns
+       * genuinely reach their bigger engagement bubble: 2200ms at the shared
+       * bolt speed 95 ≈ 209 units, comfortably past `range` with margin for
+       * a target running outward. Consumed by LaserSystem.spawn (turret=true).
+       */
+      boltLifetimeMs: 2200,
       /** Damage per bolt. */
       damage: 14,
       /** Fire only when aimed within this many radians of the target bearing. */

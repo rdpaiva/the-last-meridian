@@ -99,6 +99,8 @@ function shipGroup(id: ShipTypeId): TuningGroup {
         "Pause between laser shots, in milliseconds. Lower = a faster trigger and more damage per second."),
       num(`${p}.missileAmmo`, "Missile rack", 0, 60, 1,
         `Heat-seeking missiles the ${name} carries per life. 0 removes the rack entirely.`),
+      num(`${p}.missileSalvo`, "Missiles per launch", 1, 4, 1,
+        `Missiles the ${name} ripples per trigger pull (each spends one rack round). The Reaver's twin launch is 2.`),
     ],
   };
 }
