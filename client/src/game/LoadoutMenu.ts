@@ -583,7 +583,7 @@ export class LoadoutMenu {
     const sel = (m: LaunchMode): string => (m === this.mode ? " selected" : "");
     const active = this.activeRow === "mode" ? " active" : "";
     return `
-      <div class="loadout-heading">Choose your operation</div>
+      <div class="loadout-heading">Choose your game</div>
       <div class="loadout-row mode-row${active}" id="loadout-modes">
         <div class="loadout-card mode-card${sel("solo")}" data-mode="solo">
           <div class="mode-badge">▶ SELECTED</div>
