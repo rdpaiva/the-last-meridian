@@ -45,10 +45,12 @@ bar; MP-only HUD row flashes LINK COPIED; rejoin-last-match prompt
 deliberately skipped — see PHASE1_OPEN_ISSUES). OWNER-VERIFIED 2026-07-06:
 Enter after Victory lands in the right (fresh) room. Not individually
 exercised (low risk, integration-tested): the I key and the 60s banner
-linger. Hosting artifacts are in `docs/DEPLOY.md`. PROTOCOL_VERSION **18**
-(bumped 2026-07-07 for the match scoreboard; the DEPLOYED server still
-answers v17 until the next "Deploy game" dispatch — old clients get the
-refresh prompt, so deploy both halves together as always).
+linger. Hosting artifacts are in `docs/DEPLOY.md`. PROTOCOL_VERSION **19**
+(18 = 2026-07-07 match scoreboard; 19 = 2026-07-07 gunship balance pass —
+balance lives in shared GameConfig, so it's a both-sides deploy; the
+DEPLOYED server still answers v17 until the next "Deploy game" dispatch —
+old clients get the refresh prompt, so deploy both halves together as
+always).
 
 **Built 2026-07-07 — match scoreboard/leaderboard** (owner-requested):
 every pilot ranked by kills (K/D/score columns), player row gold, human
@@ -81,6 +83,30 @@ knobs `shared/src/GameConfig.ts` → `gamepad`; controls overlay rows in
 `client/index.html`; doc `docs/SUBSYSTEMS.md` → GamepadSteering.
 OWNER-VERIFIED 2026-07-07 with a physical pad — good (menu/splash stays
 keyboard-only by design).
+
+**Built 2026-07-07 — gunship balance pass + honest weapon ranges**
+(owner-requested, commit `ca47f4b`): the Reaver now fires a TWIN missile
+salvo (new per-type `shipTypes[*].missileSalvo`, Reaver 2 / others 1; two
+rounds per pull, one ammo each, same lock, spread by `missile.salvoSpread`);
+BOTH gunships turn at 3.2 (Breaker raised from 2.9, Reaver from 2.7 — turn
+parity; Breaker keeps speed/strafe/reverse, Reaver keeps armor + ordnance);
+`missile.lockRange` 400→130 so HUD LOCK ≈ the seeker's real ~144-unit
+endurance; carrier `turrets.range` 320→180 + new `turrets.boltLifetimeMs`
+2200 so flak only engages what its rounds reach (still out-ranges the
+fighters' ~114). Anchors: `shared/src/GameConfig.ts` (`shipTypes`,
+`missile`, `mothership.turrets`); `shared/src/sim/Ship.ts`
+`tryFireMissile` (returns `Vector3[]` now) + the three spawn-loop call
+sites (`shared/src/sim/BattleSim.ts`, `client/src/game/Game.ts` tick,
+`client/src/game/NetworkGame.ts` prediction); salvo knob in
+`client/src/game/TuningSchema.ts`. AI fighters were audited and already
+fire honestly (gate 26 « 114 reach — no change). Sim baseline recaptured.
+Evidence: 40-seed headless duel harness (scratchpad, not committed) —
+pre-buff Reaver won 0/40 vs the Breaker (all stalemates); final config
+decides 18/40 AI merges, all Reaver by ~one twin salvo of hull. NOT yet
+owner-verified in-game; feel-check levers if the Reaver oppresses: the
+"Missiles per launch" match-settings slider, `ai.missileCooldownSec`, or
+Reaver rack 24→20. PROTOCOL_VERSION bumped to **19** (balance lives in
+shared GameConfig = both-sides deploy, per the protocol.ts rule).
 
 **Owner goal**: a friends playtest — HOSTING IS LIVE (provisioned
 2026-07-06, CI-path verified same day). Topology in `docs/DEPLOY.md`
