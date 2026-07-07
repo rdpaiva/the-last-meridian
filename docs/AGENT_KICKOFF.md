@@ -65,8 +65,8 @@ server `server/src/schema/BattleState.ts` (`ScoreSchema`, UNFILTERED root
 `server/src/rooms/BattleRoom.ts` (`makeScoreSchema`/`syncScoreIdentity`,
 tally in the `shipDied` relay); client feed `NetworkGame.scoreRows()`;
 knob `GameConfig.scoreboard.panelMaxRows`. Test: "replicates the match
-scoreboard…" in `tests/server/battleRoom.test.ts`. NOT owner-verified
-in-game yet (solo end board, MP panel, late-joiner board).
+scoreboard…" in `tests/server/battleRoom.test.ts`. OWNER-VERIFIED
+2026-07-07 in-game — good.
 
 **Built 2026-07-07 — gamepad input** (owner-requested): left stick =
 desired heading, screen-relative (honors the flipped north-end view),
@@ -78,8 +78,8 @@ keyboard/mouse (deflected = wins, centered = leaves the channel alone).
 Anchors: `client/src/game/GamepadSteering.ts` (the whole feature);
 merge sites `Game.tick` + `NetworkGame.tick` right after `mouse.apply()`;
 knobs `shared/src/GameConfig.ts` → `gamepad`; controls overlay rows in
-`client/index.html`; doc `docs/SUBSYSTEMS.md` → GamepadSteering. NOT
-owner-verified in-game yet (needs a physical pad; menu/splash stays
+`client/index.html`; doc `docs/SUBSYSTEMS.md` → GamepadSteering.
+OWNER-VERIFIED 2026-07-07 with a physical pad — good (menu/splash stays
 keyboard-only by design).
 
 **Owner goal**: a friends playtest — HOSTING IS LIVE (provisioned
