@@ -120,10 +120,14 @@ playtest results: what broke, what felt off, overlay numbers if netcode>
      Client (`client/src/main.ts` startOnline) differentiates: invite +
      faction-full → stays on splash with "switch factions to join" (the
      `#join=` hash survives, so relaunch retries the friend's room); invite
-     room gone/locked → visible "finding a new room…" before the quick-match
-     fallback; quick-match faction-full → `NetClient.createMatch` (fresh
-     room via `Client.create` — joinOrCreate would re-match the same full
-     room). Test: "refuses a faction-full join…" in
+     room gone/locked/full → STOPS on the splash with "FRIEND'S MATCH
+     UNAVAILABLE — relaunch for a new room" + drops the dead hash
+     (`clearInviteHash`, hoisted into `NetClient.ts`) so the next launch
+     press quick-matches (NO auto-fallback: a successful fallback hides the
+     splash in ~200ms, the message was unreadable — owner caught this);
+     quick-match faction-full → `NetClient.createMatch` (fresh room via
+     `Client.create` — joinOrCreate would re-match the same full room).
+     Test: "refuses a faction-full join…" in
      `tests/server/battleRoom.test.ts`. NO protocol bump (4002 was already
      on the wire; only newly named/handled). NOT owner-verified in-game.
 3. **Feel-tuning loop** (parked, reopen only if the DEPLOYED game feels
