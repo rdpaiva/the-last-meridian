@@ -31,6 +31,7 @@ import {
   ShipSchema,
   MothershipSchema,
   AsteroidSchema,
+  ScoreSchema,
 } from "../schema/BattleState";
 
 /** A flyable slot in the battle: one ship that is either AI-flown or, when a
@@ -211,6 +212,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     const pilotName = sanitizePilotName(options.pilotName);
     seat.schema.callsign = pilotName !== "" ? pilotName : seat.aiCallsign;
     seat.pilotCallsign = seat.schema.callsign; // survives a disconnect for the reclaim
+    this.syncScoreIdentity(seat);
     this.seatBySession.set(client.sessionId, seat);
 
     // Sensor-filtered replication: this client's view starts with every
@@ -243,6 +245,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     seat.schema.isAI = true;
     seat.schema.owner = "";
     seat.schema.callsign = seat.aiCallsign; // the bot resumes its designation
+    this.syncScoreIdentity(seat);
     this.retaskLeader(seat.faction);
 
     if (code === CloseCode.CONSENTED || this.matchEnded) {
@@ -271,6 +274,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
       seat.schema.owner = client.sessionId;
       seat.schema.callsign =
         seat.pilotCallsign !== "" ? seat.pilotCallsign : seat.aiCallsign;
+      this.syncScoreIdentity(seat);
       this.seatBySession.set(client.sessionId, seat);
       this.retaskLeader(seat.faction);
     } catch {
@@ -441,12 +445,23 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     );
     ev.on("shipDied", ({ ship }) => {
       const victim = id(ship);
+      const by = this.lastHitBy.get(victim) ?? "";
+      // Scoreboard tally (the replicated running leaderboard): the death
+      // always counts; a non-empty attribution credits the shooter the
+      // victim's max hull — the same score currency as the client HUD.
+      const victimScore = this.state.scores.get(victim);
+      if (victimScore) victimScore.deaths++;
+      const shooterScore = by !== "" ? this.state.scores.get(by) : undefined;
+      if (shooterScore) {
+        shooterScore.kills++;
+        shooterScore.score += ship.maxHp;
+      }
       this.pendingEvents.push({
         k: "shipDied",
         ship: victim,
         x: ship.position.x,
         z: ship.position.z,
-        by: this.lastHitBy.get(victim) ?? "",
+        by,
         vf: ship.faction,
         vt: typeOf(ship),
       });
@@ -642,6 +657,10 @@ export class BattleRoom extends Room<{ state: BattleState }> {
         const callsign = aiCallsign(faction, index);
         schema.callsign = callsign;
         this.state.ships.set(schema.id, schema);
+        // Every seat gets a scoreboard row from birth (0/0/0) — kills stay
+        // with the SEAT across human↔AI occupancy swaps (the row renames via
+        // syncScoreIdentity, matching how the seat keeps its ship/HP).
+        this.state.scores.set(schema.id, this.makeScoreSchema(schema.id, callsign, faction));
         this.shipIds.set(ship, schema.id);
         const seat: Seat = {
           id: schema.id,
@@ -709,6 +728,32 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     ship.strafeLeft = false;
     ship.strafeRight = false;
     return ship;
+  }
+
+  private makeScoreSchema(id: string, callsign: string, faction: Faction): ScoreSchema {
+    // Initialize EVERY field (same every-field-init rule as makeShipSchema).
+    const score = new ScoreSchema();
+    score.id = id;
+    score.callsign = callsign;
+    score.faction = faction;
+    score.isAI = true;
+    score.kills = 0;
+    score.deaths = 0;
+    score.score = 0;
+    return score;
+  }
+
+  /**
+   * Mirror a seat's replicated identity (callsign + isAI) onto its scoreboard
+   * row — call after every occupancy swap site that rewrites seat.schema
+   * (join, leave, reconnection reclaim). The tally itself stays with the seat.
+   */
+  private syncScoreIdentity(seat: Seat): void {
+    const entry = this.state.scores.get(seat.id);
+    if (entry) {
+      entry.callsign = seat.schema.callsign;
+      entry.isAI = seat.schema.isAI;
+    }
   }
 
   private initMothershipSchema(schema: MothershipSchema, faction: Faction): void {

@@ -43,7 +43,7 @@ import { CapitalShips } from "./CapitalShips";
 import { Starfield } from "./Starfield";
 import { CameraRig } from "./CameraRig";
 import { buildPostPipeline } from "./PostPipeline";
-import { Hud } from "./Hud";
+import { Hud, type ScoreRow } from "./Hud";
 import { InputManager } from "./InputManager";
 import { MouseSteering } from "./MouseSteering";
 import { AssetLoader } from "./AssetLoader";
@@ -1146,6 +1146,11 @@ export class NetworkGame {
     if (state?.pilotHumans !== undefined) {
       this.hud.setPilotCounts(state.pilotHumans, state.pilotBots ?? 0);
     }
+    // Running scoreboard — same live-root-state path as the pilot counts
+    // (bypasses the netsim delay queue; UI-only, ~one RTT "early" under
+    // artificial latency is acceptable). setScoreboard is write-on-change.
+    const scoreRows = this.scoreRows();
+    if (scoreRows.length > 0) this.hud.setScoreboard(scoreRows);
     if (state?.humansMothership && state.machinesMothership) {
       // Carrier sims mirror the replicated HP: the radar diamond drops and the
       // sensors lose their AWACS sweep when a carrier dies, like offline.
@@ -2027,6 +2032,43 @@ export class NetworkGame {
     return ms.maxHp > 0 ? ms.hp / ms.maxHp : 0;
   }
 
+  /**
+   * The replicated per-pilot tallies (BattleState.scores) as view rows for
+   * the scoreboard panel + end-of-game board. The scores map is UNFILTERED
+   * root state, so every pilot is here — never-seen stealthed enemies and
+   * all history a late joiner missed included. Empty until the first patch.
+   */
+  private scoreRows(): ScoreRow[] {
+    const state = this.net.room.state as unknown as {
+      scores?: {
+        forEach(
+          cb: (entry: {
+            id: string;
+            callsign: string;
+            faction: string;
+            isAI: boolean;
+            kills: number;
+            deaths: number;
+            score: number;
+          }) => void,
+        ): void;
+      };
+    };
+    const rows: ScoreRow[] = [];
+    state.scores?.forEach((e) => {
+      rows.push({
+        callsign: e.callsign,
+        faction: e.faction as Faction,
+        kills: e.kills,
+        deaths: e.deaths,
+        score: e.score,
+        isPlayer: e.id === this.myKey,
+        isHuman: !e.isAI,
+      });
+    });
+    return rows;
+  }
+
   private updatePhase(phase: string, winner: string): void {
     // Once the end banner is up, nothing may overwrite it: the server locks
     // an ended room and disposes it after net.endedRoomLingerSec, so the
@@ -2049,6 +2091,9 @@ export class NetworkGame {
         `KILLS ${this.playerKills} · SCORE ${this.score}${
           this.score > 0 && this.score >= this.bestScore ? " · NEW BEST" : ""
         }`,
+        // The match leaderboard, straight from the replicated tallies — a
+        // late joiner's board is complete because it's state, not events.
+        this.scoreRows(),
       );
       return;
     }

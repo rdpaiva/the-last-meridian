@@ -198,6 +198,15 @@ and explicitly skipped. Update this when you finish or start work.
 - **Kills + score** — per-shooter kill attribution (player lasers tagged
   `fromPlayer`, missiles, wing kills tallied separately); score = victim max
   hull; best score persists in localStorage; HUD rows + end-banner summary.
+- **Match scoreboard / leaderboard** (2026-07-07) — every pilot in the match
+  ranked by kills (deaths + score columns; kills desc → score desc), player
+  row highlighted gold, human names bright / AI dim faction-tinted (nameplate
+  honesty language). End-of-game board inside the victory/defeat banner in
+  BOTH modes; multiplayer adds an always-visible bottom-left running-tally
+  panel (capped at `GameConfig.scoreboard.panelMaxRows`, player row
+  force-included). Offline: `ScoreBoard.ts` mirrors the server's last-hit
+  attribution; online: server-tallied unfiltered `scores` root map
+  (late-joiner complete, stealthed pilots included) — PROTOCOL_VERSION 18.
 - **Heavy-gunship laser tint** — Breaker/Reaver bolts fire a hue-shifted color
   (`FACTION_THEME.laserHeavyEmissive`: Commonwealth electric blue, Novari teal)
   so heavy fire reads distinct from light fighters. A shipType `heavy` flag →

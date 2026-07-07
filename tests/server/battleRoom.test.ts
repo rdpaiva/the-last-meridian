@@ -485,6 +485,89 @@ describe("BattleRoom integration", () => {
   );
 
   it(
+    "replicates the match scoreboard unfiltered: a row per seat, identity swaps, kill/death tallies",
+    async () => {
+      const room = await colyseus.createRoom(BATTLE_ROOM, {});
+      const client = await colyseus.connectTo(room, joinOpts({ pilotName: "Maverick" }));
+      const inner = room as unknown as {
+        lastHitBy: Map<string, string>;
+        seats: Array<{
+          faction: string;
+          occupant: string | null;
+          schema: { id: string };
+          combatant: { ship: { maxHp: number; takeDamage(n: number): void } };
+        }>;
+      };
+      expect(await waitUntil(() => (client.state?.ships?.size ?? 0) > 0)).toBe(true);
+
+      // Every seat has a scoreboard row from birth, with id parity to the
+      // ships map — and the CLIENT sees ALL of them (the scores map is
+      // unfiltered root state) even while the sensor filter hides the whole
+      // enemy fleet from its ships map.
+      expect(room.state.scores.size).toBe(TOTAL_SHIPS);
+      for (const id of room.state.ships.keys()) {
+        expect(room.state.scores.has(id)).toBe(true);
+      }
+      expect(await waitUntil(() => client.state.scores.size === TOTAL_SHIPS)).toBe(true);
+      expect(
+        [...client.state.ships.values()].filter((s) => s.faction === "machines"),
+      ).toHaveLength(0);
+
+      // The occupied seat's row wears the human identity (name + isAI=false).
+      const mySeat = inner.seats.find((s) => s.occupant === client.sessionId)!;
+      const myRow = room.state.scores.get(mySeat.schema.id)!;
+      expect(myRow.callsign).toBe("Maverick");
+      expect(myRow.isAI).toBe(false);
+
+      client.send(MSG.ready, {});
+      expect(await waitUntil(() => room.state.phase === "playing")).toBe(true);
+
+      // An attributed kill: stamp the last-hit ledger the way a real laserHit
+      // would, then destroy the victim — the shooter's row must gain the kill
+      // and the victim's max hull as score, the victim's row the death.
+      const victim = inner.seats.find((s) => s.faction === "machines")!;
+      const shooterId = mySeat.schema.id;
+      inner.lastHitBy.set(victim.schema.id, shooterId);
+      victim.combatant.ship.takeDamage(1e9);
+      expect(
+        await waitUntil(() => room.state.scores.get(shooterId)!.kills === 1),
+        "attributed kill never tallied on the shooter's row",
+      ).toBe(true);
+      expect(room.state.scores.get(shooterId)!.score).toBe(victim.combatant.ship.maxHp);
+      expect(room.state.scores.get(victim.schema.id)!.deaths).toBe(1);
+
+      // An unattributed death (no hit on the ledger) counts the death only —
+      // no phantom kill credit anywhere.
+      const bystander = inner.seats.find(
+        (s) => s.faction === "humans" && s.occupant === null,
+      )!;
+      bystander.combatant.ship.takeDamage(1e9);
+      expect(
+        await waitUntil(() => room.state.scores.get(bystander.schema.id)!.deaths === 1),
+      ).toBe(true);
+      const totalKills = [...room.state.scores.values()].reduce((n, r) => n + r.kills, 0);
+      expect(totalKills).toBe(1);
+
+      // The tally reaches the client's replicated copy too.
+      expect(
+        await waitUntil(() => client.state.scores.get(shooterId)?.kills === 1),
+      ).toBe(true);
+
+      await client.leave();
+      // The seat hands back to AI: the row renames (kills stay with the SEAT).
+      expect(
+        await waitUntil(() => {
+          const row = room.state.scores.get(shooterId);
+          return row !== undefined && row.isAI && row.callsign !== "Maverick";
+        }),
+        "scoreboard row never resumed the AI identity after the leave",
+      ).toBe(true);
+      expect(room.state.scores.get(shooterId)!.kills).toBe(1);
+    },
+    60_000,
+  );
+
+  it(
     "rejects a protocol-version mismatch",
     async () => {
       const room = await colyseus.createRoom(BATTLE_ROOM, {});

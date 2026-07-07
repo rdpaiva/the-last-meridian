@@ -83,6 +83,30 @@ export const AsteroidSchema = schema(
 );
 export type AsteroidSchema = SchemaType<typeof AsteroidSchema>;
 
+/**
+ * One pilot's running match tally — the scoreboard/leaderboard row. Keyed by
+ * the seat's ship id (same key as the ships map). Identity (callsign/faction/
+ * isAI) is carried HERE rather than joined from ShipSchema because the ships
+ * map is sensor-filtered: a stealthed enemy's ShipSchema may never replicate
+ * to a client, but its scoreboard row must.
+ */
+export const ScoreSchema = schema(
+  {
+    /** = the seat's ship id (the ships-map key). */
+    id: "string",
+    /** Pilot display name — swaps with seat occupancy, like ShipSchema's. */
+    callsign: "string",
+    faction: "string",
+    isAI: "boolean",
+    kills: "number",
+    deaths: "number",
+    /** Sum of victims' maxHp — same currency as the client's score line. */
+    score: "number",
+  },
+  "ScoreSchema",
+);
+export type ScoreSchema = SchemaType<typeof ScoreSchema>;
+
 export const MothershipSchema = schema(
   {
     faction: "string",
@@ -118,6 +142,11 @@ export const BattleState = schema(
      *  ships map is view-filtered (a client can't count what it can't see). */
     pilotHumans: "number",
     pilotBots: "number",
+    /** Per-pilot match tallies (scoreboard/leaderboard), keyed by ship id.
+     *  UNFILTERED on purpose: kill counts leak no positional intel, and the
+     *  board must show every pilot including never-seen stealthed ones —
+     *  same rationale as pilotHumans/pilotBots. */
+    scores: { map: ScoreSchema },
     /** "launching" | "playing" | "ended" */
     phase: "string",
     /** "" | "humans" | "machines" */

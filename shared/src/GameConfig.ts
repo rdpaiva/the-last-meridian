@@ -1798,6 +1798,19 @@ export const GameConfig = {
   },
 
   /**
+   * Match scoreboard — the end-of-game leaderboard (every pilot ranked by
+   * kills) and the multiplayer running-tally panel.
+   */
+  scoreboard: {
+    /**
+     * Max rows on the always-visible MP panel (the local pilot's row is
+     * force-included if it falls below the cut). The end-of-game board
+     * always shows everyone.
+     */
+    panelMaxRows: 8,
+  },
+
+  /**
    * Jump drive + carrier resupply (docs/JUMP-DRIVE-AND-RESUPPLY.md). Cannon
    * MAGAZINES are per ship type (shipTypes[*].cannonAmmo); the knobs here are
    * the shared jump-drive and service-bubble tuning. Starter values — owner

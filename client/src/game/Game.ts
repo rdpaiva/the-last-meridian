@@ -54,7 +54,8 @@ import { opposing, FACTION_THEME, type Faction } from "@space-duel/shared";
 import { LocalInputController } from "./LocalInputController";
 import { MouseSteering } from "./MouseSteering";
 import { AIController } from "@space-duel/shared";
-import type { PlayerLoadout } from "./Loadout";
+import { loadPilotName, type PlayerLoadout } from "./Loadout";
+import { ScoreBoard } from "./ScoreBoard";
 import { SensorSystem } from "@space-duel/shared";
 import { FleetCommander, type CommandedPilot } from "@space-duel/shared";
 import type { ShipController, ControllerWorld, AvoidObstacle } from "@space-duel/shared";
@@ -249,6 +250,12 @@ export class Game {
   private playerKills = 0;
   private wingKills = 0;
   private score = 0;
+  /**
+   * Per-pilot kill/death/score ledger for the end-of-game leaderboard —
+   * a PARALLEL accumulator to the personal fields above (same scoring rule,
+   * so the player's board row matches the HUD line by construction).
+   */
+  private readonly scoreBoard = new ScoreBoard();
   /** Player's carrier-service state this frame (HUD cue); null = not docked. */
   private playerServiceState: "servicing" | "docked" | null = null;
   private bestScore = 0;
@@ -844,10 +851,20 @@ export class Game {
     );
 
     // Wire combat targets: every ship is a target of the opposing faction's
-    // lasers AND missiles.
+    // lasers AND missiles. Every pilot also gets a scoreboard row (the player
+    // wears their typed pilot name, like online; AI seats their callsigns).
+    const pilotName = loadPilotName();
     for (const c of this.combatants) {
       this.factionLasers[opposing(c.ship.faction)].addTarget(c.ship);
       this.factionMissiles[opposing(c.ship.faction)].addTarget(c.ship);
+      const isPlayer = c === this.playerCombatant;
+      this.scoreBoard.register(
+        c.ship,
+        isPlayer
+          ? pilotName || "YOU"
+          : (this.shipCallsigns.get(c.ship) ?? "UNKNOWN"),
+        { isPlayer, isHuman: isPlayer },
+      );
     }
     // Carrier turrets are shootable: register each on the opposing faction's
     // weapons BEFORE the hull sections so a bolt grazing a turret destroys it
@@ -977,6 +994,8 @@ export class Game {
     // Ship death: explosion + sound + (distance-scaled for AI) trauma/hitstop.
     this.events.on("shipDied", ({ ship }) => {
       const isPlayer = ship === this.playerShip;
+      // Leaderboard: count the death, credit the last shooter to hit it.
+      this.scoreBoard.noteDeath(ship);
       // Destroyed mid-spool: cut its jump-drive clip (no-op if it wasn't
       // spooling — a ship that already jumped was released and rings out).
       this.sound.stopJumpDrive(ship);
@@ -1089,6 +1108,9 @@ export class Game {
     position: Vector3,
   ): void {
     const fromPlayer = shooter !== null && shooter === this.playerShip;
+    // Leaderboard attribution: remember the last shooter to land a hit on
+    // each ship (any faction); shipDied consumes it.
+    this.scoreBoard.noteHit(target, shooter);
     this.sound.playHit(target.position);
     // Subtle glint at the point of impact — every laser hit, on any target
     // (ship, carrier hull, turret), so impacts read on the surface and not
@@ -1145,6 +1167,7 @@ export class Game {
     shooter: Ship | null,
   ): void {
     const fromPlayer = shooter !== null && shooter === this.playerShip;
+    this.scoreBoard.noteHit(struck, shooter);
     this.explosions.spawn(pos);
     this.sound.playExplosion(pos);
     if (struck !== null && struck === this.playerShip) {
@@ -2004,11 +2027,15 @@ export class Game {
       this.nameplates.end();
     }
     this.hud.setLaunchOverlay(this.playerLaunch?.overlayText ?? null);
+    const matchOver = this.state === "victory" || this.state === "defeat";
     this.hud.setEndBanner(
       this.state === "victory" ? "victory" : this.state === "defeat" ? "defeat" : null,
       `KILLS ${this.playerKills} · SCORE ${this.score}${
         this.score > 0 && this.score >= this.bestScore ? " · NEW BEST" : ""
       }`,
+      // The match leaderboard — computed only once the banner will show
+      // (setEndBanner is idempotent, so this renders exactly once).
+      matchOver ? this.scoreBoard.rows() : undefined,
     );
   }
 

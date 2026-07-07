@@ -74,6 +74,16 @@ them. Status summary belongs in `docs/ROADMAP.md` as phases complete.
   balance tweak (GameConfig) is a both-sides deploy. Rooms live
   in-memory, so deploy when traffic is quiet; draining rooms before
   restart is a later nicety.
+- **Match scoreboard rides an UNFILTERED root map** (decided 2026-07-07).
+  Per-pilot kill/death/score tallies replicate as `BattleState.scores`
+  (keyed by ship id, carrying its own callsign/faction/isAI) — NOT as
+  fields on the sensor-filtered `ShipSchema`, which would hide stealthed
+  enemies' rows. Kill counts leak no positional intel (same rationale as
+  `pilotHumans`/`pilotBots`); replicated state (not event accumulation)
+  is what makes a late joiner's board complete. Server tallies in the
+  `shipDied` relay off the existing `lastHitBy` ledger; tallies stay with
+  the SEAT across human↔AI occupancy swaps (the row renames). Bumped
+  PROTOCOL_VERSION to 18.
 - **AI wingmen stay in multiplayer** (decided 2026-06-12). Quick-match
   rooms backfill every empty seat with `AIController` ships: solo join =
   today's single-player on the server, humans silently replace AI as
@@ -254,7 +264,8 @@ timing).
 > counts, homing missile depiction, server-side human missile locks.
 > **[Updated 2026-07-06]** Everything above has long since MERGED to `main`
 > (the phase branches are deleted); the full suite is 20/20 green and
-> PROTOCOL_VERSION is 17. PLAY ONLINE/invite entry and the friendly
+> PROTOCOL_VERSION is 18 (17 + the match-scoreboard `scores` schema,
+> 2026-07-07). PLAY ONLINE/invite entry and the friendly
 > commander shipped; the `[human]` two-tab pass was superseded by owner
 > playtests of the deployed game. **Resume notes:
 > `docs/PHASE1_OPEN_ISSUES.md`; live work queue: `docs/AGENT_KICKOFF.md`.**
@@ -475,7 +486,10 @@ so tuning passes don't need code changes.
 
 ## Out of scope (same spirit as CLAUDE.md's list)
 
-- Accounts, persistence, leaderboards beyond the existing local best.
+- Accounts and persistent/cross-match leaderboards beyond the existing
+  local best. (The PER-MATCH scoreboard — replicated `scores` root map,
+  running HUD panel + end-banner board — shipped 2026-07-07 and is not
+  this bullet.)
 - Multi-region / horizontal scaling (Redis presence). Single process
   until player counts force the issue.
 - Voice/text chat.

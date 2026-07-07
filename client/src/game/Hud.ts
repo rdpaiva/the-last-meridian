@@ -1,6 +1,31 @@
-import type { Ship } from "@space-duel/shared";
+import type { Faction, Ship } from "@space-duel/shared";
 import { FACTION_THEME } from "@space-duel/shared";
 import { GameConfig } from "@space-duel/shared";
+
+/**
+ * One pilot's line on the match scoreboard (the end-of-game leaderboard and
+ * the multiplayer running-tally panel). Built by ScoreBoard offline and from
+ * the replicated `scores` map online — the view is the same either way.
+ */
+export interface ScoreRow {
+  callsign: string;
+  faction: Faction;
+  kills: number;
+  deaths: number;
+  /** Sum of victims' maxHp — the same currency as the personal score line. */
+  score: number;
+  /** The local pilot's row — highlighted so they can see where they stand. */
+  isPlayer: boolean;
+  /** Honesty rule styling: bright human name vs dim faction-tinted AI. */
+  isHuman: boolean;
+}
+
+/** Scoreboard ranking: kills desc → score desc → callsign asc. */
+export function compareScoreRows(a: ScoreRow, b: ScoreRow): number {
+  if (b.kills !== a.kills) return b.kills - a.kills;
+  if (b.score !== a.score) return b.score - a.score;
+  return a.callsign.localeCompare(b.callsign);
+}
 
 /**
  * Plain DOM debug HUD. DOM updates are throttled to 10 Hz — the HUD doesn't
@@ -37,6 +62,7 @@ export class Hud {
   private readonly humansFillEl: HTMLElement | null;
   private readonly machinesFillEl: HTMLElement | null;
   private readonly endBannerEl: HTMLElement | null;
+  private readonly scoreboardEl: HTMLElement | null;
 
   private readonly incomingOverlayEl: HTMLElement;
   private readonly jumpRingEl: HTMLElement;
@@ -139,9 +165,87 @@ export class Hud {
     const banner = document.createElement("div");
     banner.id = "end-banner";
     banner.className = "end-banner hidden";
-    banner.innerHTML = `<div class="end-title"></div><div class="end-stats"></div><div class="end-sub"></div>`;
+    banner.innerHTML = `<div class="end-title"></div><div class="end-stats"></div><div class="end-board"></div><div class="end-sub"></div>`;
     document.body.appendChild(banner);
     this.endBannerEl = banner;
+
+    // Match scoreboard panel — the multiplayer running tally. Bottom-left
+    // (HUD owns top-left, netdebug top-right, radar bottom-right, jump ring
+    // bottom-center). Hidden until the first setScoreboard call, so the
+    // offline HUD is unchanged — same MP-only pattern as the pilots row.
+    const scoreboard = document.createElement("div");
+    scoreboard.id = "scoreboard";
+    scoreboard.style.display = "none";
+    document.body.appendChild(scoreboard);
+    this.scoreboardEl = scoreboard;
+  }
+
+  /**
+   * Render `rows` (already sorted) as scoreboard lines into `container`,
+   * replacing its contents. One header + one line per pilot; textContent
+   * everywhere (callsigns are player-typed online). Row classes reuse the
+   * nameplate honesty/faction language: `human` bright, `ai` dim + tinted.
+   */
+  private renderScoreRows(container: HTMLElement, rows: ScoreRow[]): void {
+    container.textContent = "";
+    const header = document.createElement("div");
+    header.className = "score-row score-header";
+    for (const [cls, text] of [
+      ["score-name", "PILOT"],
+      ["score-num", "K"],
+      ["score-num", "D"],
+      ["score-num", "SCORE"],
+    ] as const) {
+      const cell = document.createElement("span");
+      cell.className = cls;
+      cell.textContent = text;
+      header.appendChild(cell);
+    }
+    container.appendChild(header);
+    for (const row of rows) {
+      const line = document.createElement("div");
+      line.className = `score-row ${row.isHuman ? "human" : "ai"} ${row.faction}${
+        row.isPlayer ? " me" : ""
+      }`;
+      const cells: Array<[string, string]> = [
+        ["score-name", row.callsign],
+        ["score-num", String(row.kills)],
+        ["score-num", String(row.deaths)],
+        ["score-num", String(Math.round(row.score))],
+      ];
+      for (const [cls, text] of cells) {
+        const cell = document.createElement("span");
+        cell.className = cls;
+        cell.textContent = text;
+        line.appendChild(cell);
+      }
+      container.appendChild(line);
+    }
+  }
+
+  /** Last scoreboard content written (write-on-change; called per frame). */
+  private lastScoreboardSig = "";
+
+  /**
+   * The multiplayer running tally: every pilot ranked live, bottom-left.
+   * `rows` need not be sorted or capped — this sorts, keeps the top
+   * `GameConfig.scoreboard.panelMaxRows`, and always re-includes the local
+   * pilot's row if it fell below the cut (the whole point is seeing where
+   * you stand). Offline never calls this, so the panel never shows.
+   */
+  setScoreboard(rows: ScoreRow[]): void {
+    if (!this.scoreboardEl) return;
+    const sorted = [...rows].sort(compareScoreRows);
+    let shown = sorted.slice(0, GameConfig.scoreboard.panelMaxRows);
+    const me = sorted.find((r) => r.isPlayer);
+    if (me && !shown.includes(me)) shown = [...shown.slice(0, -1), me];
+    const sig = shown
+      .map((r) => `${r.callsign}:${r.kills}:${r.deaths}:${r.score}:${r.isHuman ? 1 : 0}`)
+      .join("|");
+    if (sig === this.lastScoreboardSig) return;
+    this.lastScoreboardSig = sig;
+    this.scoreboardEl.style.display = "";
+    this.renderScoreRows(this.scoreboardEl, shown);
   }
 
   /**
@@ -164,8 +268,14 @@ export class Hud {
    * Show the victory/defeat banner (idempotent — only writes the DOM once).
    * Pass null to hide it (e.g. on restart, though we currently reload).
    * `stats` is the run summary line shown under the title (kills/score).
+   * `rows` is the match leaderboard — every pilot ranked by kills, rendered
+   * between the stats line and the restart hint (omitted = no board).
    */
-  setEndBanner(outcome: "victory" | "defeat" | null, stats = ""): void {
+  setEndBanner(
+    outcome: "victory" | "defeat" | null,
+    stats = "",
+    rows?: ScoreRow[],
+  ): void {
     if (!this.endBannerEl) return;
     if (outcome === null) {
       if (!this.endShown) return;
@@ -178,9 +288,13 @@ export class Hud {
     const title = outcome === "victory" ? "VICTORY" : "DEFEAT";
     const titleEl = this.endBannerEl.querySelector<HTMLElement>(".end-title");
     const statsEl = this.endBannerEl.querySelector<HTMLElement>(".end-stats");
+    const boardEl = this.endBannerEl.querySelector<HTMLElement>(".end-board");
     const subEl = this.endBannerEl.querySelector<HTMLElement>(".end-sub");
     if (titleEl) titleEl.textContent = title;
     if (statsEl) statsEl.textContent = stats;
+    if (boardEl && rows && rows.length > 0) {
+      this.renderScoreRows(boardEl, [...rows].sort(compareScoreRows));
+    }
     if (subEl) subEl.textContent = "Press Enter to restart · Esc for menu";
     this.endBannerEl.className = `end-banner ${outcome}`;
   }

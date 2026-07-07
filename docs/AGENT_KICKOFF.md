@@ -45,7 +45,28 @@ bar; MP-only HUD row flashes LINK COPIED; rejoin-last-match prompt
 deliberately skipped — see PHASE1_OPEN_ISSUES). OWNER-VERIFIED 2026-07-06:
 Enter after Victory lands in the right (fresh) room. Not individually
 exercised (low risk, integration-tested): the I key and the 60s banner
-linger. Hosting artifacts are in `docs/DEPLOY.md`. PROTOCOL_VERSION **17**.
+linger. Hosting artifacts are in `docs/DEPLOY.md`. PROTOCOL_VERSION **18**
+(bumped 2026-07-07 for the match scoreboard; the DEPLOYED server still
+answers v17 until the next "Deploy game" dispatch — old clients get the
+refresh prompt, so deploy both halves together as always).
+
+**Built 2026-07-07 — match scoreboard/leaderboard** (owner-requested):
+every pilot ranked by kills (K/D/score columns), player row gold, human
+names bright vs dim AI (nameplate honesty language). End-of-game board in
+the victory/defeat banner in BOTH modes; MP adds an always-visible
+bottom-left running-tally panel. Anchors: offline tally
+`client/src/game/ScoreBoard.ts` (mirrors the server's `lastHitBy`
+semantics; fed from `Game.onLaserHit`/`onMissileHit`/the `shipDied` sub);
+view `client/src/game/Hud.ts` (`ScoreRow` + `compareScoreRows` +
+`renderScoreRows`/`setScoreboard`, third arg on `setEndBanner`) + the
+`.score-row`/`#scoreboard`/`.end-board` blocks in `client/src/style.css`;
+server `server/src/schema/BattleState.ts` (`ScoreSchema`, UNFILTERED root
+`scores` map — see MULTIPLAYER.md Decisions) +
+`server/src/rooms/BattleRoom.ts` (`makeScoreSchema`/`syncScoreIdentity`,
+tally in the `shipDied` relay); client feed `NetworkGame.scoreRows()`;
+knob `GameConfig.scoreboard.panelMaxRows`. Test: "replicates the match
+scoreboard…" in `tests/server/battleRoom.test.ts`. NOT owner-verified
+in-game yet (solo end board, MP panel, late-joiner board).
 
 **Owner goal**: a friends playtest — HOSTING IS LIVE (provisioned
 2026-07-06, CI-path verified same day). Topology in `docs/DEPLOY.md`
