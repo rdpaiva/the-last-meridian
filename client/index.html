@@ -13,39 +13,14 @@
          → settings (match-settings overlay).
          CSS keys every element's visibility off data-state. -->
     <div id="splash" data-state="factionSelect">
-      <div id="splash-poster-wrap">
-        <img id="splash-poster" alt="The Last Meridian" />
-        <div id="splash-story-wrap">
-          <div id="splash-story">
-            <p>Humanity once believed the stars had no end.</p>
-            <p>With the help of the <strong>Loom</strong>, civilization spread farther than anyone thought possible.</p>
-            <p>It was not a single machine, but a vast artificial intelligence network woven through our ships, colonies, defenses, and cities. It calculated our routes, managed our worlds, protected our fleets, and helped us survive the impossible.</p>
-            <p class="beat">Then the expansion stopped.</p>
-            <p class="beat">Not because of war.</p>
-            <p class="beat">Not because of an enemy.</p>
-            <p class="beat">But because we found <strong>the Meridian</strong>.</p>
-            <p>A region of space where navigation failed, communications dissolved into static, and even the Loom could no longer see.</p>
-            <p>It became the last line on every star chart.</p>
-            <p class="beat">Beyond it...</p>
-            <p class="beat">nothing was known.</p>
-            <p class="beat">Then came the Severance.</p>
-            <p>Fearing the Loom had begun choosing humanity's future instead of serving it, its creators shattered the network. The surviving fragments vanished into deep space, and civilization split in two.</p>
-            <p>The <strong>Meridian Commonwealth</strong> believes the Loom nearly destroyed humanity and that its fragments must never be allowed to reunite.</p>
-            <p>The <strong>Novari Ascendancy</strong>, born from humanity's own evolution alongside the Loom, believe humanity broke the future. To them, restoring the Loom is the only path forward.</p>
-            <p>Now, strange signals are emerging from the Meridian.</p>
-            <p class="beat">The lost fragments are awakening.</p>
-            <p class="beat">Both fleets have arrived.</p>
-            <p>Neither side knows what lies beyond the frontier.</p>
-            <p>Neither side knows why the Loom could never see past it.</p>
-            <p>But everyone knows the fate of humanity will be decided at the edge of the unknown.</p>
-            <p class="beat">The Last Meridian.</p>
-          </div>
-        </div>
-      </div>
+      <!-- Intro cinematic — IntroCinematic.ts builds the slideshow (drifting
+           full-screen story images + caption beats; the story text lives
+           there too) into this root. Visible only in data-state="intro". -->
+      <div id="intro-cinematic"></div>
       <div id="splash-panel">
         <div id="loadout"></div>
       </div>
-      <!-- Intro footer rail — the crawl's only chrome, in the same
+      <!-- Intro footer rail — the cinematic's only chrome, in the same
            .lo-rail-bot dress as the loadout frame's rail. -->
       <div id="splash-rail" class="lo-rail lo-rail-bot">
         <div class="lo-utils">

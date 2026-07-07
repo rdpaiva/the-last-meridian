@@ -1,6 +1,7 @@
 import { Game, RESTART_FLAG } from "./game/Game";
 import { NetworkGame } from "./game/NetworkGame";
 import { NetClient, inviteRoomId } from "./net/NetClient";
+import { IntroCinematic } from "./game/IntroCinematic";
 import { LoadoutMenu, type LaunchMode } from "./game/LoadoutMenu";
 import { ShipPreview } from "./game/ShipPreview";
 import { SettingsMenu } from "./game/SettingsMenu";
@@ -26,10 +27,10 @@ import {
  *                 mission setup → launch. Returning players get a gold
  *                 CONTINUE CTA (Enter) on step 1 that relaunches the saved
  *                 loadout immediately — the old quick-play screen, folded in.
- *   intro         The cinematic story crawl over the poster. First-timers
- *                 hit it as a gate between MODE and HANGAR (the crawl ends
- *                 on "Choose your side" — the hangar IS that choice); it's
- *                 replayable any time via the loadout's footer rail.
+ *   intro         The cinematic story slideshow (IntroCinematic.ts): the
+ *                 story beats over drifting full-screen art, ending on the
+ *                 title poster. First-timers hit it as a gate between MODE
+ *                 and HANGAR; it's replayable via the loadout's footer rail.
  *
  * Audio unlock rides the first pointer/key gesture on the splash (browsers
  * require a user gesture before an AudioContext may run).
@@ -38,8 +39,7 @@ import {
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement | null;
 const hudRoot = document.getElementById("hud") as HTMLDivElement | null;
 const splash = document.getElementById("splash") as HTMLDivElement | null;
-const splashPoster = document.getElementById("splash-poster") as HTMLImageElement | null;
-const story = document.getElementById("splash-story") as HTMLDivElement | null;
+const introRoot = document.getElementById("intro-cinematic") as HTMLDivElement | null;
 const skipBtn = document.getElementById("splash-skip") as HTMLButtonElement | null;
 const loadoutRoot = document.getElementById("loadout") as HTMLDivElement | null;
 const settingsRoot = document.getElementById("settings") as HTMLDivElement | null;
@@ -47,8 +47,7 @@ const settingsRoot = document.getElementById("settings") as HTMLDivElement | nul
 if (!canvas) throw new Error("Canvas #renderCanvas not found in DOM");
 if (!hudRoot) throw new Error("HUD root #hud not found in DOM");
 if (!splash) throw new Error("#splash not found in DOM");
-if (!splashPoster) throw new Error("#splash-poster not found in DOM");
-if (!story) throw new Error("#splash-story not found in DOM");
+if (!introRoot) throw new Error("#intro-cinematic not found in DOM");
 if (!skipBtn) throw new Error("#splash-skip not found in DOM");
 if (!loadoutRoot) throw new Error("#loadout not found in DOM");
 if (!settingsRoot) throw new Error("#settings not found in DOM");
@@ -59,8 +58,6 @@ if (!settingsRoot) throw new Error("#settings not found in DOM");
 // so this one early call is the whole "apply" step.)
 applyStoredOverrides();
 
-// Set src via JS so BASE_URL is resolved correctly for GitHub Pages.
-splashPoster.src = `${import.meta.env.BASE_URL}images/The-Last-Meridian-Poster.jpg`;
 // The loadout screens' nebula backdrop (CSS reads --splash-bg under
 // data-state="factionSelect") — set here for the same BASE_URL reason.
 splash.style.setProperty(
@@ -75,29 +72,44 @@ splash.style.setProperty(
 // specifically; going through Web Audio means the music plays exactly like
 // the SFX do. The AudioContext is created inside a button-click handler so
 // the user gesture lets it start in the "running" state.
-const musicUrl = `${import.meta.env.BASE_URL}music/Black Star Pursuit 2.mp3`;
+const musicUrl = `${import.meta.env.BASE_URL}music/Last Stand in Deep Space.mp3`;
 let musicCtx: AudioContext | null = null;
 let musicSource: AudioBufferSourceNode | null = null;
+let musicGain: GainNode | null = null;
+/** Kept after decode so the track can be restarted from the top (the intro
+ *  cinematic re-cues it) without re-fetching. */
+let musicBuffer: AudioBuffer | null = null;
 
 async function startSplashMusic(): Promise<void> {
   if (musicCtx) return; // already started (idempotent for repeat clicks)
   try {
     musicCtx = new AudioContext();
-    const gain = musicCtx.createGain();
-    gain.gain.value = 0.45;
-    gain.connect(musicCtx.destination);
+    musicGain = musicCtx.createGain();
+    musicGain.gain.value = 0.45;
+    musicGain.connect(musicCtx.destination);
     const data = await fetch(musicUrl).then((r) => r.arrayBuffer());
     const buffer = await musicCtx.decodeAudioData(data);
     // Bail if the splash was already dismissed while the mp3 was decoding.
     if (!musicCtx) return;
-    musicSource = musicCtx.createBufferSource();
-    musicSource.buffer = buffer;
-    musicSource.loop = true;
-    musicSource.connect(gain);
-    musicSource.start();
+    musicBuffer = buffer;
+    playMusicFromTop();
   } catch {
     // Music is non-essential; never let an audio failure break the splash.
   }
+}
+
+/** (Re)start the splash track from its first beat. A BufferSourceNode is
+ *  one-shot, so restarting means swapping in a fresh source over the kept
+ *  buffer. No-op until the mp3 has decoded — in that case the track is
+ *  about to start from the top anyway. */
+function playMusicFromTop(): void {
+  if (!musicCtx || !musicBuffer || !musicGain) return;
+  try { musicSource?.stop(); } catch { /* not started / already stopped */ }
+  musicSource = musicCtx.createBufferSource();
+  musicSource.buffer = musicBuffer;
+  musicSource.loop = true;
+  musicSource.connect(musicGain);
+  musicSource.start();
 }
 
 function stopSplashMusic(): void {
@@ -105,6 +117,8 @@ function stopSplashMusic(): void {
   void musicCtx?.close();
   musicCtx = null;
   musicSource = null;
+  musicGain = null;
+  musicBuffer = null;
 }
 
 /**
@@ -245,6 +259,10 @@ async function startOnline(base: ReturnType<typeof loadSavedLoadout>): Promise<v
 type SplashState = "intro" | "factionSelect" | "settings";
 let state: SplashState = "factionSelect";
 let settings: SettingsMenu | null = null;
+/** The story slideshow. Built lazily on first intro entry; finished()
+ *  advances the splash (guarded — stop() cancels the timeline, so this can
+ *  only fire while the intro is actually the active state). */
+let cinematic: IntroCinematic | null = null;
 /** Where BACK/Esc returns to from the settings overlay. */
 let settingsReturn: SplashState = "factionSelect";
 /** Where the intro hands off when it ends: the hangar (the first-run gate on
@@ -264,7 +282,12 @@ function setState(next: SplashState): void {
 
   switch (next) {
     case "intro":
-      restartCrawl();
+      if (!cinematic) cinematic = new IntroCinematic(introRoot!, finishIntro);
+      cinematic.play();
+      // The intro and the track open together. (First-run entry rides an
+      // Enter press, whose gestureUnlock is still fetching the mp3 — then
+      // this is a no-op and the decode callback starts it from the top.)
+      playMusicFromTop();
       break;
     case "factionSelect":
       // Built lazily on first entry; both survive return visits (intro,
@@ -273,7 +296,7 @@ function setState(next: SplashState): void {
       if (!menu) {
         menu = new LoadoutMenu(loadoutRoot!, preview, startGame, {
           firstRunIntro: () => {
-            // The MODE → HANGAR gate: first-timers see the story crawl
+            // The MODE → HANGAR gate: first-timers see the story cinematic
             // before choosing a side. Returns true when it intercepts (the
             // menu holds; finishIntro() advances it to the hangar after).
             if (hasSeenIntro()) return false;
@@ -306,21 +329,14 @@ function setState(next: SplashState): void {
       break;
   }
   if (next !== "factionSelect") preview?.stop();
+  // Leaving the intro tears the slideshow down (cancels its timeline); a
+  // return visit rebuilds it from the top.
+  if (next !== "intro") cinematic?.stop();
 }
 
-/**
- * Reset the story crawl so Replay Intro starts from the top. The animation
- * is declared in CSS (one iteration, paused outside the intro state);
- * clearing the inline override after a reflow re-arms it.
- */
-function restartCrawl(): void {
-  story!.style.animation = "none";
-  void story!.offsetHeight; // force reflow so the reset takes
-  story!.style.animation = "";
-}
-
-/** Intro over (crawl finished or skipped): back to the loadout — advancing
- *  into the hangar when the intro was the first-run MODE → HANGAR gate. */
+/** Intro over (slideshow finished or skipped): back to the loadout —
+ *  advancing into the hangar when the intro was the first-run MODE → HANGAR
+ *  gate. */
 function finishIntro(): void {
   markIntroSeen();
   const toHangar = introReturn === "hangar";
@@ -361,11 +377,6 @@ if (restartMode && restartMode !== "online") {
 
   skipBtn.addEventListener("click", finishIntro);
 
-  // The crawl finished on its own → on to the hangar / back to the menu.
-  story.addEventListener("animationend", () => {
-    if (state === "intro") finishIntro();
-  });
-
   window.addEventListener("keydown", (e) => {
     if (game || netGame) return;
     if (state === "settings") {
@@ -374,11 +385,11 @@ if (restartMode && restartMode !== "online") {
       if (e.code === "Escape") setState(settingsReturn);
       return;
     }
-    // Don't trap keyboard users in the crawl — Enter skips ahead.
+    // Don't trap keyboard users in the slideshow — Enter skips ahead.
     // factionSelect's keys (Enter included) are owned by LoadoutMenu; its
     // handler runs first and preventDefault()s the Enter that STARTED the
     // intro (the step-1 advance), so that same keystroke must not also skip
-    // the crawl it just started.
+    // the slideshow it just started.
     if (state === "intro" && e.code === "Enter" && !e.defaultPrevented) finishIntro();
   });
 

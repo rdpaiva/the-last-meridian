@@ -2,8 +2,8 @@
 /* The splash is a state machine driven by main.ts via data-state on #splash:
      factionSelect  the loadout frame (the front door): mode + callsign →
                     hangar → mission; returning players get CONTINUE on step 1
-     intro          story crawl over the poster + Skip Intro (first-run gate
-                    between MODE and HANGAR, or Replay Intro)
+     intro          the cinematic story slideshow + Skip Intro (first-run
+                    gate between MODE and HANGAR, or Replay Intro)
      settings       the match-settings tuning overlay
    Every state-dependent element is hidden by default and revealed by a
    data-state rule below — no JS show/hide beyond setting the attribute. */
@@ -15,32 +15,11 @@
   background: #000;
   display: flex;
   align-items: stretch;
-  justify-content: center; /* centers the poster while the panel is hidden */
+  justify-content: center;
 }
 
 #splash.hidden {
   display: none;
-}
-
-/* ── Poster column ── */
-/* The poster is the intro's cinematic backdrop (it carries the baked-in THE
-   LAST MERIDIAN title); the story crawl is superimposed over it (relative
-   wrapper → absolute child). Hidden in factionSelect — the loadout frame
-   spans the page there. */
-
-#splash-poster-wrap {
-  position: relative;
-  flex: 0 0 auto;
-  height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-#splash-poster {
-  height: 100%;
-  width: auto;
-  display: block;
 }
 
 #splash-panel {
@@ -79,86 +58,117 @@
   background: none;
 }
 
-/* Faction select trades the cinematic poster for room: collapse the poster
-   column to width 0 so the loadout frame spans the page. */
-#splash[data-state="factionSelect"] #splash-poster {
+/* ── Intro cinematic (data-state="intro") ── */
+/* IntroCinematic.ts builds the slideshow into #intro-cinematic: stacked
+   .intro-slide layers (newest on top crossfades in over the old one) inside
+   #intro-layers, and one #intro-caption that fades story lines in and out
+   over the lower third. All motion is inline CSS transitions the class sets
+   per slide (opacity crossfade + one long linear transform drift); the
+   rules here are the static dress. */
+
+#intro-cinematic {
   display: none;
-}
-
-#splash[data-state="factionSelect"] #splash-poster-wrap {
-  flex: 0 0 0;
-  width: 0;
-  min-width: 0;
-}
-
-/* ── Cinematic story crawl (over the poster's upper half) ── */
-/* Sits above the baked-in title and scrolls upward. Visible only in the
-   intro state; runs ONE iteration — main.ts listens for animationend to
-   advance to faction selection. */
-
-#splash-story-wrap {
   position: absolute;
-  left: 6%;
-  right: 6%;
-  top: 5%;
-  bottom: 38%;
+  inset: 0;
   overflow: hidden;
-  opacity: 0;
-  transition: opacity 0.8s ease;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 16%, black 80%, transparent 100%);
-  mask-image: linear-gradient(to bottom, transparent 0%, black 16%, black 80%, transparent 100%);
+  background: #000;
 }
 
-#splash[data-state="intro"] #splash-story-wrap {
+#splash[data-state="intro"] #intro-cinematic {
+  display: block;
+}
+
+#intro-layers {
+  position: absolute;
+  inset: 0;
+  /* The whole show fades to black at the end (intro-ended, set by the
+     class) before main.ts advances the splash. */
+  transition: opacity 1.4s ease;
+}
+
+#intro-cinematic.intro-ended #intro-layers {
+  opacity: 0;
+}
+
+/* One slide image. Oversized by 8% per side so the ±3% pan drift can never
+   pull an edge into the frame; IntroCinematic sets background-image and the
+   transition/transform inline. */
+.intro-slide {
+  position: absolute;
+  inset: -8%;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+/* A slide that never translates (true stills and the zooms, which stay at
+   scale ≥ 1) needs no pan headroom — full-bleed exactly, so crop anchors
+   like center-bottom land on the real viewport edge. */
+.intro-slide.still {
+  inset: 0;
+}
+
+/* Bottom-anchored crop (the title card): any excess height is trimmed from
+   the top only, so the wordmark along the bottom always survives. */
+.intro-slide.anchor-bottom {
+  background-position: center bottom;
+}
+
+/* Legibility scrim under the captions — imagery stays untouched up top. */
+#intro-cinematic::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to top,
+    rgba(2, 3, 8, 0.62) 0%,
+    rgba(2, 3, 8, 0.30) 20%,
+    transparent 42%
+  );
+  pointer-events: none;
+}
+
+#intro-caption {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  bottom: 11%;
+  z-index: 2; /* above the scrim */
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.7s ease;
+}
+
+#intro-caption.visible {
   opacity: 1;
 }
 
-#splash-story {
-  position: relative; /* the keyframes animate `top` (wrap-relative) */
-  padding: 0 12px 3rem;
-  text-align: center;
-  animation: story-scroll 55s linear 1 forwards;
-  /* Held until the intro state, so the crawl starts from the top each entry. */
-  animation-play-state: paused;
+#intro-caption p {
+  margin: 0 0 0.85em;
+  font-size: clamp(15px, 1.55vw, 21px);
+  line-height: 1.6;
+  color: rgba(222, 229, 247, 0.94);
+  letter-spacing: 0.05em;
+  text-shadow:
+    0 2px 16px rgba(0, 0, 0, 0.95),
+    0 0 3px rgba(0, 0, 0, 0.85);
 }
 
-#splash[data-state="intro"] #splash-story {
-  animation-play-state: running;
+#intro-caption p:last-child {
+  margin-bottom: 0;
 }
 
-#splash-story p {
-  margin: 0 0 1.3em;
-  font-size: 13px;
-  line-height: 1.75;
-  color: #8a96b8;
-  letter-spacing: 0.03em;
-}
-
-#splash-story p.beat {
-  color: #cdd6f4;
-  letter-spacing: 0.07em;
-  font-size: 13.5px;
-  margin-bottom: 1em;
-}
-
-/* Named entities (the Loom, the Meridian, the factions) pop in the beat
-   color so they read as highlights against the dimmer body text. */
-#splash-story strong {
-  color: #cdd6f4;
+/* Named entities (the Loom, the Meridian, the factions) pop softly gold
+   against the cool body text — present, not loud. */
+#intro-caption strong {
+  color: #e9cf9b;
   font-weight: 600;
 }
 
-/* `top` % resolves against the WRAP (the visible window), translateY %
-   against the STORY itself. Starting at top:100% puts the first line at the
-   window's bottom edge — text is visible within a beat instead of spending
-   the first ~30s scrolling a full story-height of dead space into view. */
-@keyframes story-scroll {
-  0%   { top: 100%; transform: translateY(0); }
-  100% { top: 0;    transform: translateY(-100%); }
-}
-
 /* ── Intro footer rail ── */
-/* The crawl's only chrome: SKIP INTRO + the key hint, in the same
+/* The cinematic's only chrome: SKIP INTRO + the key hint, in the same
    .lo-rail-bot dress as the loadout frame's rail. Intro-only — every other
    state either has its own rail (factionSelect) or is an overlay. */
 #splash-rail {
@@ -1149,25 +1159,6 @@ video.faction-portrait-video {
   #splash {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  #splash-poster-wrap {
-    width: 100%;
-    height: auto;
-    flex: 1 1 auto;
-    min-height: 0;
-  }
-
-  #splash-poster {
-    height: 100%;
-    max-height: 100vh;
-    max-width: 100%;
-    object-fit: contain;
-  }
-
-  /* Selection needs the room — drop the poster column entirely. */
-  #splash[data-state="factionSelect"] #splash-poster-wrap {
-    display: none;
   }
 
   #splash-panel {
