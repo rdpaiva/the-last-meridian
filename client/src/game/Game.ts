@@ -161,6 +161,10 @@ export class Game {
 
   /** Which side the human pilot flies, and the side they fight. */
   private readonly playerFaction: Faction;
+  /** True when the player's carrier is at the north (+Z) end — the camera,
+   * radar, and backdrop parallax all rotate 180° so THIS pilot also fights
+   * "up-screen". View-only; the sim never sees it. */
+  private readonly viewFlipped: boolean;
   private readonly enemyFaction: Faction;
   /** Which catalog ship the pilot (and, by default, their wing) flies. */
   private readonly playerShipTypeId: ShipTypeId;
@@ -358,6 +362,17 @@ export class Game {
     this.playerFaction = loadout?.faction ?? GameConfig.player.faction;
     this.enemyFaction = opposing(this.playerFaction);
     this.playerShipTypeId = loadout?.shipType ?? GameConfig.player.shipType;
+    // Every pilot attacks "up-screen": if the player's carrier sits at the
+    // NORTH end (+Z — the machines' side on the default layout), the whole
+    // view rotates 180° so their carrier is at the bottom of THEIR screen,
+    // same as the south-end player. Keyed off the carrier's spawn end (not
+    // the faction) so future map layouts stay correct. Purely client-side —
+    // the sim/world coordinates are untouched; CameraRig, Radar, and the
+    // Backdrop parallax are the three screen-oriented consumers.
+    this.viewFlipped =
+      (this.playerFaction === "humans"
+        ? GameConfig.mothership.playerZ
+        : GameConfig.mothership.enemyZ) > 0;
 
     try {
       this.bestScore = Number(localStorage.getItem(BEST_SCORE_KEY)) || 0;
@@ -372,7 +387,7 @@ export class Game {
     window.addEventListener("keydown", this.onKeyDown);
 
     this.arena = new Arena(this.scene);
-    this.backdrop = new Backdrop(this.scene);
+    this.backdrop = new Backdrop(this.scene, this.viewFlipped ? -1 : 1);
     new Nebulas(this.scene, this.arena.halfWidth, this.arena.halfDepth);
     this.combatNebulas = new CombatNebulas(
       this.scene,
@@ -533,7 +548,7 @@ export class Game {
     // that has to be loaded async first, the same way the player's wingmen
     // clone the player's loaded ship.
 
-    this.cameraRig = new CameraRig(this.scene);
+    this.cameraRig = new CameraRig(this.scene, this.viewFlipped);
     // Mouse steering needs the camera to unproject the cursor, so it's built
     // after the rig. It merges into input.state each tick (see tick()).
     this.mouse = new MouseSteering(this.cameraRig.camera);
@@ -545,7 +560,7 @@ export class Game {
     buildPostPipeline(this.scene, this.cameraRig.camera);
     this.starfield = new Starfield(this.scene, this.cameraRig.camera);
     this.hud = new Hud(hudRoot);
-    this.radar = new Radar();
+    this.radar = new Radar(this.viewFlipped);
     this.nameplates = new Nameplates(this.scene, this.cameraRig.camera, hudRoot);
     this.missileWarning = new MissileWarning(this.sound, this.hud);
 

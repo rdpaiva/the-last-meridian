@@ -7,11 +7,14 @@ import { GameConfig } from "@space-duel/shared";
 import type { SensorContact, ConcealmentZone } from "@space-duel/shared";
 
 /**
- * Tactical radar — a player-centered, north-up circular minimap drawn to its
- * own canvas in the bottom-right corner, redrawn every frame.
+ * Tactical radar — a player-centered circular minimap drawn to its own
+ * canvas in the bottom-right corner, redrawn every frame.
  *
  * Orientation matches the world camera (which does NOT rotate with the ship):
- * world +Z is up, +X is right. The player sits at the center as a heading
+ * north-up (world +Z up, +X right) by default, or rotated 180° when the
+ * player's view is flipped (`flipped` — the north-end pilot's camera looks
+ * toward -Z, see CameraRig). Up on the radar is ALWAYS up on the screen.
+ * The player sits at the center as a heading
  * triangle. FRIENDLY fighters draw from ground truth (your own wing shares
  * its telemetry); HOSTILE fighters draw from the player faction's SENSOR
  * PICTURE — fresh contacts are solid dots, lost contacts linger as fading
@@ -40,7 +43,11 @@ export class Radar {
     machines: "#f38ba8",
   };
 
-  constructor() {
+  /** +1 north-up, -1 when the view is flipped (mirrors both axes = 180°). */
+  private readonly viewSign: number;
+
+  constructor(flipped = false) {
+    this.viewSign = flipped ? -1 : 1;
     const cfg = GameConfig.radar;
     this.sizePx = cfg.sizePx;
     this.center = cfg.sizePx / 2;
@@ -201,9 +208,10 @@ export class Radar {
 
   /** Maps a world offset (dx,dz) from the player to a clamped radar pixel point. */
   private project(dx: number, dz: number): { x: number; y: number; offEdge: boolean } {
-    // +Z is up (screen -Y), +X is right.
-    let px = dx * this.scale;
-    let py = -dz * this.scale;
+    // Default view: +Z is up (screen -Y), +X is right. viewSign mirrors both
+    // axes for the flipped (north-end) view so the radar matches the screen.
+    let px = dx * this.scale * this.viewSign;
+    let py = -dz * this.scale * this.viewSign;
     const dist = Math.hypot(px, py);
     let offEdge = false;
     if (dist > this.radiusPx) {
@@ -365,9 +373,10 @@ export class Radar {
     const ctx = this.ctx;
     const c = this.center;
     const s = GameConfig.radar.playerMarker;
-    // Forward (world +Z at rot 0) maps to screen up: (sin, -cos).
-    const fx = Math.sin(rotationY);
-    const fy = -Math.cos(rotationY);
+    // Forward (world +Z at rot 0) maps to screen up: (sin, -cos) — mirrored
+    // by viewSign on the flipped view, same as project().
+    const fx = Math.sin(rotationY) * this.viewSign;
+    const fy = -Math.cos(rotationY) * this.viewSign;
     // Perpendicular for the triangle base.
     const px = -fy;
     const py = fx;

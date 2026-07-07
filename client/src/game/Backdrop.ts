@@ -51,7 +51,14 @@ export class Backdrop {
    */
   private readonly half: number = 0;
 
-  constructor(scene: Scene) {
+  /**
+   * `viewSign` is +1 for the default camera and -1 when the player's view is
+   * flipped 180° (north-end pilot, see CameraRig). The parallax pan is a
+   * SCREEN-space effect fed WORLD-space focus coordinates: under the flipped
+   * camera, world +X moves the ship screen-LEFT, so the drift sign must flip
+   * with it or the backdrop parallaxes the wrong way (moves WITH the ship).
+   */
+  constructor(scene: Scene, viewSign: 1 | -1 = 1) {
     if (!GameConfig.scenery.backdrop.enabled) return;
 
     const layer = new Layer("backdrop", `${import.meta.env.BASE_URL}textures/space-backdrop.jpg`, scene, true);
@@ -67,7 +74,7 @@ export class Backdrop {
     if (cfg.parallaxFactor === 0 || !tex) return;
 
     this.texture = tex;
-    this.factor = cfg.parallaxFactor;
+    this.factor = cfg.parallaxFactor * viewSign;
     this.wrap = cfg.parallaxMode === "wrap";
 
     if (this.wrap) {

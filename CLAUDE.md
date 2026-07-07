@@ -219,7 +219,7 @@ src/
     view/TurretView.ts     carrier turret VIEW: per-faction skinned GLB (static base + rotating gun), procedural box fallback; reads sim aimAngle each frame; on load derives the fire point (distance/height/barrel-yaw) from the model's `muzzle` empty
     LaunchSequence.ts      per-ship catapult (hold→launching→complete); player's hold is the cinematic intro+3-2-1 countdown, others a staggered wait. Both fleets launch from their carrier's two bays at match start (Game.assignInitialLaunches/launchFleet); skipIntro = respawn relaunch
     Hud.ts                 DOM HUD: HP cue + sig (DETECTED/HIDDEN) + kills/score + mothership bars + victory/defeat banner
-    Radar.ts               player-centered north-up canvas minimap (friendlies = truth; hostiles = sensor picture w/ ghost rings; nebula zones)
+    Radar.ts               player-centered canvas minimap oriented to the screen (north-up; 180°-flipped for the north-end pilot, matching CameraRig) (friendlies = truth; hostiles = sensor picture w/ ghost rings; nebula zones)
 public/
   models/                  drop fighter.glb here if you want a real ship
   sounds/                  5 CC0 MP3s + SOURCES.md attribution

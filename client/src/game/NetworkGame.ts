@@ -240,6 +240,10 @@ export class NetworkGame {
   private readonly templates = new Map<ShipTypeId, TransformNode | null>();
 
   private readonly playerFaction: Faction;
+  /** True when the player's carrier is at the north (+Z) end — camera, radar,
+   * and backdrop parallax rotate 180° so this pilot also fights "up-screen".
+   * View-only; inputs/replication are world-space and unaffected. */
+  private readonly viewFlipped: boolean;
   private readonly enemyFaction: Faction;
 
   // ─── MP HUD slice: sensor picture + radar + RWR + kills/score ───
@@ -416,6 +420,15 @@ export class NetworkGame {
   ) {
     this.playerFaction = playerFaction;
     this.enemyFaction = opposing(playerFaction);
+    // Every pilot attacks "up-screen": the north-end (+Z carrier) player's
+    // view rotates 180° so their carrier is at the bottom of THEIR screen.
+    // Same derivation as Game.viewFlipped — keyed off the carrier's spawn
+    // end, view-only, three screen-oriented consumers (CameraRig, Radar,
+    // Backdrop parallax). See docs/SUBSYSTEMS.md → CameraRig.
+    this.viewFlipped =
+      (playerFaction === "humans"
+        ? GameConfig.mothership.playerZ
+        : GameConfig.mothership.enemyZ) > 0;
 
     this.engine = new Engine(
       canvas,
@@ -462,7 +475,7 @@ export class NetworkGame {
 
     // --- Scenery ---
     this.arena = new Arena(this.scene);
-    this.backdrop = new Backdrop(this.scene);
+    this.backdrop = new Backdrop(this.scene, this.viewFlipped ? -1 : 1);
     new Nebulas(this.scene, this.arena.halfWidth, this.arena.halfDepth);
     new CapitalShips(this.scene, this.arena.halfWidth, this.arena.halfDepth, this.glowLayer);
 
@@ -487,7 +500,7 @@ export class NetworkGame {
       }
     }
 
-    this.cameraRig = new CameraRig(this.scene);
+    this.cameraRig = new CameraRig(this.scene, this.viewFlipped);
     // Mouse steering unprojects the cursor through the rig's camera; it
     // merges into input.state each frame BEFORE the input send (tick step 1),
     // so the server receives the mouse-commanded turn like any other input.
@@ -569,7 +582,7 @@ export class NetworkGame {
     );
     this.sensors = new SensorSystem(this.carrierSims);
     this.sensors.concealmentZones = this.combatNebulas.zones;
-    this.radar = new Radar();
+    this.radar = new Radar(this.viewFlipped);
     this.missileWarning = new MissileWarning(this.sound, this.hud);
     try {
       this.bestScore = Number(localStorage.getItem(BEST_SCORE_KEY)) || 0;

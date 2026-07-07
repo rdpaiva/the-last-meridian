@@ -14,6 +14,13 @@ import { clamp, exponentialDecay } from "@space-duel/shared";
  * target" toward `playerPosition + velocity * lead`, then place the camera
  * at trackedTarget + fixed offset each frame.
  *
+ * `flipped` rotates the whole view 180° (the camera sits at +Z looking
+ * toward -Z) for the pilot whose carrier is at the NORTH end of the arena,
+ * so BOTH players fight "up-screen" toward the enemy. Purely a view choice:
+ * the sim/world coordinates are untouched, mouse steering unprojects through
+ * the live camera matrices so it follows for free, and the Radar takes the
+ * same flag so the minimap keeps matching the screen.
+ *
  * Shake is layered on top via `addTrauma(amount)`. Each impact adds to
  * trauma (capped at 1.0); trauma decays exponentially; per-frame shake
  * offset = max × trauma² × sine-noise. We shake position but NOT target,
@@ -44,9 +51,12 @@ export class CameraRig {
    */
   private zoom = GameConfig.camera.defaultZoom;
 
-  constructor(scene: Scene) {
+  constructor(scene: Scene, flipped = false) {
     const cfg = GameConfig.camera;
-    this.offset = new Vector3(0, cfg.offsetY, -cfg.offsetZ);
+    // Flipped view = same rig mirrored to the other side of the player.
+    // Every consumer (tracking, zoom, shake, snapTo) goes through this
+    // offset, so the one sign here carries the whole 180° rotation.
+    this.offset = new Vector3(0, cfg.offsetY, flipped ? cfg.offsetZ : -cfg.offsetZ);
 
     const startPos = new Vector3(0, 0, 0).addInPlace(this.offset);
     this.camera = new UniversalCamera("playerCam", startPos, scene);

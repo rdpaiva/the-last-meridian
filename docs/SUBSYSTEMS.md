@@ -347,7 +347,10 @@ Auto-tracking flak the carriers shoot back with. Read before touching them.
   pre-briefed). Nebula concealment zones render as faint violet discs so the
   player can see where hiding is possible.
 - Orientation matches the world camera (which doesn't rotate with the ship):
-  world +Z → screen up, +X → right. `project(dx,dz)` maps a world offset from
+  world +Z → screen up, +X → right by default; when the player's VIEW IS
+  FLIPPED (north-end carrier — see CameraRig) the constructor's `flipped` flag
+  mirrors both axes (`viewSign`) so **up on the radar is always up on the
+  screen**. `project(dx,dz)` maps a world offset from
   the player to a radar pixel and **clamps** beyond `GameConfig.radar.rangeWorld`
   to the rim (clamped contacts drawn dimmer) so you always get a bearing to far
   things — chiefly the enemy mothership objective.
@@ -528,6 +531,16 @@ Full design + as-built notes: `docs/JUMP-DRIVE-AND-RESUPPLY.md`. Built sim/view-
 
 ## CameraRig
 - Top-down with `(offsetY, -offsetZ)` from player position.
+- **Flipped view (multiplayer symmetry):** the constructor's `flipped` flag
+  puts the camera at `+offsetZ` instead (a 180° view rotation) for the pilot
+  whose carrier is at the NORTH (+Z) end, so both players fight "up-screen".
+  `Game.viewFlipped` derives it from the player carrier's spawn end (config
+  `mothership.playerZ/enemyZ`), not the faction. View-only — the sim is
+  untouched. The one sign on `this.offset` carries everything (tracking,
+  zoom, shake, `snapTo`). Three screen-oriented consumers must agree:
+  CameraRig, Radar (`flipped` ctor flag), and the Backdrop parallax
+  (`viewSign` ctor param). Mouse steering, nameplates, and JumpRipple
+  project through the live camera matrices, so they follow for free.
 - Position smooths toward `playerPos + velocity * velocityLead`.
 - **Zoom**: the `+`/`-` keys drive a live `zoom` factor that multiplies the
   base offset (1.0 = default; clamped to `camera.minZoom..maxZoom`, changed
