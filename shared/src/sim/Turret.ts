@@ -123,6 +123,18 @@ export class Turret implements DamageTarget {
     if (height !== undefined && Number.isFinite(height)) this.muzzleHeight = height;
   }
 
+  /**
+   * Move the mount to the WORLD position the view measured off the carrier
+   * GLB's `turret.*` empty (Mothership.setModelTurretMounts). Mutates the
+   * existing Vector3 in place — the turret is already registered by reference
+   * as a DamageTarget on the opposing weapon systems, so the registrations
+   * stay valid. Aim/rest angles are headings (translation-independent) and
+   * are left untouched.
+   */
+  setMountPosition(x: number, y: number, z: number): void {
+    this.position.set(x, y, z);
+  }
+
   // ─── Per-tick sim ─────────────────────────────────────────────────────────
 
   /**

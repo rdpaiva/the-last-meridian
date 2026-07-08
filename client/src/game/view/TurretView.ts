@@ -67,6 +67,16 @@ export class TurretView {
     this.buildProcedural(scene, faction);
   }
 
+  /**
+   * Re-seat this turret at a new carrier-LOCAL mount (x/y/z under the carrier
+   * root). Called when the loaded carrier GLB authors `turret.*` empties —
+   * the sim turret is re-seated in lockstep (Mothership.setModelTurretMounts),
+   * keeping bolt origin and depiction on the same spot.
+   */
+  setMount(x: number, y: number, z: number): void {
+    this.mount.position.set(x, y, z);
+  }
+
   // ─── Procedural fallback (boxes) ──────────────────────────────────────────
 
   private buildProcedural(scene: Scene, faction: Faction): void {

@@ -113,7 +113,7 @@ export class MothershipView {
           this.root,
           faction,
           m.x,
-          tcfg.mountY,
+          m.y ?? tcfg.mountY,
           m.z,
           sim.rotationY,
         ),
@@ -137,16 +137,18 @@ export class MothershipView {
   /**
    * Load the shared turret GLB once and swap every procedural turret on this
    * carrier for an instance of it (static base + rotating gun, faction-tinted).
-   * Returns the muzzle fire-point distance (game units) measured off the model —
-   * the caller hands it to each sim Turret via setMuzzleData so bolts spawn at
-   * the barrel tip. Returns null (keeping the procedural turrets + the sim's
-   * config muzzleForward) if the model is disabled or fails to load. Awaited from
-   * Game.start after the carrier model swap; resolves, never rejects.
+   * Each view's measured muzzle fire point (pivot→muzzle distance + barrel-tip
+   * height — PER TURRET, since GLB-authored mounts can sit at different
+   * heights) is fed straight to its index-aligned sim Turret via setMuzzleData
+   * so bolts spawn at that barrel's tip. On failure the procedural turrets and
+   * the sim's config muzzleForward stay. Awaited from Game.start after the
+   * carrier model swap (so mounts are already re-seated from the `turret.*`
+   * empties); resolves, never rejects.
    */
-  async applyTurretModel(): Promise<{ forward: number; height: number } | null> {
+  async applyTurretModel(): Promise<void> {
     const cfg = GameConfig.mothership.turrets.model;
     const file = cfg?.file[this.sim.faction];
-    if (!cfg || !file || this.turretViews.length === 0) return null;
+    if (!cfg || !file || this.turretViews.length === 0) return;
     try {
       const result = await SceneLoader.ImportMeshAsync(
         "",
@@ -165,19 +167,19 @@ export class MothershipView {
       prefab.scaling.setAll(cfg.scale);
       prefab.setEnabled(false);
 
-      let fire: { forward: number; height: number } | null = null;
-      for (const tv of this.turretViews) {
-        const f = tv.applyModel(prefab);
-        if (f !== null) fire = f;
+      const turrets = this.sim.turrets;
+      for (let i = 0; i < this.turretViews.length; i++) {
+        const fire = this.turretViews[i].applyModel(prefab);
+        if (fire !== null && turrets[i]) {
+          turrets[i].setMuzzleData(fire.forward, fire.height);
+        }
       }
-      return fire;
     } catch (err) {
       console.warn(
         `[MothershipView] Failed to load /models/${cfg.file} — keeping the ` +
           `procedural turrets.`,
         err,
       );
-      return null;
     }
   }
 
@@ -231,6 +233,21 @@ export class MothershipView {
         this.captureLaunchMarkers(result.transformNodes),
         this.captureExitDistance(result.meshes),
       );
+
+      // Same for the turret mounts: the GLB's `turret.*` empties re-seat the
+      // sim turrets (in place — they're already registered as DamageTargets)
+      // AND this view's turret depictions, so mount placement — including
+      // HEIGHT, which drives the bolts' downward slope onto the fighter
+      // plane — is authored in Blender, not code.
+      const turretMounts = this.captureTurretMarkers(result.transformNodes);
+      if (turretMounts) {
+        this.sim.setModelTurretMounts(turretMounts);
+        const n = Math.min(turretMounts.length, this.turretViews.length);
+        for (let i = 0; i < n; i++) {
+          const m = turretMounts[i];
+          this.turretViews[i].setMount(m.x, m.y, m.z);
+        }
+      }
       this.registerModelGlow(result.meshes);
 
       // The procedural carrier is now redundant — dispose its meshes. The GLB is
@@ -269,6 +286,35 @@ export class MothershipView {
     }
     if (pts.length === 0) return null;
     pts.sort((a, b) => a.x - b.x);
+    return pts;
+  }
+
+  /**
+   * Reads the GLB's `turret.*` empties into carrier-LOCAL x/y/z — the launch-
+   * marker capture, but keeping Y (mount height sets the bolt spawn height and
+   * thus the fire slope onto the Y=0 plane). Sorted by x then z so the order is
+   * deterministic and matches the config-mount ordering convention (the sim's
+   * turrets are index-aligned with GameConfig.mothership.turrets.mounts, whose
+   * entries are kept in the same sorted order). Returns null (keeping the
+   * config mounts) if the model authored no turret empties. NOTE: matches
+   * names STARTING WITH "turret" — the carriers' decorative `*_TurretBarrel_*`
+   * meshes don't collide with this (faction prefix), and the turret gun GLB
+   * itself is loaded separately (applyTurretModel), never through here.
+   */
+  private captureTurretMarkers(
+    nodes: TransformNode[],
+  ): ReadonlyArray<{ x: number; y: number; z: number }> | null {
+    this.root.computeWorldMatrix(true);
+    const inv = this.root.getWorldMatrix().clone().invert();
+    const pts: { x: number; y: number; z: number }[] = [];
+    for (const n of nodes) {
+      if (!n.name || !n.name.toLowerCase().startsWith("turret")) continue;
+      n.computeWorldMatrix(true);
+      const p = Vector3.TransformCoordinates(n.getAbsolutePosition(), inv);
+      pts.push({ x: p.x, y: p.y, z: p.z });
+    }
+    if (pts.length === 0) return null;
+    pts.sort((a, b) => a.x - b.x || a.z - b.z);
     return pts;
   }
 

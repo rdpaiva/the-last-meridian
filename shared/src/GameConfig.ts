@@ -1027,12 +1027,19 @@ export const GameConfig = {
      *
      * `mounts` are PER-FACTION, in carrier-LOCAL coordinates (the SAME frame as
      * `colliders`/`hullRects` — z along the keel, bow = +z, x = beam), rotated
-     * into world space by the carrier's facing. v1 authors them here; a turret
-     * GLB can later supply mount points as `turret.*` empties (mirroring how the
-     * launch bays come from `launch.*` empties — MothershipView reads them and
-     * feeds the sim). `restAngle` (radians, LOCAL — added to the carrier facing)
-     * is the idle/forward pose + center of the slew arc; `arcHalf` limits the
-     * slew to ±that from rest (π = full 360°, the default).
+     * into world space by the carrier's facing. The carrier GLBs author them as
+     * `turret.*` empties (mirroring the `launch.*` launch bays): the browser
+     * reads the empties live (MothershipView → setModelTurretMounts) and these
+     * config entries are the HEADLESS fallback the server/tests build from —
+     * re-fit them from `node scripts/measure-carrier-footprint.mjs` after
+     * re-exporting a carrier model so both stay in agreement. The mount count
+     * always comes from HERE (a balance knob; extra GLB empties are ignored).
+     * Per-mount `y` is root-LOCAL height (falls back to `mountY`); it sets
+     * where bolts spawn and thus how steeply fire slopes onto the Y=0 fighter
+     * plane — an empty at deck level fires flat. `restAngle` (radians, LOCAL —
+     * added to the carrier facing) is the idle/forward pose + center of the
+     * slew arc; `arcHalf` limits the slew to ±that from rest (π = full 360°,
+     * the default).
      */
     turrets: {
       // --- Shared combat knobs (every turret) ---
@@ -1082,11 +1089,13 @@ export const GameConfig = {
        */
       muzzleForward: 6,
       /**
-       * Height (root-LOCAL Y) the turret base sits at. Tuned to perch the gun on
+       * FALLBACK height (root-LOCAL Y) for a mount without its own `y` (i.e. a
+       * carrier GLB without `turret.*` empties). Tuned to perch the gun on
        * top of the flight-pod / sponson deck (pod top ≈ 7.4, sponson ≈ 7.9) so
-       * it reads as bolted ON the hull rather than buried inside it. Cosmetic
-       * only — weapon collision is X/Z (the gameplay plane), so this never
-       * affects targetability, just where the mesh sits.
+       * it reads as bolted ON the hull rather than buried inside it. Weapon
+       * collision is X/Z (the gameplay plane), so this never affects
+       * targetability — but it DOES set the bolt spawn height and therefore
+       * the downward slope of turret fire onto the Y=0 fighter plane.
        */
       mountY: 8,
       /** Camera trauma when a turret is destroyed (distance-scaled for far ones). */
@@ -1155,7 +1164,8 @@ export const GameConfig = {
         yaw: Math.PI,
       },
 
-      // --- Per-faction mount points (carrier-LOCAL x/z; see note above) ---
+      // --- Per-faction mount points (carrier-LOCAL x/z + optional y; see note
+      // above — measured from the GLBs' `turret.*` empties, sorted x then z) ---
       // Placed on the OUTER flanks of the flight pods / sponsons (the carrier's
       // widest structures) so each turret's hit circle pokes past the hull edge
       // and a strafing run can shoot it off. Inboard mounts sit behind the hull
@@ -1163,23 +1173,41 @@ export const GameConfig = {
       mounts: {
         // Bastion Carrier: two per flight pod (fore + aft), on the outer edge
         // (pod outer edge ≈ ±50.9; x=±47 + r8 reaches ±55, ~4 past the hull).
+        // Bastion turrets sit on the POD RIDGE (the topmost pod deck): pods
+        // centered at x = ±38, ridge top at y ≈ 12.2 (carrier-LOCAL; world ≈ 9),
+        // one forward (z = +48) and one aft (z = −45) per pod. The aft pair is
+        // pulled forward of the pod's stern EAGLE EMBLEM (which sits ~z −63…−80)
+        // so the guns don't cover it. Matches the `turret.*` empties baked into
+        // bastion_carrier.glb (re-fit both from
+        // `node scripts/measure-carrier-footprint.mjs` if the model changes).
         humans: [
-          { x: 47, z: 75 },   // starboard pod, fore
-          { x: 47, z: -25 },  // starboard pod, aft
-          { x: -47, z: 75 },  // port pod, fore
-          { x: -47, z: -25 }, // port pod, aft
+          { x: -38, y: 12.2, z: -45 }, // port pod, aft
+          { x: -38, y: 12.2, z: 48 },  // port pod, fore
+          { x: 38, y: 12.2, z: -45 },  // starboard pod, aft
+          { x: 38, y: 12.2, z: 48 },   // starboard pod, fore
         ],
-        // Choirship: two per sponson (fore + aft), on the outer edge (sponson
-        // outer edge ≈ ±53; x=±49 + r8 reaches ±57, ~4 past the hull).
+        // Choirship turrets sit on the SPONSON STEP (the topmost sponson deck):
+        // sponsons centered at x = ±42, step top at y ≈ 11.5 (carrier-LOCAL;
+        // world ≈ 8.5), one forward (z = −20) and one aft (z = −50) per sponson.
+        // Both are kept aft of the sponson's forward Novari KNOT emblem (which
+        // sits ~z 0…+27) so the guns don't cover it. Matches the `turret.*`
+        // empties baked into choirship.glb (re-fit both from
+        // `node scripts/measure-carrier-footprint.mjs` if the model changes).
         machines: [
-          { x: 49, z: -18 },  // starboard sponson, fore
-          { x: 49, z: -58 },  // starboard sponson, aft
-          { x: -49, z: -18 }, // port sponson, fore
-          { x: -49, z: -58 }, // port sponson, aft
+          { x: -42, y: 11.5, z: -50 }, // port sponson, aft
+          { x: -42, y: 11.5, z: -20 }, // port sponson, fore
+          { x: 42, y: 11.5, z: -50 },  // starboard sponson, aft
+          { x: 42, y: 11.5, z: -20 },  // starboard sponson, fore
         ],
       } as Record<
         import("./Faction").Faction,
-        ReadonlyArray<{ x: number; z: number; restAngle?: number; arcHalf?: number }>
+        ReadonlyArray<{
+          x: number;
+          z: number;
+          y?: number;
+          restAngle?: number;
+          arcHalf?: number;
+        }>
       >,
     },
 
