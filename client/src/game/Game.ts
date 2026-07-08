@@ -10,7 +10,7 @@ import { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
 // the PBR (metallic) GLB ships, which need an environment to reflect.
 import { EquiRectangularCubeTexture } from "@babylonjs/core/Materials/Textures/equiRectangularCubeTexture";
 
-import { GameConfig, aiCallsign, resolveWingPlan, type ShipTypeId } from "@space-duel/shared";
+import { GameConfig, aiCallsign, factionExhaust, resolveWingPlan, type ShipTypeId } from "@space-duel/shared";
 import { InputManager } from "./InputManager";
 import { Arena } from "./Arena";
 import { AssetLoader } from "./AssetLoader";
@@ -727,7 +727,13 @@ export class Game {
         // from the wingman's emitted input in the sim loop (see tick()). Same
         // model as the player = same thruster/RCS markers.
         this.aiVisuals.set(ship, {
-          glow: new EngineGlow(this.scene, view.root, this.glowLayer, markers.thrusters),
+          glow: new EngineGlow(
+            this.scene,
+            view.root,
+            this.glowLayer,
+            markers.thrusters,
+            factionExhaust(this.playerFaction),
+          ),
           thrusters: new SecondaryThrusters(this.scene, view.root, this.glowLayer, markers.rcs),
         });
       } else {
@@ -741,7 +747,13 @@ export class Game {
         ({ ship, view } = this.makeFighter(this.playerFaction, type, template));
         this.aiVisuals.set(ship, {
           glow: template
-            ? new EngineGlow(this.scene, view.root, this.glowLayer, this.rearEmitters(view.root))
+            ? new EngineGlow(
+                this.scene,
+                view.root,
+                this.glowLayer,
+                this.rearEmitters(view.root),
+                factionExhaust(this.playerFaction),
+              )
             : undefined,
           thrusters: new SecondaryThrusters(this.scene, view.root, this.glowLayer, {}),
         });
@@ -757,9 +769,9 @@ export class Game {
       this.shipCallsigns.set(ship, aiCallsign(this.playerFaction, i));
     }
 
-    // The player's own burn wears the own-ship tint (teal vs the fleet's
-    // orange) — the "this one is you" cue. Wingmen flying the same model
-    // keep the standard palette (constructed above, no palette arg).
+    // The player's own burn wears the own-ship tint (teal) — the "this one
+    // is you" cue. Everyone else burns their FACTION's exhaust color (blue
+    // wing vs red fleet — see FACTION_THEME.engineIdle/engineHot).
     this.engineGlow = new EngineGlow(
       this.scene,
       loaded.root,
@@ -840,6 +852,7 @@ export class Game {
               view.root,
               this.glowLayer,
               this.rearEmitters(view.root),
+              factionExhaust(this.enemyFaction),
             ),
           });
         }

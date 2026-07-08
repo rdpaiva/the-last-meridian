@@ -590,6 +590,14 @@ Full design + as-built notes: `docs/JUMP-DRIVE-AND-RESUPPLY.md`. Built sim/view-
   value and the mesh is `setEnabled(false)` once it's ~invisible, so the
   exhaust streak appears only while actively burning and not while coasting.
 - Exposed via `currentIntensity` getter so SoundSystem can match the audio.
+- **Exhaust color is a friend-or-foe channel**: AI/wing ships burn their
+  faction's palette (`FACTION_THEME.engineIdle/engineHot` via the
+  `factionExhaust()` helper — Commonwealth blue, Novari red); the local
+  player's own ship wears `GameConfig.ownShipTint` (teal) instead, both
+  offline and online. The old shared ember-orange default only remains as
+  the constructor's no-palette fallback. (An earlier under-ship IFF ring
+  marker was tried and REMOVED — too gamey against the space aesthetic;
+  exhaust color + nameplates carry friend-or-foe instead.)
 
 ## DamageFlash
 - One sphere parented to the player ship root, normally `setEnabled(false)`.

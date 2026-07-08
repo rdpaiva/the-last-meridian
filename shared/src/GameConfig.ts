@@ -1723,13 +1723,13 @@ export const GameConfig = {
    */
   lighting: {
     /** Hemispheric ambient fill — the base wash on every surface. */
-    hemiIntensity: 0.9,
+    hemiIntensity: 1.1,
     /** Sky-side fill color (lights surfaces facing up). */
     hemiSky: { r: 0.6, g: 0.7, b: 0.95 },
     /** Ground-side fill color (lights surfaces facing down). Cool + dim. */
     hemiGround: { r: 0.05, g: 0.05, b: 0.12 },
     /** Key directional "sun" — the main shaping light + shadows/highlights. */
-    sunIntensity: 1.2,
+    sunIntensity: 1.45,
     /** Sun travel direction (it points roughly straight down for the top view). */
     sunDirection: { x: -0.4, y: -1, z: 0.2 },
     /** Warm sun color. */
@@ -1739,7 +1739,7 @@ export const GameConfig = {
      * almost entirely by what they reflect, so this is effectively their
      * brightness. Raised with the lights so metals don't go flat under exposure.
      */
-    environmentIntensity: 0.75,
+    environmentIntensity: 1.15,
   },
 
   glow: {

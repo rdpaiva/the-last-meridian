@@ -61,6 +61,15 @@ export interface FactionTheme {
   engineEmissive: Color3;
   /** Procedural fighter nose "eye" emissive (glow-layer). */
   eyeEmissive: Color3;
+  /**
+   * Standard exhaust burn for this faction's GLB fighters (EngineGlow
+   * idle→hot) — an always-on friend-or-foe cue in the furball: Commonwealth
+   * engines burn blue, Novari burn red. The local player's own ship wears
+   * `GameConfig.ownShipTint` (teal) instead, so "you" still reads distinct
+   * from your own wing.
+   */
+  engineIdle: Color3;
+  engineHot: Color3;
 }
 
 export const FACTION_THEME: Record<Faction, FactionTheme> = {
@@ -78,6 +87,8 @@ export const FACTION_THEME: Record<Faction, FactionTheme> = {
     wingColor: new Color3(0.12, 0.18, 0.36),
     engineEmissive: new Color3(0.5, 0.8, 1.8),
     eyeEmissive: new Color3(0.6, 0.9, 1.8),
+    engineIdle: new Color3(0.08, 0.16, 0.38),
+    engineHot: new Color3(0.55, 1.1, 2.4),
   },
   machines: {
     label: "NOVARI",
@@ -93,5 +104,20 @@ export const FACTION_THEME: Record<Faction, FactionTheme> = {
     wingColor: new Color3(0.35, 0.1, 0.12),
     engineEmissive: new Color3(1.6, 0.25, 0.15),
     eyeEmissive: new Color3(1.8, 0.3, 0.2),
+    engineIdle: new Color3(0.32, 0.08, 0.05),
+    engineHot: new Color3(2.2, 0.5, 0.28),
   },
 };
+
+/**
+ * A faction's standard exhaust palette in the shape EngineGlow's `palette`
+ * option takes (Color3 satisfies `{r,g,b}` structurally). Construction-time
+ * helper — one small object per ship, never per frame.
+ */
+export function factionExhaust(faction: Faction): {
+  idle: { r: number; g: number; b: number };
+  hot: { r: number; g: number; b: number };
+} {
+  const theme = FACTION_THEME[faction];
+  return { idle: theme.engineIdle, hot: theme.engineHot };
+}

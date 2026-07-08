@@ -16,6 +16,7 @@ import {
   wrapAngle,
   opposing,
   FACTION_THEME,
+  factionExhaust,
   LaserSystem,
   MissileSystem,
   SensorSystem,
@@ -2077,18 +2078,21 @@ export class NetworkGame {
     const hasTemplate = (this.templates.get(m.shipType) ?? null) !== null;
     const nozzles = this.thrusterMarkers(view.root);
     this.visuals.set(key, {
-      // Our own seat's burn wears the own-ship tint (teal vs everyone
-      // else's orange — client-only depiction, remote peers never see it).
-      // myKey is always known by now: it's set while the patch that first
-      // carries our ship ingests, and views are only built afterwards, in
-      // the render pass over that patch's snapshots.
+      // Our own seat's burn wears the own-ship tint (teal); everyone else
+      // burns their FACTION's exhaust color (blue vs red — the friend-or-foe
+      // cue, client-only depiction, remote peers never see it). myKey is
+      // always known by now: it's set while the patch that first carries our
+      // ship ingests, and views are only built afterwards, in the render
+      // pass over that patch's snapshots.
       glow: hasTemplate
         ? new EngineGlow(
             this.scene,
             view.root,
             this.glowLayer,
             nozzles.length > 0 ? nozzles : this.rearEmitters(view.root),
-            key === this.myKey ? GameConfig.ownShipTint : undefined,
+            key === this.myKey
+              ? GameConfig.ownShipTint
+              : factionExhaust(m.faction),
           )
         : null,
       // RCS plumes ride the replicated reverse/strafe bits — FRIENDLY ships

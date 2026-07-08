@@ -238,7 +238,7 @@ client/src/                @space-duel/client — the Babylon view, menus, and e
     FighterMesh.ts         faction-themed procedural fighter mesh + randomFighterSpawn helper
     MissileWarning.ts      player RWR: polls enemy missiles homing on the player; beep w/ proximity tempo ramp + HUD border pulse + radar threat list
     CameraRig.ts           top-down camera, velocity lead, trauma-based shake
-    EngineGlow.ts          core sphere + TrailMesh behind player, thrust-driven
+    EngineGlow.ts          core sphere + TrailMesh per ship, thrust-driven; exhaust COLOR is a friend-or-foe channel (faction palette; own ship teal)
     SecondaryThrusters.ts  strafe/reverse puff jets (view)
     DamageFlash.ts         red emissive sphere pulses around player on damage
     Explosion.ts           short-lived explosion (flash sphere + N debris)
