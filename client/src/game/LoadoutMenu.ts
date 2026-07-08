@@ -42,6 +42,8 @@ export interface LoadoutActions {
   firstRunIntro(): boolean;
   replayIntro(): void;
   openSettings(): void;
+  /** Open the map editor (MapEditor.ts — arena authoring, admin tooling). */
+  openMapEditor(): void;
   /** Open the Field Manual card deck (FieldManual.ts). */
   openManual(): void;
 }
@@ -601,6 +603,7 @@ export class LoadoutMenu {
           <button class="lo-util" id="loadout-manual">Field Manual</button>
           <button class="lo-util" id="loadout-replay">Replay Intro</button>
           <button class="lo-util" id="loadout-settings">${settingsLabel}</button>
+          <button class="lo-util" id="loadout-mapeditor">Map Editor</button>
         </div>
         <div class="lo-ctas">
           ${this.step > 1 ? `<button id="loadout-back" class="loadout-back">◂ BACK</button>` : ""}
@@ -785,6 +788,9 @@ export class LoadoutMenu {
     this.root
       .querySelector<HTMLButtonElement>("#loadout-settings")
       ?.addEventListener("click", () => this.actions.openSettings());
+    this.root
+      .querySelector<HTMLButtonElement>("#loadout-mapeditor")
+      ?.addEventListener("click", () => this.actions.openMapEditor());
 
     // Pilot-name field (step 1): value set as a PROPERTY (never interpolated
     // into the innerHTML above — no markup injection), persisted per keystroke

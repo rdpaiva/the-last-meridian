@@ -823,3 +823,36 @@ tradeoff). Zones default empty; maps place them via `MapConfig.stormZones`
   INPUT/TEXTAREA — the settings overlay can sit above the (still-attached)
   loadout menu, and the menu's `preventDefault` on arrows would otherwise
   freeze the sliders/number fields.
+
+## Map editor (MapEditor.ts)
+- ADMIN/AUTHORING tooling, the second sanctioned splash-menu exception
+  alongside match settings: splash state `mapEditor` ("Map Editor" in the
+  loadout footer rail; Esc/BACK returns). A top-down 2D canvas of the board
+  (+X right, +Z up — enemy carrier at the top) plus a side panel. Brushes:
+  nebula / storm / rock field / wreck — click stamps (hold to drag into
+  place), drag moves, scroll over a shape resizes (zone radius / wreck
+  scale), right-click or Delete erases. The two carriers are permanent
+  singletons dragged along the lane (x = 0; `carrierZ` is Z-only by design).
+- OUTPUT IS CODE, not runtime content: COPY MAP emits a paste-ready MAPS
+  entry (quoted-key JSON — valid TS inside the Record literal) for
+  `shared/src/Maps.ts`, plus a comment reminding to extend the
+  `ConcreteMapId` union. Committed maps work everywhere (solo + online)
+  with zero wire/protocol changes; the editor never adds maps at runtime.
+  IMPORT round-trips a copied snippet (or bare MapConfig JSON).
+- UNIT CONVERSION IS HIDDEN: the editor works in world units everywhere;
+  nebula/storm zones convert to arena-half-extent FRACTIONS on export
+  (asteroid regions + hazards stay world-space), and back on import/preset
+  load — the MapConfig split never reaches the author.
+- The draft auto-saves to `lastMeridian_mapDraft` on every edit AS the
+  exported MapConfig shape, so one load path (`loadMap`) serves presets,
+  imports, and reload recovery alike.
+- TEST FLIGHT launches a solo match on the draft via the shared
+  `applyMapConfig` (the applier body of `applyMap`, taking a map VALUE
+  instead of a catalog id) — deliberately WITHOUT the match-settings
+  override hooks, so the draft plays exactly as designed. A
+  `lastMeridian_testFlight` sessionStorage flag makes end-of-match
+  Enter-restarts (fresh page loads) replay the draft; any normal solo
+  launch clears it.
+- Gotcha: the root is `display:none` until the state flips, so canvas
+  sizing can't happen at construction — main.ts calls `onShown()` on every
+  state entry to size the backing store (devicePixelRatio-aware).

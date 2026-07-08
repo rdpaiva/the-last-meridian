@@ -1953,6 +1953,186 @@ body {
   display: none;
 }
 
+/* ── Map editor (data-state="mapEditor") ───────────────────────────────── */
+/* MapEditor.ts renders the arena-authoring screen into #map-editor — admin
+   tooling in the same dress as match settings (it reuses the settings-head /
+   settings-note / settings-io / set-btn classes, widened via the overrides
+   below). Left: the top-down board canvas. Right: brush palette + fields. */
+
+#map-editor {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(3, 5, 10, 0.97);
+  color: #cdd6f4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow: hidden;
+  padding: 22px 24px 18px;
+}
+
+#splash[data-state="mapEditor"] #map-editor {
+  display: flex;
+}
+
+#map-editor .settings-head,
+#map-editor .settings-note,
+#map-editor .settings-io {
+  width: min(1100px, 100%);
+}
+
+.med-preset {
+  padding: 6px 8px;
+  background: rgba(5, 7, 14, 0.55);
+  border: 1px solid rgba(120, 140, 200, 0.35);
+  border-radius: 3px;
+  color: #8a96b8;
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.med-body {
+  width: min(1100px, 100%);
+  flex: 1;
+  min-height: 0;
+  margin-top: 12px;
+  display: flex;
+  gap: 14px;
+}
+
+.med-canvas-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(120, 140, 200, 0.18);
+  border-radius: 4px;
+  background: rgba(8, 11, 20, 0.6);
+}
+
+.med-panel {
+  width: 300px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.med-section {
+  border: 1px solid rgba(120, 140, 200, 0.18);
+  border-radius: 4px;
+  background: rgba(8, 11, 20, 0.6);
+  padding: 10px 12px;
+}
+
+.med-sec-title {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: #a9b6da;
+  margin-bottom: 8px;
+}
+
+.med-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 4px 0;
+  font-size: 11px;
+  color: #8a96b8;
+}
+
+.med-row input[type="number"],
+.med-row select {
+  width: 110px;
+  box-sizing: border-box;
+  background: rgba(10, 13, 24, 0.9);
+  border: 1px solid rgba(120, 140, 200, 0.35);
+  border-radius: 3px;
+  color: #cdd6f4;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 4px 6px;
+}
+
+.med-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  background: rgba(10, 13, 24, 0.9);
+  border: 1px solid rgba(120, 140, 200, 0.35);
+  border-radius: 3px;
+  color: #cdd6f4;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 4px 6px;
+}
+
+.med-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.med-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: rgba(5, 7, 14, 0.55);
+  border: 1px solid rgba(120, 140, 200, 0.35);
+  border-radius: 3px;
+  color: #8a96b8;
+  font-family: inherit;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.med-tool:hover {
+  color: #cdd6f4;
+  border-color: rgba(137, 180, 250, 0.8);
+}
+
+.med-tool.active {
+  color: #f9e2af;
+  border-color: rgba(249, 226, 175, 0.8);
+  background: rgba(249, 226, 175, 0.08);
+}
+
+.med-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.med-hint {
+  margin-top: 6px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: #7f8aa6;
+}
+
+.med-id {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #7f8aa6;
+}
+
+.med-del {
+  margin-top: 8px;
+  border-color: rgba(243, 139, 168, 0.5);
+  color: #f38ba8;
+}
+
 /* ── Match settings (data-state="settings") ────────────────────────────── */
 /* SettingsMenu.ts renders the schema-driven tuning screen (TuningSchema.ts)
    into #settings — a full-splash overlay above the poster/panel columns.

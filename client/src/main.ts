@@ -5,9 +5,15 @@ import { IntroCinematic } from "./game/IntroCinematic";
 import { LoadoutMenu, type LaunchMode } from "./game/LoadoutMenu";
 import { ShipPreview } from "./game/ShipPreview";
 import { SettingsMenu } from "./game/SettingsMenu";
-import { PROTOCOL_MISMATCH, FACTION_FULL, applyMap as applyServerMap } from "@space-duel/shared";
+import {
+  PROTOCOL_MISMATCH,
+  FACTION_FULL,
+  applyMap as applyServerMap,
+  applyMapConfig,
+} from "@space-duel/shared";
 import { applyStoredOverrides } from "./game/ConfigOverrides";
 import { applyMap, resolveMapId, loadSavedMapSelection } from "./game/Maps";
+import { MapEditor, loadDraftMap, type DraftMap } from "./game/MapEditor";
 import { applyDifficulty, loadSavedDifficulty } from "./game/Difficulty";
 import { FieldManual } from "./game/FieldManual";
 import {
@@ -45,6 +51,7 @@ const skipBtn = document.getElementById("splash-skip") as HTMLButtonElement | nu
 const loadoutRoot = document.getElementById("loadout") as HTMLDivElement | null;
 const manualRoot = document.getElementById("field-manual") as HTMLDivElement | null;
 const settingsRoot = document.getElementById("settings") as HTMLDivElement | null;
+const mapEditorRoot = document.getElementById("map-editor") as HTMLDivElement | null;
 
 if (!canvas) throw new Error("Canvas #renderCanvas not found in DOM");
 if (!hudRoot) throw new Error("HUD root #hud not found in DOM");
@@ -54,6 +61,7 @@ if (!skipBtn) throw new Error("#splash-skip not found in DOM");
 if (!loadoutRoot) throw new Error("#loadout not found in DOM");
 if (!manualRoot) throw new Error("#field-manual not found in DOM");
 if (!settingsRoot) throw new Error("#settings not found in DOM");
+if (!mapEditorRoot) throw new Error("#map-editor not found in DOM");
 
 // Write any saved match-settings overrides into GameConfig BEFORE anything
 // reads it — both Game-construction paths below and the loadout menu's stat
@@ -190,6 +198,16 @@ function applyActiveDifficulty(): void {
   applyDifficulty(loadSavedDifficulty());
 }
 
+/**
+ * Map-editor TEST FLIGHT: the draft to launch on instead of the saved arena
+ * selection. Set by the editor's callback right before it calls
+ * startGame("solo"); the sessionStorage flag lets an end-of-match Enter
+ * restart (a fresh page load) replay the draft too — a normal solo launch
+ * clears it.
+ */
+let testFlightMap: DraftMap | null = null;
+const TEST_FLIGHT_FLAG = "lastMeridian_testFlight";
+
 function startGame(mode: LaunchMode): void {
   if (game || netGame || connecting) return;
   // commit() persists the choice and releases the menu's arrow keys back to
@@ -204,7 +222,17 @@ function startGame(mode: LaunchMode): void {
   stopSplashMusic();
   preview?.dispose();
   preview = null;
-  applyActiveMap();
+  if (testFlightMap) {
+    // The draft exactly as designed — no override hooks (unlike applyMap's
+    // solo path), so match-settings hand-tuning can't skew what's being
+    // playtested.
+    applyMapConfig(testFlightMap);
+    testFlightMap = null;
+    sessionStorage.setItem(TEST_FLIGHT_FLAG, "1");
+  } else {
+    sessionStorage.removeItem(TEST_FLIGHT_FLAG);
+    applyActiveMap();
+  }
   applyActiveDifficulty();
   splash!.classList.add("hidden");
   game = new Game(canvas!, hudRoot!, loadout);
@@ -307,9 +335,10 @@ async function startOnline(base: ReturnType<typeof loadSavedLoadout>): Promise<v
 
 // ── Splash state machine ───────────────────────────────────────────────────
 
-type SplashState = "intro" | "factionSelect" | "settings";
+type SplashState = "intro" | "factionSelect" | "settings" | "mapEditor";
 let state: SplashState = "factionSelect";
 let settings: SettingsMenu | null = null;
+let mapEditor: MapEditor | null = null;
 /** The story slideshow. Built lazily on first intro entry; finished()
  *  advances the splash (guarded — stop() cancels the timeline, so this can
  *  only fire while the intro is actually the active state). */
@@ -363,6 +392,7 @@ function setState(next: SplashState): void {
             settingsReturn = state;
             setState("settings");
           },
+          openMapEditor: () => setState("mapEditor"),
           openManual,
         });
       }
@@ -378,6 +408,22 @@ function setState(next: SplashState): void {
           updateSettingsBadge,
         );
       }
+      break;
+    case "mapEditor":
+      // Built lazily; the draft persists in localStorage across visits.
+      if (!mapEditor) {
+        mapEditor = new MapEditor(
+          mapEditorRoot!,
+          () => state === "mapEditor",
+          () => setState("factionSelect"),
+          (map) => {
+            testFlightMap = map;
+            startGame("solo");
+          },
+        );
+      }
+      // The root was display:none until now — size the canvas to it.
+      mapEditor.onShown();
       break;
   }
   if (next !== "factionSelect") preview?.stop();
@@ -409,8 +455,12 @@ if (restartMode && restartMode !== "online") {
   // Solo restart — the player already sat through the splash, so skip it and
   // relaunch the saved loadout directly. Audio resumes on their first
   // keypress (a reloaded page has no user gesture yet, so it can't resume
-  // here).
-  applyActiveMap();
+  // here). A map-editor TEST FLIGHT restart replays the draft (the flag
+  // survives the reload in sessionStorage; the draft lives in localStorage),
+  // so Enter-to-restart keeps iterating the same board.
+  const draft = sessionStorage.getItem(TEST_FLIGHT_FLAG) ? loadDraftMap() : null;
+  if (draft) applyMapConfig(draft);
+  else applyActiveMap();
   applyActiveDifficulty();
   splash.classList.add("hidden");
   game = new Game(canvas, hudRoot, loadSavedLoadout());
@@ -438,6 +488,11 @@ if (restartMode && restartMode !== "online") {
       // Enter must NOT launch the game while the user is editing inputs;
       // Esc mirrors the BACK button.
       if (e.code === "Escape") setState(settingsReturn);
+      return;
+    }
+    if (state === "mapEditor") {
+      // Same deal: the editor owns its keys (Delete etc.); Esc = BACK.
+      if (e.code === "Escape") setState("factionSelect");
       return;
     }
     // Don't trap keyboard users in the slideshow — Enter skips ahead.

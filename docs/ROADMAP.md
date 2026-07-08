@@ -506,6 +506,15 @@ and explicitly skipped. Update this when you finish or start work.
 - _Still on the table:_ missile-launcher turrets (same seam, MissileSystem).
 
 ### Dev/test tooling
+- **Map editor** (2026-07-08, admin authoring tool): splash screen
+  (`MapEditor.ts`, loadout footer link) — top-down canvas, brush-paints
+  nebula/storm/rock-field/wreck circles + draggable carriers, exports a
+  paste-ready `MAPS` entry for `shared/src/Maps.ts` (maps stay compile-time
+  presets; works online for free once committed). TEST FLIGHT launches a
+  solo match on the draft (`applyMapConfig`); draft persists in
+  localStorage. Deliberately NOT runtime/user-generated maps — that
+  (custom maps in the picker, share blobs, online custom boards) is a
+  separate product decision, see the backlog.
 - **God-mode cheat** (Backquote `` ` ``): toggles player invulnerability +
   boosted speed (`GameConfig.debug.godSpeedMultiplier`) so you can blaze across
   a live match to inspect things. `Ship.debugInvulnerable`/`debugSpeedMultiplier`

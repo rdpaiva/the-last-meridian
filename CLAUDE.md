@@ -181,7 +181,7 @@ shared/src/                @space-duel/shared — the SIM + config + AI: everyth
   SensorSystem.ts          per-faction sensor picture: SensorContacts w/ last-known positions, ghost decay, nebula concealment
   LaunchSequence.ts        per-ship catapult (hold→launching→complete); player's hold is the cinematic intro+3-2-1 countdown, others a staggered wait; skipIntro = respawn relaunch
   WingPlan.ts              resolveWingPlan: GameConfig.player.wingmen ROLE COUNTS → concrete {shipType, order} wing slots for the picked loadout (+ formationSlot, the expanding-V generator)
-  Maps.ts                  the ARENA CATALOG (docs/ARENA-MAPS.md): MapConfig presets + applyMap (writes a map into GameConfig pre-construction; injectable override hooks) + resolveMapId/isMapSelection — shared so BattleRoom applies the room's map server-side
+  Maps.ts                  the ARENA CATALOG (docs/ARENA-MAPS.md): MapConfig presets + applyMap (writes a map into GameConfig pre-construction; injectable override hooks; applyMapConfig = the same applier for a non-catalog map VALUE — the map editor's test-flight seam) + resolveMapId/isMapSelection — shared so BattleRoom applies the room's map server-side
   NetworkController.ts     controller fed by a remote player's input (the networked seat)
   Callsigns.ts             pilot callsign pool + sanitizePilotName (PILOT_NAME_MAX)
   protocol.ts              client↔server wire types + PROTOCOL_VERSION (bump on ANY wire change) + error codes (PROTOCOL_MISMATCH, FACTION_FULL)
@@ -231,6 +231,7 @@ client/src/                @space-duel/client — the Babylon view, menus, and e
     TuningSchema.ts        CURATED declarative tuning surface (~70 gameplay knobs w/ label+bounds+step) — the match-settings GUI renders from this; add an entry = expose a knob
     ConfigOverrides.ts     sparse {dot-path: value} override map (lastMeridian_tuning) written into the live GameConfig at startup; schema-clamped; JSON export/import
     SettingsMenu.ts        splash match-settings screen (data-state="settings"): slider+number per knob, collapsible groups, per-row/global reset, COPY/PASTE SETUP share blob
+    MapEditor.ts           splash map-editor screen (data-state="mapEditor", admin AUTHORING tooling): top-down 2D canvas + brush palette paints a MapConfig (nebula/storm/rock-field/wreck circles, draggable carriers); COPY MAP emits a paste-ready MAPS entry for shared/Maps.ts (maps stay compile-time presets); TEST FLIGHT solo-launches the draft via shared applyMapConfig; draft persists (lastMeridian_mapDraft)
     CombatNebulas.ts       the stealth clouds' VISUALS above the fighter plane (zones come from shared CombatNebulaZones)
     StormClouds.ts         ion-storm cloud VISUALS: CombatNebulas recipe, one blue-cyan tint + interior lightning flicker (pop() spikes on bolts)
     LightningBolt.ts       one live bolt: flash-then-fade lifecycle over a jagged emissive ribbon (JumpFlash pattern)
@@ -476,10 +477,11 @@ for one, do it. Otherwise: don't.
 - **A complex menu system**. The splash flow (the three-step loadout frame
   as the front door, the intro cinematic as a first-run gate, one-press CONTINUE
   for returning players, the Field Manual gameplay-guide card deck) is the
-  deliberate ceiling — keyboard-first, saved choice, Enter back into play. ONE
-  sanctioned exception: the match-settings tuning screen (`SettingsMenu`,
-  dev/playtest tooling — see `docs/SUBSYSTEMS.md`). Don't grow it into general
-  settings (audio/video/keybinds) or pause menus unprompted.
+  deliberate ceiling — keyboard-first, saved choice, Enter back into play. TWO
+  sanctioned exceptions, both dev/admin tooling (see `docs/SUBSYSTEMS.md`):
+  the match-settings tuning screen (`SettingsMenu`) and the map editor
+  (`MapEditor`). Don't grow them into general settings (audio/video/keybinds)
+  or pause menus unprompted.
 - **Asset preloading splash screens**.
 
 ---

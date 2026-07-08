@@ -250,7 +250,19 @@ const NO_OVERRIDES: MapOverrideHooks = {
  * replicate to clients with their actual drift either way.
  */
 export function applyMap(id: ConcreteMapId, hooks: MapOverrideHooks = NO_OVERRIDES): void {
-  const map = MAPS[id];
+  applyMapConfig(MAPS[id], hooks);
+}
+
+/**
+ * The applier body, taking the map VALUE instead of a catalog id — the seam
+ * the client's map editor uses to test-fly a draft that isn't in MAPS yet
+ * (no hooks there: a test flight shows the draft exactly as designed).
+ * Catalog launches go through applyMap above.
+ */
+export function applyMapConfig(
+  map: Omit<MapConfig, "id">,
+  hooks: MapOverrideHooks = NO_OVERRIDES,
+): void {
   const a = map.asteroids;
 
   /** Apply a schema-backed knob only if the player hasn't overridden it. */

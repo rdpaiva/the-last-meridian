@@ -241,6 +241,33 @@ picker (a joiner's pick can't apply — quick match keeps it, since that
 join may create the room). Two-tab run also exercised The Wreck online
 (hulk replicated + depicted on both clients).
 
+**Built 2026-07-08 — MAP EDITOR** (owner-requested admin authoring tool;
+Tier 1 of the scoping discussion — output is CODE, maps stay compile-time
+presets, no runtime custom maps, no protocol change): splash state
+`mapEditor` via the loadout footer's "Map Editor" link. Top-down 2D canvas
+(+X right, +Z up) + brush palette: nebula / storm / rock field / wreck
+circles (click stamps + hold-drags, scroll resizes, right-click/Delete
+erases), the two carriers drag along the lane (x=0). Side panel: name/blurb
+(id auto-derives camelCase), carrier Z, asteroid scalars, selected-object
+fields (wreck: heading/scale/spin rates/source faction). COPY MAP emits a
+paste-ready quoted-key MAPS entry (+ reminder comment to extend
+`ConcreteMapId`); IMPORT round-trips it. Draft auto-saves
+(`lastMeridian_mapDraft`, stored AS the exported MapConfig shape). TEST
+FLIGHT solo-launches the draft via the NEW shared `applyMapConfig`
+(refactored applier body of `applyMap` in `shared/src/Maps.ts`; no
+override hooks — the draft plays as designed); a `lastMeridian_testFlight`
+sessionStorage flag makes Enter-restarts replay the draft, any normal solo
+launch clears it. Fractional-vs-world unit split (nebula/storm zones vs
+regions/hazards) is hidden — editor is world-units throughout, converts on
+export/import. Anchors: `client/src/game/MapEditor.ts` (the whole tool +
+`loadDraftMap`); `client/src/main.ts` (state `mapEditor`, `testFlightMap` +
+`TEST_FLIGHT_FLAG` in `startGame`/the restart path); `LoadoutMenu.ts`
+(`LoadoutActions.openMapEditor` + footer button); `#map-editor` root in
+`client/index.html`; `.med-*` styles in `client/src/style.css`; docs
+CLAUDE.md (file map + out-of-scope menu exception now TWO) +
+SUBSYSTEMS.md "Map editor". Typecheck + 22/22 green. NOT yet
+owner-verified in the browser.
+
 **Owner goal**: a friends playtest — HOSTING IS LIVE (provisioned
 2026-07-06, CI-path verified same day). Topology in `docs/DEPLOY.md`
 ("Provisioned state" section has every detail): ONE DigitalOcean droplet
@@ -272,6 +299,15 @@ playtest results: what broke, what felt off, overlay numbers if netcode>
    online not individually exercised (low risk — same zone/replication
    path as nebulas, stormZap event predates this work). Remember: both
    halves must be deployed together (v22).
+0c. **Owner check of the map editor** (built 2026-07-08, see the state
+   paragraph): open it from the loadout footer, paint a board, TEST FLIGHT
+   it, COPY MAP and paste the entry into `MAPS` in `shared/src/Maps.ts`
+   (+ add the id to `ConcreteMapId`) — the committed map then shows up in
+   the arena picker in both modes. Also note: the working tree carries an
+   UNCOMMITTED Tempest storm-layout densification in `shared/src/Maps.ts`
+   (slit gates + center-lane pinchers + corner drifters — predates the
+   map-editor session, deliberately left unstaged); keep or discard after
+   the storm feel check in item 0.
 1. **The friends playtest** — everything before it is DONE and
    owner-verified working (2026-07-06): apex DNS + cert live, Pages
    unpublished (old URL 404s), unified "Deploy game" workflow proven
