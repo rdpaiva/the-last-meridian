@@ -52,6 +52,8 @@ export interface SimEventMap {
   shipLaunched: { ship: Ship };
   /** A ship rammed an asteroid and took bump damage. */
   shipRammedAsteroid: { ship: Ship };
+  /** A ship scraped a wreck hull and took bump damage. */
+  shipRammedHulk: { ship: Ship };
   /** An ion storm zapped a ship (the periodic in-cloud damage tick landed). */
   stormZap: { ship: Ship };
   /** A ship died (fires once, gated by the sim's explosionFired flag). */

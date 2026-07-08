@@ -14,7 +14,7 @@ import { MissileSystem } from "./MissileSystem";
 import { AsteroidFieldSim } from "./AsteroidFieldSim";
 import type { AsteroidSim } from "./AsteroidSim";
 import { Hulk } from "./Hulk";
-import type { HulkSection } from "./HulkSection";
+import type { HulkSection, PlanarPushOut } from "./HulkSection";
 import type { MothershipSection } from "./MothershipSection";
 import type { Turret } from "./Turret";
 import type { DamageTarget, InputState } from "../types";
@@ -101,6 +101,8 @@ export class BattleSim {
     machines: [],
   };
   private readonly lastBumpMs = new Map<Ship, number>();
+  /** Per-ship wreck-scrape damage cooldown (own clock — separate knob from rocks). */
+  private readonly lastHulkBumpMs = new Map<Ship, number>();
   /** Turrets whose destruction has been announced (fire-once latch). */
   private readonly deadTurretsAnnounced = new Set<Turret>();
 
@@ -501,7 +503,7 @@ export class BattleSim {
 
     this.resolveAsteroidCollisions(nowMs);
     this.resolveMothershipCollisions();
-    this.resolveHulkCollisions();
+    this.resolveHulkCollisions(nowMs);
     this.resolveStormZaps(nowMs);
 
     // Death bookkeeping + respawns.
@@ -636,15 +638,27 @@ export class BattleSim {
     }
   }
 
-  private resolveHulkCollisions(): void {
+  private resolveHulkCollisions(nowMs: number): void {
+    const cfg = GameConfig.hulk;
+    const bumpCooldownMs = cfg.bumpCooldownSec * 1000;
     for (const c of this.combatants) {
       const ship = c.ship;
       if (!ship.isAlive) continue;
       if (c.launch && !c.launch.isComplete) continue;
+      let scraped = false;
       for (const hulk of this.hulks) {
         for (const section of hulk.sections) {
-          bumpShipOutOfHulkSection(ship, section);
+          if (bumpShipOutOfHulkSection(ship, section)) scraped = true;
         }
+      }
+      if (!scraped) continue;
+      // Scrape damage, cooldowned so a ship sliding along (or being rolled
+      // over by) the wreck is ground down, not shredded per frame.
+      const last = this.lastHulkBumpMs.get(ship) ?? -Infinity;
+      if (nowMs - last >= bumpCooldownMs) {
+        this.lastHulkBumpMs.set(ship, nowMs);
+        ship.takeDamage(cfg.collisionDamage, nowMs);
+        this.events.emit("shipRammedHulk", { ship });
       }
     }
   }
@@ -821,30 +835,36 @@ export function bumpShipOutOfSection(ship: Ship, s: MothershipSection): void {
   }
 }
 
+/** Scratch for the hulk bump's planar push-out (no per-frame allocation). */
+const hulkPush: PlanarPushOut = { nx: 0, nz: 0, dist: 0 };
+
 /**
  * Push a ship out of a wreck hull section (ORIENTED box, unlike the carrier's
  * axis-aligned sections): broad phase against the box's bounding circle, then
- * eject to the oriented hull surface along the contact direction — so the
- * keep-out hugs the rectangle and thins as the wreck rolls edge-on
- * (surfaceRadiusToward). Exported for the networked client's prediction, the
- * same reason as bumpShipOutOfSection.
+ * nearest-face planar ejection in the hull's local frame
+ * (HulkSection.computePushOutXZ), cancelling the velocity component into that
+ * face. NOT the asteroid-style radial-from-centre push — these boxes are far
+ * longer than wide, so a centre-ray eject near the bow/stern points almost
+ * along the hull and flings a grazing ship sideways at several times its own
+ * speed. Returns true when a bump happened — GEOMETRY ONLY, the scrape
+ * damage/cooldown stay in resolveHulkCollisions (like the asteroid split).
+ * Exported for the networked client's prediction, the same reason as
+ * bumpShipOutOfSection.
  */
-export function bumpShipOutOfHulkSection(ship: Ship, section: HulkSection): void {
+export function bumpShipOutOfHulkSection(ship: Ship, section: HulkSection): boolean {
   const dx = ship.position.x - section.position.x;
   const dz = ship.position.z - section.position.z;
-  const distSq = dx * dx + dz * dz;
   const bound = ship.hitRadius + section.hitRadius;
-  if (distSq >= bound * bound || distSq === 0) return;
-  const dist = Math.sqrt(distSq);
-  const nx = dx / dist;
-  const nz = dz / dist;
-  const r = ship.hitRadius + section.surfaceRadiusToward(dx, dz);
-  if (dist >= r) return;
-  ship.position.x = section.position.x + nx * r;
-  ship.position.z = section.position.z + nz * r;
-  const vn = ship.velocity.x * nx + ship.velocity.z * nz;
-  if (vn < 0) {
-    ship.velocity.x -= vn * nx;
-    ship.velocity.z -= vn * nz;
+  if (dx * dx + dz * dz >= bound * bound) return false;
+  if (!section.computePushOutXZ(ship.position.x, ship.position.z, ship.hitRadius, hulkPush)) {
+    return false;
   }
+  ship.position.x += hulkPush.nx * hulkPush.dist;
+  ship.position.z += hulkPush.nz * hulkPush.dist;
+  const vn = ship.velocity.x * hulkPush.nx + ship.velocity.z * hulkPush.nz;
+  if (vn < 0) {
+    ship.velocity.x -= vn * hulkPush.nx;
+    ship.velocity.z -= vn * hulkPush.nz;
+  }
+  return true;
 }

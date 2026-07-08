@@ -1621,6 +1621,15 @@ export class NetworkGame {
         }
         return;
       }
+      case "shipRammedHulk": {
+        // Wreck scrape: same ram-weight cue, local pilot only (offline parity).
+        if (e.ship === this.myKey) {
+          this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
+          const pose = this.poseOf(e.ship);
+          if (pose) this.sound.playHit(pose.position);
+        }
+        return;
+      }
       case "stormZap": {
         // Lightning + spark at the victim, but ONLY if we hold a pose for it
         // — a storm conceals, so a sensor-hidden victim never replicated here

@@ -51,6 +51,9 @@ import { MothershipSection } from "@space-duel/shared";
 import { Turret } from "@space-duel/shared";
 import { MothershipView } from "./view/MothershipView";
 import { Hulk } from "@space-duel/shared";
+// The shared wreck keep-out resolver — the SAME function the server's
+// BattleSim and the networked client's prediction run, so solo bumps match.
+import { bumpShipOutOfHulkSection } from "@space-duel/shared";
 import { HulkView } from "./view/HulkView";
 import { LaunchSequence } from "@space-duel/shared";
 import { opposing, FACTION_THEME, type Faction } from "@space-duel/shared";
@@ -297,6 +300,8 @@ export class Game {
    * instead of every frame.
    */
   private readonly lastBumpMs = new Map<Ship, number>();
+  /** Per-ship wreck-scrape damage cooldown (own clock — separate knob from rocks). */
+  private readonly lastHulkBumpMs = new Map<Ship, number>();
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -1014,6 +1019,14 @@ export class Game {
       }
     });
 
+    // Wreck scrape: same ram-weight cue as the asteroid bump.
+    this.events.on("shipRammedHulk", ({ ship }) => {
+      if (ship === this.playerShip) {
+        this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
+        this.sound.playHit(ship.position);
+      }
+    });
+
     // Storm zap: lightning cracks from the cloud onto the victim (any ship —
     // it ties the HP tick to a visible cause) + an impact spark; the player
     // additionally gets the ram-weight cue (trauma + hit SFX).
@@ -1478,40 +1491,32 @@ export class Game {
   }
 
   /**
-   * Keep ships out of every wreck: bump a ship overlapping any hulk cover
-   * circle out to the circle's surface and cancel the inward velocity — like
-   * the carrier keep-out, but circular (so it stays valid as the wreck spins)
-   * and damage-free (brushing a derelict shouldn't shred a fighter). Ships
+   * Keep ships out of every wreck: nearest-face bump off each oriented hull
+   * box via the shared bumpShipOutOfHulkSection (one resolver for solo,
+   * server, and prediction), plus scrape damage on a per-ship cooldown
+   * (hulk.collisionDamage — gentler than the asteroid ram; hugging the wreck
+   * for cover stays viable, loitering against it grinds you down). Ships
    * mid-launch are exempt, same as the carrier/asteroid passes.
    */
-  private resolveHulkCollisions(): void {
+  private resolveHulkCollisions(nowMs: number): void {
+    const cfg = GameConfig.hulk;
+    const bumpCooldownMs = cfg.bumpCooldownSec * 1000;
     for (const c of this.combatants) {
       const ship = c.ship;
       if (!ship.isAlive) continue;
       if (c.launch && !c.launch.isComplete) continue;
+      let scraped = false;
       for (const hulk of this.hulks) {
         for (const section of hulk.sections) {
-          const dx = ship.position.x - section.position.x;
-          const dz = ship.position.z - section.position.z;
-          const distSq = dx * dx + dz * dz;
-          // Broad phase against the box's bounding circle, then push out to the
-          // ORIENTED hull surface along the contact direction — so the keep-out
-          // hugs the rectangle and thins as the wreck rolls (surfaceRadiusToward).
-          const bound = ship.hitRadius + section.hitRadius;
-          if (distSq >= bound * bound || distSq === 0) continue;
-          const dist = Math.sqrt(distSq);
-          const nx = dx / dist;
-          const nz = dz / dist;
-          const r = ship.hitRadius + section.surfaceRadiusToward(dx, dz);
-          if (dist >= r) continue;
-          ship.position.x = section.position.x + nx * r;
-          ship.position.z = section.position.z + nz * r;
-          const vn = ship.velocity.x * nx + ship.velocity.z * nz;
-          if (vn < 0) {
-            ship.velocity.x -= vn * nx;
-            ship.velocity.z -= vn * nz;
-          }
+          if (bumpShipOutOfHulkSection(ship, section)) scraped = true;
         }
+      }
+      if (!scraped) continue;
+      const last = this.lastHulkBumpMs.get(ship) ?? -Infinity;
+      if (nowMs - last >= bumpCooldownMs) {
+        this.lastHulkBumpMs.set(ship, nowMs);
+        ship.takeDamage(cfg.collisionDamage, nowMs);
+        this.events.emit("shipRammedHulk", { ship });
       }
     }
   }
@@ -1840,8 +1845,8 @@ export class Game {
     this.resolveAsteroidCollisions(nowMs);
     // The carriers are solid: bump out anyone overlapping a hull section.
     this.resolveMothershipCollisions();
-    // Wrecks are solid too (circular keep-out, no damage).
-    this.resolveHulkCollisions();
+    // Wrecks are solid too: oriented keep-out bump + cooldowned scrape damage.
+    this.resolveHulkCollisions(nowMs);
     // Ion storms zap anyone loitering inside (per-ship cadence in StormSystem).
     this.resolveStormZaps(nowMs);
 

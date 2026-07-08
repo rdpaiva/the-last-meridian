@@ -311,7 +311,8 @@ read. The integration points already exist:
      sets that thickness), matching the visible silhouette. The sections feed
      three consumers: the combined `weaponObstacles` list (LOS cover via the
      existing `surfaceRadiusToward` obstacle path — no weapon-system changes),
-     the oriented keep-out bump (`resolveHulkCollisions`, damage-free), and AI
+     the oriented keep-out bump (`resolveHulkCollisions` — nearest-face eject +
+     cooldowned scrape damage, `hulk.collisionDamage`/`bumpCooldownSec`), and AI
      avoidance (coarse bounding circle per box). View = the wreck GLB under a
      yaw/pitch/roll root (`view/HulkView.ts`). Mirrored in the headless harness
      (inert under stock = baseline byte-identical, verified).

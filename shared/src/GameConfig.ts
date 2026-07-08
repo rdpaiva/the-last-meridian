@@ -616,6 +616,16 @@ export const GameConfig = {
      */
     hullHalfHeight: 35,
     /**
+     * Hull damage a ship takes when it scrapes the wreck (gated by
+     * bumpCooldownSec, the asteroid ram pattern). Deliberately gentler than
+     * asteroids.collisionDamage: the wreck is THE cover piece on its maps, so
+     * hugging it must stay viable — a graze stings, repeated contact (or
+     * loitering where the rolling hull closes on you) grinds you down.
+     */
+    collisionDamage: 10,
+    /** Minimum seconds between scrape-damage applications to one ship. */
+    bumpCooldownSec: 0.5,
+    /**
      * DEBUG: draw the wreck's collision boxes (sim/HulkSection) as bright-green
      * wireframes so you can see the colliders and how they roll with the hull.
      * Off for normal play. Toggle live in the console with

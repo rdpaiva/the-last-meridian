@@ -532,6 +532,9 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     ev.on("shipRammedAsteroid", ({ ship }) =>
       this.pendingEvents.push({ k: "shipRammedAsteroid", ship: id(ship) }),
     );
+    ev.on("shipRammedHulk", ({ ship }) =>
+      this.pendingEvents.push({ k: "shipRammedHulk", ship: id(ship) }),
+    );
     ev.on("stormZap", ({ ship }) =>
       this.pendingEvents.push({ k: "stormZap", ship: id(ship) }),
     );
