@@ -250,8 +250,10 @@ circles (click stamps + hold-drags, scroll resizes, right-click/Delete
 erases), the two carriers drag along the lane (x=0). Side panel: name/blurb
 (id auto-derives camelCase), carrier Z, asteroid scalars, selected-object
 fields (wreck: heading/scale/spin rates/source faction). COPY MAP emits a
-paste-ready quoted-key MAPS entry (+ reminder comment to extend
-`ConcreteMapId`); IMPORT round-trips it. Draft auto-saves
+paste-ready MAPS entry as catalog-style TS source (bare keys; owner
+rejected the earlier quoted-key JSON as ugly to paste — `tsSource`/
+`quoteBareKeys` in MapEditor.ts are the emit/import pair, + reminder
+comment to extend `ConcreteMapId`); IMPORT round-trips it. Draft auto-saves
 (`lastMeridian_mapDraft`, stored AS the exported MapConfig shape). TEST
 FLIGHT solo-launches the draft via the NEW shared `applyMapConfig`
 (refactored applier body of `applyMap` in `shared/src/Maps.ts`; no

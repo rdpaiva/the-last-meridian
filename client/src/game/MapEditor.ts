@@ -820,14 +820,16 @@ export class MapEditor {
     this.draw();
   }
 
-  /** COPY MAP: a paste-ready MAPS entry. Quoted-key JSON is valid TS inside
-   *  the Record literal, and it round-trips through IMPORT unchanged. */
+  /** COPY MAP: a paste-ready MAPS entry, formatted as TS SOURCE in the same
+   *  style as the hand-written catalog (bare keys, flat objects like zones
+   *  inline one per line) — it drops into shared/src/Maps.ts as-is. IMPORT
+   *  round-trips it by re-quoting the bare keys (quoteBareKeys). */
   private async copySnippet(): Promise<void> {
     const id = this.mapId();
     const snippet =
       `// Map editor export — paste this entry into MAPS in shared/src/Maps.ts\n` +
       `// and add "${id}" to the ConcreteMapId union at the top of that file.\n` +
-      `"${id}": ${JSON.stringify({ id, ...this.buildMap() }, null, 2)},`;
+      `${id}: ${tsSource({ id, ...this.buildMap() }, "")},`;
     try {
       await navigator.clipboard.writeText(snippet);
       this.status(`Copied "${id}" — paste into MAPS in shared/src/Maps.ts`);
@@ -837,7 +839,9 @@ export class MapEditor {
     }
   }
 
-  /** IMPORT: accepts a COPY MAP snippet or a bare MapConfig JSON object. */
+  /** IMPORT: accepts a COPY MAP snippet (TS-style, bare keys) or a MapConfig
+   *  JSON object. Catalog entries with computed values (`Math.PI / 2`) won't
+   *  parse — use LOAD PRESET for those. */
   private applyIo(): void {
     let text = this.byId<HTMLTextAreaElement>("med-io-text").value;
     text = text
@@ -846,9 +850,9 @@ export class MapEditor {
       .join("\n")
       .trim()
       .replace(/,\s*$/, "")
-      .replace(/^"?[\w$]+"?\s*:\s*(?=\{)/, ""); // strip the `"id":` entry label
+      .replace(/^"?[\w$]+"?\s*:\s*(?=\{)/, ""); // strip the `id:` entry label
     try {
-      const parsed = JSON.parse(text) as Partial<DraftMap>;
+      const parsed = JSON.parse(quoteBareKeys(text)) as Partial<DraftMap>;
       if (!parsed || typeof parsed !== "object" || !parsed.carrierZ) {
         this.status("Not a map entry — paste a COPY MAP export");
         return;
@@ -941,4 +945,69 @@ function clamp(v: number, min: number, max: number): number {
 
 function round3(v: number): number {
   return Math.round(v * 1000) / 1000;
+}
+
+/**
+ * Serialize a value as TS source in the MAPS catalog's hand-written style:
+ * bare identifier keys, flat objects (zones, carrierZ, hazard specs) inline
+ * on one line, nested structures indented. Strings/numbers via
+ * JSON.stringify, so the output is also JSON apart from the bare keys.
+ */
+function tsSource(v: unknown, indent: string): string {
+  const pad = indent + "  ";
+  if (Array.isArray(v)) {
+    if (v.length === 0) return "[]";
+    return `[\n${v.map((e) => `${pad}${tsSource(e, pad)},`).join("\n")}\n${indent}]`;
+  }
+  if (v !== null && typeof v === "object") {
+    const entries = Object.entries(v as Record<string, unknown>).filter(
+      ([, x]) => x !== undefined,
+    );
+    if (entries.length === 0) return "{}";
+    const flat = entries.every(([, x]) => x === null || typeof x !== "object");
+    if (flat) {
+      return `{ ${entries.map(([k, x]) => `${k}: ${tsSource(x, pad)}`).join(", ")} }`;
+    }
+    return `{\n${entries.map(([k, x]) => `${pad}${k}: ${tsSource(x, pad)},`).join("\n")}\n${indent}}`;
+  }
+  return JSON.stringify(v);
+}
+
+/**
+ * Turn a TS-style object literal back into strict JSON: quote the bare
+ * identifier keys and drop trailing commas (tsSource's two JSON deviations).
+ * A tiny scanner, not a regex pass, so colons/commas INSIDE string values
+ * (a blurb like "Danger: keep out") never get mangled.
+ */
+function quoteBareKeys(src: string): string {
+  let out = "";
+  let quote: '"' | "'" | null = null;
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (quote) {
+      out += ch;
+      if (ch === "\\") out += src[++i] ?? "";
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      out += ch;
+      continue;
+    }
+    if (ch === ",") {
+      const next = /^\s*([\]}])?/.exec(src.slice(i + 1));
+      if (next?.[1]) continue; // trailing comma before ] or } — drop it
+      out += ch;
+      continue;
+    }
+    const key = /^[A-Za-z_$][\w$]*(?=\s*:)/.exec(src.slice(i));
+    if (key) {
+      out += `"${key[0]}"`;
+      i += key[0].length - 1;
+      continue;
+    }
+    out += ch;
+  }
+  return out;
 }

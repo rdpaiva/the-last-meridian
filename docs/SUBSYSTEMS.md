@@ -834,11 +834,14 @@ tradeoff). Zones default empty; maps place them via `MapConfig.stormZones`
   scale), right-click or Delete erases. The two carriers are permanent
   singletons dragged along the lane (x = 0; `carrierZ` is Z-only by design).
 - OUTPUT IS CODE, not runtime content: COPY MAP emits a paste-ready MAPS
-  entry (quoted-key JSON — valid TS inside the Record literal) for
-  `shared/src/Maps.ts`, plus a comment reminding to extend the
-  `ConcreteMapId` union. Committed maps work everywhere (solo + online)
-  with zero wire/protocol changes; the editor never adds maps at runtime.
-  IMPORT round-trips a copied snippet (or bare MapConfig JSON).
+  entry for `shared/src/Maps.ts` as TS SOURCE in the catalog's hand-written
+  style (bare keys, zones inline one per line — `tsSource`), plus a comment
+  reminding to extend the `ConcreteMapId` union. Committed maps work
+  everywhere (solo + online) with zero wire/protocol changes; the editor
+  never adds maps at runtime. IMPORT round-trips a copied snippet (or bare
+  MapConfig JSON): `quoteBareKeys` re-quotes identifiers + drops trailing
+  commas via a string-aware scanner, then JSON.parse — catalog entries with
+  computed values (`Math.PI / 2`) won't import; use LOAD PRESET for those.
 - UNIT CONVERSION IS HIDDEN: the editor works in world units everywhere;
   nebula/storm zones convert to arena-half-extent FRACTIONS on export
   (asteroid regions + hazards stay world-space), and back on import/preset
