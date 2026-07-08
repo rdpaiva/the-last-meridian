@@ -596,14 +596,20 @@ export class LoadoutMenu {
             : this.rows().length > 0
               ? "←/→ SELECT · ENTER LAUNCH · ESC BACK"
               : "ENTER LAUNCH · ESC BACK"; // invite join — nothing to pick
+    // Match Settings + Map Editor are dev/admin tooling (see CLAUDE.md) —
+    // import.meta.env.DEV is compile-time in Vite, so `npm run build` strips
+    // these buttons (and their dead-code branches) from the production bundle.
+    const adminUtils = import.meta.env.DEV
+      ? `<button class="lo-util" id="loadout-settings">${settingsLabel}</button>
+         <button class="lo-util" id="loadout-mapeditor">Map Editor</button>`
+      : "";
     return `
       <div class="lo-rail lo-rail-bot">
         <div class="lo-utils">
           <button class="lo-util" id="loadout-controls">Controls</button>
           <button class="lo-util" id="loadout-manual">Field Manual</button>
           <button class="lo-util" id="loadout-replay">Replay Intro</button>
-          <button class="lo-util" id="loadout-settings">${settingsLabel}</button>
-          <button class="lo-util" id="loadout-mapeditor">Map Editor</button>
+          ${adminUtils}
         </div>
         <div class="lo-ctas">
           ${this.step > 1 ? `<button id="loadout-back" class="loadout-back">◂ BACK</button>` : ""}
