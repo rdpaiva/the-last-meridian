@@ -930,18 +930,13 @@ export class Game {
     );
 
     // Swap each carrier's procedural box turrets for the shared turret GLB
-    // (static base + rotating gun, tinted per faction). The model's `muzzle`
-    // empty gives the fire-point distance, fed back to each sim turret so bolts
-    // spawn at the barrel tip. Falls back to the procedural turrets per carrier.
+    // (static base + rotating gun, tinted per faction). Each turret's `muzzle`
+    // empty fire point is fed to its sim turret inside applyTurretModel, so
+    // bolts spawn at that barrel's tip. Falls back to the procedural turrets.
     await Promise.all(
-      (["humans", "machines"] as Faction[]).map(async (f) => {
-        const fire = await this.mothershipViews[f].applyTurretModel();
-        if (fire !== null) {
-          for (const turret of this.motherships[f].turrets) {
-            turret.setMuzzleData(fire.forward, fire.height);
-          }
-        }
-      }),
+      (["humans", "machines"] as Faction[]).map((f) =>
+        this.mothershipViews[f].applyTurretModel(),
+      ),
     );
 
     // Swap each wreck's placeholder blocks for its battle-damaged GLB (per

@@ -158,7 +158,7 @@ export class Mothership implements DamageTarget {
       return new Turret(
         carrierAlive,
         wx,
-        worldPosition.y + cfg.mountY,
+        worldPosition.y + (m.y ?? cfg.mountY),
         wz,
         restAngle,
         arcHalf,
@@ -276,6 +276,37 @@ export class Mothership implements DamageTarget {
     if (bays && bays.length > 0) this.modelLaunchBays = bays;
     if (exitDistance !== null && Number.isFinite(exitDistance)) {
       this.modelExitDistance = exitDistance;
+    }
+  }
+
+  /**
+   * Re-seats the turrets on the mount points the view read off the loaded
+   * carrier GLB's `turret.*` empties (carrier-LOCAL x/y/z — the launch-bay
+   * pattern, but with Y kept: the empty's height drives where bolts spawn and
+   * therefore how steeply turret fire slopes down onto the Y=0 fighter plane;
+   * an empty AT deck level ⇒ velocityY ≈ 0 ⇒ flat bolts). Repositions the
+   * EXISTING Turret objects in place (they're already registered by reference
+   * as DamageTargets on the opposing weapons), so this must not rebuild the
+   * array. Extra empties beyond the config mount count are ignored — the
+   * turret COUNT is a balance knob that must match headless (the server has
+   * no GLB); re-fit GameConfig.mothership.turrets.mounts from
+   * `node scripts/measure-carrier-footprint.mjs` after re-exporting a model.
+   * Per-mount restAngle/arcHalf keep their config values (uniform today).
+   */
+  setModelTurretMounts(
+    mounts: ReadonlyArray<{ x: number; y: number; z: number }> | null,
+  ): void {
+    if (!mounts || mounts.length === 0) return;
+    const sin = Math.sin(this.rotationY);
+    const cos = Math.cos(this.rotationY);
+    const n = Math.min(mounts.length, this.turrets.length);
+    for (let i = 0; i < n; i++) {
+      const m = mounts[i];
+      this.turrets[i].setMountPosition(
+        this.position.x + cos * m.x + sin * m.z,
+        this.position.y + m.y,
+        this.position.z - sin * m.x + cos * m.z,
+      );
     }
   }
 
