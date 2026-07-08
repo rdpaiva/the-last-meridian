@@ -99,6 +99,7 @@ Game (top-level coordinator)
 ├── Lights (HemisphericLight + DirectionalLight)
 ├── Scenery (Backdrop, Nebulas, Starfield, CapitalShips — fire-and-forget)
 ├── CombatNebulas (gameplay stealth clouds; exports ConcealmentZone footprints)
+├── StormClouds + LightningSystem (view) / StormSystem (sim) — ion storms: zap ships inside, conceal like nebulas, AI keep-out
 ├── SensorSystem (per-faction contact pictures — AI + radar read THESE, not ground truth)
 ├── FleetCommander (enemy-side doctrine: re-tasks the fleet on its own sensor picture)
 ├── Arena (wireframe grid + arena bounds)
@@ -199,6 +200,8 @@ shared/src/                @space-duel/shared — the SIM + config + AI: everyth
     Hulk.ts                wreck hazard: a dead carrier's hull as terrain (map "hulk" hazards)
     HulkSection.ts         the wreck's world-space collision rectangles (HulkSection ≈ MothershipSection for hulks)
     CombatNebulaZones.ts   the gameplay stealth-cloud ZONE footprints (ConcealmentZone) — feeds SensorSystem; visuals live client-side
+    StormZones.ts          ion-storm ZONE footprints (GameConfig.storms.zones → world circles; same contract as CombatNebulaZones)
+    StormSystem.ts         ion-storm damage sim: per-ship zap cadence (tryZap; ram-cooldown pattern) + concealment zones + AI keep-out obstacles; zones empty unless the map places storms
     SimEvents.ts           sim→view event channel: typed SimEventBus (synchronous on/emit) — sim sites EMIT facts (laserHit/missileHit/shipDied/…), the client subscribes FX; headless/server runs don't
     SimRng.ts              seeded deterministic sim RNG — never Math.random() inside the sim
 
@@ -228,6 +231,9 @@ client/src/                @space-duel/client — the Babylon view, menus, and e
     ConfigOverrides.ts     sparse {dot-path: value} override map (lastMeridian_tuning) written into the live GameConfig at startup; schema-clamped; JSON export/import
     SettingsMenu.ts        splash match-settings screen (data-state="settings"): slider+number per knob, collapsible groups, per-row/global reset, COPY/PASTE SETUP share blob
     CombatNebulas.ts       the stealth clouds' VISUALS above the fighter plane (zones come from shared CombatNebulaZones)
+    StormClouds.ts         ion-storm cloud VISUALS: CombatNebulas recipe, one blue-cyan tint + interior lightning flicker (pop() spikes on bolts)
+    LightningBolt.ts       one live bolt: flash-then-fade lifecycle over a jagged emissive ribbon (JumpFlash pattern)
+    LightningSystem.ts     spawns bolts: ambient per-zone cadence + strikeShip() off the stormZap SimEvent; builds the jagged ribbon geometry
     FighterMesh.ts         faction-themed procedural fighter mesh + randomFighterSpawn helper
     MissileWarning.ts      player RWR: polls enemy missiles homing on the player; beep w/ proximity tempo ramp + HUD border pulse + radar threat list
     CameraRig.ts           top-down camera, velocity lead, trauma-based shake
@@ -287,6 +293,8 @@ The whole game's tuning lives in `shared/src/GameConfig.ts`. Major sections:
 | `ai` | Shared AI decision knobs: engage/fire ranges, fire cone, carrier-strike standoff, missile launch doctrine (envelope/pacing), wander, leash, formation gains |
 | `mothership` | Carrier objective: HP, GLB models + correction, launch bays, death FX — and `hullRects`, the PER-FACTION solid hull footprint (fitted to the GLBs via `scripts/measure-carrier-footprint.mjs`; re-fit after re-exporting a carrier model). `mothership.turrets` = defense-gun knobs + per-faction edge mounts + per-faction skinned GLB |
 | `debug` | Dev/test only: `godSpeedMultiplier` for the Backquote god-mode toggle (player invuln + boost) |
+| `storms` | Ion storms (sim): map-placed `zones` (empty by default), `zapDamage`/`zapIntervalSec` cadence, AI `avoidanceMargin`. Storms also conceal like nebulas |
+| `stormFx` | Ion storm VIEW: cloud tint/flicker (`shimmerAmplitude`, `popBoost`) + procedural `bolt` knobs (cadence, width, jaggedness, color) |
 | `player.wingmen` | The wing as ROLE COUNTS (`composition: { self, other, gunship }`, default 2/2/2), resolved against the runtime loadout by the shared `resolveWingPlan` (WingPlan.ts): `self`/`other` escorts fly `cover` on your wing, `gunship`s fly `defend` at your carrier. Also `formationSlot()`, the expanding-V slot generator. These counts are the "Your Wing" rows in match settings |
 | `laser` | Bolt speed/lifetime/geometry (shared across both factions; per-bolt damage comes from the firing ship's type). Bolt COLOR is per faction (`FACTION_THEME.laserEmissive`) with a heavy-gunship tint (`laserHeavyEmissive`, selected by the shipType's `heavy` flag → `Laser.heavy` → `LaserSystemView`) and a shared orange turret-flak tint |
 | `missile` | Homing secondary: speed, turnRate, damage range, lock range/cone, mesh + trail dims (rack size is per ship type) |

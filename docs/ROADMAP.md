@@ -280,6 +280,29 @@ and explicitly skipped. Update this when you finish or start work.
   path to keep one between themselves and a shooter. The MVP plays well
   without it.
 
+### Ion storms (damage terrain, 2026-07-08)
+- **Storm zones** (`shared/sim/StormSystem.ts` + `StormZones.ts`,
+  `GameConfig.storms`) — electric clouds that ZAP any ship loitering inside
+  (`zapDamage` every `zapIntervalSec`, first zap on entry; the asteroid
+  ram-cooldown pattern) while ALSO concealing it like a nebula — hide in the
+  storm, pay in HP. Storm kills award no kill credit (no weapon attribution).
+- **AI keep-out** — each zone feeds an `AvoidObstacle` (radius +
+  `avoidanceMargin`) into the shared steering list, so both fleets route
+  around storm banks: maps can use them as soft walls that carve navigation
+  lanes (better than hard walls — a desperate pilot can still cut through
+  and pay in hull; the jump drive crosses them free).
+- **Visuals** (`StormClouds.ts` + `LightningSystem.ts`/`LightningBolt.ts`,
+  `GameConfig.stormFx`) — the CombatNebulas quad recipe in one uniform
+  blue-cyan tint (cyan hurts, violet hides), interior lightning flicker
+  (two-sine shimmer + pops), ambient jagged ribbon bolts per zone, and a
+  strike bolt onto every zapped ship (wired off the new `stormZap` SimEvent).
+  Radar draws the zones as crisp cyan discs.
+- **The Tempest** (`Maps.ts` `theTempest`, `MapConfig.stormZones`) — a
+  midline storm wall with a center lane (holding a stealth nebula), knife-edge
+  slits, and picket-pinched flanks. Storm zap damage/cadence are match-settings
+  knobs (`TuningSchema` → Arena & Asteroids). The stock config has zero storm
+  zones, so the headless baseline is untouched.
+
 ### Combat
 - Two `LaserSystem` instances per faction (player → enemy, enemy → player)
 - Per-bolt X/Z sphere collision against a single target

@@ -43,3 +43,5 @@ export * from "./sim/Turret";
 export * from "./sim/SimEvents";
 export * from "./sim/SimRng";
 export * from "./sim/CombatNebulaZones";
+export * from "./sim/StormZones";
+export * from "./sim/StormSystem";

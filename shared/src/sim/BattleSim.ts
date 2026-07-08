@@ -20,6 +20,7 @@ import type { DamageTarget, InputState } from "../types";
 import { SimEventBus } from "./SimEvents";
 import { LaunchSequence } from "../LaunchSequence";
 import { computeConcealmentZones } from "./CombatNebulaZones";
+import { StormSystem } from "./StormSystem";
 import { seedSimRng } from "./SimRng";
 
 /**
@@ -81,6 +82,7 @@ export class BattleSim {
   readonly factionLasers: Record<Faction, LaserSystem>;
   readonly factionMissiles: Record<Faction, MissileSystem>;
   readonly sensors: SensorSystem;
+  readonly storms: StormSystem;
   readonly worldByFaction: Record<Faction, ControllerWorld>;
 
   readonly combatants: SimCombatant[] = [];
@@ -195,12 +197,22 @@ export class BattleSim {
       }),
     };
 
-    // --- Sensors + nebula concealment (shared scene-free footprint math) ---
-    this.sensors = new SensorSystem(this.motherships);
-    this.sensors.concealmentZones = computeConcealmentZones(
+    // --- Ion storms (map-placed; zero zones under stock config = no-op) ---
+    this.storms = new StormSystem(
       GameConfig.arena.halfWidth,
       GameConfig.arena.halfDepth,
     );
+
+    // --- Sensors + concealment (shared scene-free footprint math). Storm
+    // zones conceal exactly like nebulas — hide in the storm, pay in HP. ---
+    this.sensors = new SensorSystem(this.motherships);
+    this.sensors.concealmentZones = [
+      ...computeConcealmentZones(
+        GameConfig.arena.halfWidth,
+        GameConfig.arena.halfDepth,
+      ),
+      ...this.storms.zones,
+    ];
 
     // --- Controller worlds (sensor-picture views) ---
     this.worldByFaction = {
@@ -489,6 +501,7 @@ export class BattleSim {
     this.resolveAsteroidCollisions(nowMs);
     this.resolveMothershipCollisions();
     this.resolveHulkCollisions();
+    this.resolveStormZaps(nowMs);
 
     // Death bookkeeping + respawns.
     for (const c of this.combatants) {
@@ -562,6 +575,8 @@ export class BattleSim {
     for (const hulk of this.hulks) {
       for (const section of hulk.sections) this.aiObstacles.push(section);
     }
+    // Storm keep-outs: pilots route around the banks instead of eating zaps.
+    for (const o of this.storms.obstacles) this.aiObstacles.push(o);
   }
 
   private refreshWeaponObstacles(): void {
@@ -590,6 +605,19 @@ export class BattleSim {
           this.events.emit("shipRammedAsteroid", { ship });
         }
         break; // one bump per ship per frame
+      }
+    }
+  }
+
+  /** Zap every ship loitering in a storm (per-ship cadence in StormSystem).
+   *  Mid-launch ships are exempt like the asteroid rams — the catapult owns
+   *  them until they clear the bow. */
+  private resolveStormZaps(nowMs: number): void {
+    if (!this.storms.hasZones) return;
+    for (const c of this.combatants) {
+      if (c.launch && !c.launch.isComplete) continue;
+      if (this.storms.tryZap(c.ship, nowMs)) {
+        this.events.emit("stormZap", { ship: c.ship });
       }
     }
   }

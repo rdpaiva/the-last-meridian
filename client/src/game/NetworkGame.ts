@@ -35,6 +35,8 @@ import {
 import { Arena } from "./Arena";
 import { Backdrop } from "./Backdrop";
 import { CombatNebulas } from "./CombatNebulas";
+import { StormClouds } from "./StormClouds";
+import { LightningSystem } from "./LightningSystem";
 import { Radar } from "./Radar";
 import { MissileWarning } from "./MissileWarning";
 import { BEST_SCORE_KEY, RESTART_FLAG } from "./Game";
@@ -254,6 +256,9 @@ export class NetworkGame {
   private readonly sensors: SensorSystem;
   /** Gameplay stealth clouds — visuals + the concealment zone truth. */
   private readonly combatNebulas: CombatNebulas;
+  /** Ion-storm cloud visuals + ambient lightning (damage is server-side). */
+  private readonly stormClouds: StormClouds;
+  private readonly lightning: LightningSystem;
   private readonly radar: Radar;
   private readonly missileWarning: MissileWarning;
   /** Per-ship shadow stubs, keyed like `snaps`; rosters share the same refs. */
@@ -588,8 +593,20 @@ export class NetworkGame {
       this.arena.halfWidth,
       this.arena.halfDepth,
     );
+    // Ion storms (visual + ambient lightning; the DAMAGE runs server-side in
+    // BattleSim). Zones are the same pure config math, so the client picture
+    // matches the server truth. No-op until a server-side map places storms.
+    this.stormClouds = new StormClouds(
+      this.scene,
+      this.arena.halfWidth,
+      this.arena.halfDepth,
+    );
+    this.lightning = new LightningSystem(this.scene, this.glowLayer, this.stormClouds);
     this.sensors = new SensorSystem(this.carrierSims);
-    this.sensors.concealmentZones = this.combatNebulas.zones;
+    this.sensors.concealmentZones = [
+      ...this.combatNebulas.zones,
+      ...this.stormClouds.zones,
+    ];
     this.radar = new Radar(this.viewFlipped);
     this.missileWarning = new MissileWarning(this.sound, this.hud);
     try {
@@ -1143,6 +1160,8 @@ export class NetworkGame {
     }
     this.explosions.update(dt, dtMs);
     this.jumpFlashes.update(dtMs);
+    this.stormClouds.update(dt);
+    this.lightning.update(dt, dtMs);
     this.jumpRipple.update(dtMs);
     // Engine hum tracks our glow's smoothed intensity (offline parity),
     // falling back to raw thrust before the visuals exist.
@@ -1261,6 +1280,7 @@ export class NetworkGame {
         this.carrierSims,
         this.rockObstacles,
         this.combatNebulas.zones,
+        this.stormClouds.zones,
         nowMs,
         this.humanPiloted,
       );
@@ -1534,6 +1554,22 @@ export class NetworkGame {
         if (e.ship === this.myKey) {
           this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
           const pose = this.poseOf(e.ship);
+          if (pose) this.sound.playHit(pose.position);
+        }
+        return;
+      }
+      case "stormZap": {
+        // Lightning + spark at the victim, but ONLY if we hold a pose for it
+        // — a storm conceals, so a sensor-hidden victim never replicated here
+        // and depicting its strike would leak the stealth picture.
+        const pose = this.poseOf(e.ship);
+        if (pose) {
+          this.lightning.strike(pose.position);
+          this.explosions.spawnSpark(pose.position);
+        }
+        // Offline parity: the heavy cue is for the local pilot only.
+        if (e.ship === this.myKey) {
+          this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
           if (pose) this.sound.playHit(pose.position);
         }
         return;

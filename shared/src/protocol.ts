@@ -9,7 +9,7 @@ import type { InputState } from "./types";
  * message protocol or to GameConfig (balance lives in shared, so a tweak is a
  * both-sides deploy) — see docs/MULTIPLAYER.md → Decisions (protocol version).
  */
-export const PROTOCOL_VERSION = 20;
+export const PROTOCOL_VERSION = 21;
 
 /** Room name registered on the server + asked for by the client. */
 export const BATTLE_ROOM = "battle";
@@ -82,7 +82,11 @@ export type NetEvent =
   | { k: "jumpCancelled"; ship: string }
   | { k: "jumpFired"; ship: string; fromX: number; fromZ: number; toX: number; toZ: number }
   | { k: "asteroidShattered"; x: number; y: number; z: number; r: number }
-  | { k: "shipRammedAsteroid"; ship: string };
+  | { k: "shipRammedAsteroid"; ship: string }
+  /** Ship id ONLY — no position, on purpose: storms conceal, so the victim
+   *  may be sensor-hidden from this client; the client depicts the strike
+   *  only when it holds a pose for the ship (no stealth leak). */
+  | { k: "stormZap"; ship: string };
 
 /** Server → client: all FX events from one sim tick, stamped with its sim time. */
 export interface EventsMessage {

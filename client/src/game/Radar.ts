@@ -89,6 +89,7 @@ export class Radar {
     motherships: Record<Faction, Mothership>,
     asteroids: AsteroidSim[],
     nebulaZones: ReadonlyArray<ConcealmentZone>,
+    stormZones: ReadonlyArray<ConcealmentZone>,
     nowMs: number,
     /**
      * Ships flown by a HUMAN pilot right now (multiplayer honesty rule:
@@ -118,6 +119,12 @@ export class Radar {
     // the player can SEE where breaking contact is possible.
     for (const zone of nebulaZones) {
       this.plotZone(zone, player);
+    }
+
+    // Ion storm zones: electric-cyan discs matching the world clouds — the
+    // "route around this or burn" read, distinct from the violet cover.
+    for (const zone of stormZones) {
+      this.plotStormZone(zone, player);
     }
 
     // Asteroids (terrain — drawn under the contacts). In-range only; clamping
@@ -306,6 +313,26 @@ export class Radar {
     ctx.fill();
     ctx.lineWidth = 1;
     ctx.strokeStyle = "rgba(160, 110, 220, 0.3)";
+    ctx.stroke();
+  }
+
+  /** Electric-cyan disc marking an ion-storm damage zone. In-range only.
+   *  Brighter stroke than the nebula discs — a hazard boundary should read
+   *  crisper than cover. */
+  private plotStormZone(zone: ConcealmentZone, player: Ship): void {
+    const { x, y, offEdge } = this.project(
+      zone.x - player.position.x,
+      zone.z - player.position.z,
+    );
+    if (offEdge) return;
+    const r = Math.max(2, zone.radius * this.scale);
+    const ctx = this.ctx;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(70, 190, 240, 0.14)";
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(110, 220, 255, 0.5)";
     ctx.stroke();
   }
 

@@ -98,6 +98,7 @@ function buildCards(): ManualCard[] {
         `The objective is the <b>enemy carrier</b>: bring its hull down before yours falls. Its flak turrets are individually destructible — strip a corner to open a safe attack lane.`,
         `<b>Asteroids</b> block shots — yours and theirs. Duck behind one to break contact, or shoot the rock itself: they shatter, which opens the lane and makes chaos of a furball.`,
         `<b>Nebulas</b> swallow radar signatures. Inside a cloud you vanish from the enemy picture unless someone flies close enough to eyeball you. Use them to reset a losing fight or line up an ambush.`,
+        `<b>Ion storms</b> — the electric blue-cyan clouds — bite: a lightning zap every ~${GameConfig.storms.zapIntervalSec}s while you fly inside. They hide you from radar exactly like a nebula, so a storm run is an escape you pay for in hull. AI pilots route around them — storm banks carve the map into lanes.`,
         `Every arena arranges these differently — the map card's schematic on the MISSION step is a true top-down preview.`,
       ],
     },

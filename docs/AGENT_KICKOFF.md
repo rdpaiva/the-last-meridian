@@ -164,6 +164,35 @@ was also rewritten this session to the REAL workspace layout
 (client/shared/server split) — it had still shown the pre-multiplayer
 `src/` tree.
 
+Built 2026-07-08 (this session): **ION STORMS** — damaging terrain, the
+electric sibling of the stealth nebulas. A ship inside a storm zone takes a
+lightning zap (`GameConfig.storms.zapDamage` every `zapIntervalSec`, first
+zap on entry) AND is concealed exactly like a nebula (hurt-to-hide); AI
+pilots steer around the banks, so storms carve maps into navigation lanes.
+Anchors — sim: `shared/src/sim/StormSystem.ts` (tryZap, ram-cooldown
+pattern) + `StormZones.ts` (footprint math), `stormZap` in
+`shared/src/sim/SimEvents.ts`, zap loops = `resolveStormZaps` in BOTH
+`BattleSim.advance` and `Game.advanceSim`; concealment = the
+`[...nebulas, ...storms]` concat where each wires
+`sensors.concealmentZones`; keep-outs pushed in each `refreshAiObstacles`.
+View: `client/src/game/StormClouds.ts` (CombatNebulas recipe, one blue-cyan
+tint + interior flicker w/ `pop()`), `LightningSystem.ts`/`LightningBolt.ts`
+(ambient in-cloud bolts + `strike()` on every zap; jagged emissive ribbons),
+`Radar.plotStormZone` (cyan discs; radar.update grew a `stormZones` param —
+both call sites updated). Config: `GameConfig.storms` (sim) + `stormFx`
+(view); 2 knobs in `TuningSchema` (Arena & Asteroids). Maps:
+`MapConfig.stormZones` + the new **"The Tempest"** preset (`Maps.ts`
+`theTempest` — midline storm wall, center lane w/ a stealth nebula, picket
+storms on the flanks). Online: `stormZap` NetEvent relayed
+(`BattleRoom` → `NetworkGame.playEvent`; ship id ONLY — the client depicts
+a strike only when it holds a pose, so sensor-hidden victims don't leak) —
+**PROTOCOL_VERSION bumped to 21**. Storm kills award no kill credit
+(no weapon attribution; the death still counts). Stock config has ZERO
+storm zones so the headless baseline is untouched (22/22 green). Docs:
+SUBSYSTEMS "Ion storms", ARENA-MAPS table, ROADMAP, CLAUDE.md file map +
+config table, Field Manual terrain card grew a storm line. NOT yet
+owner-verified in-game (pick The Tempest on the MISSION step).
+
 **Owner goal**: a friends playtest — HOSTING IS LIVE (provisioned
 2026-07-06, CI-path verified same day). Topology in `docs/DEPLOY.md`
 ("Provisioned state" section has every detail): ONE DigitalOcean droplet
@@ -184,6 +213,12 @@ playtest results: what broke, what felt off, overlay numbers if netcode>
 
 **Work order**:
 
+0. **Owner check of the ion storms** (built 2026-07-08, see the state
+   paragraph above for anchors): launch The Tempest, verify the storm
+   clouds read as danger (cyan + lightning), zap pacing feels fair
+   (`storms.zapDamage`/`zapIntervalSec` are match-settings knobs), the AI
+   actually flies the lanes, and hiding in a storm breaks lock/track.
+   Balance findings → GameConfig/`Maps.ts` `theTempest` zone tweaks.
 1. **The friends playtest** — everything before it is DONE and
    owner-verified working (2026-07-06): apex DNS + cert live, Pages
    unpublished (old URL 404s), unified "Deploy game" workflow proven

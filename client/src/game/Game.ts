@@ -35,6 +35,9 @@ import { CapitalShips } from "./CapitalShips";
 import { AsteroidFieldView } from "./view/AsteroidFieldView";
 import { Nebulas } from "./Nebulas";
 import { CombatNebulas } from "./CombatNebulas";
+import { StormClouds } from "./StormClouds";
+import { LightningSystem } from "./LightningSystem";
+import { StormSystem } from "@space-duel/shared";
 import { Backdrop } from "./Backdrop";
 import { ExplosionSystem } from "./ExplosionSystem";
 import { JumpFlashSystem } from "./JumpFlashSystem";
@@ -211,6 +214,12 @@ export class Game {
   private readonly sensors: SensorSystem;
   /** Gameplay stealth clouds; their zones feed the sensors and the radar. */
   private readonly combatNebulas: CombatNebulas;
+  /** Ion-storm cloud visuals + flicker (zones drawn on the radar). */
+  private readonly stormClouds: StormClouds;
+  /** Ion-storm damage sim (zaps, concealment zones, AI keep-outs). */
+  private readonly storms: StormSystem;
+  /** Procedural in-storm lightning (ambient + stormZap strikes). */
+  private readonly lightning: LightningSystem;
   /** Runtime re-tasking for the ENEMY fleet (built with it in start()). */
   private fleetCommander: FleetCommander | null = null;
   /** Per-faction read-only world view handed to that faction's controllers. */
@@ -397,6 +406,14 @@ export class Game {
       this.arena.halfWidth,
       this.arena.halfDepth,
     );
+    // Ion storms: cloud visuals + the damage sim (both no-ops when the active
+    // map placed no storm zones).
+    this.stormClouds = new StormClouds(
+      this.scene,
+      this.arena.halfWidth,
+      this.arena.halfDepth,
+    );
+    this.storms = new StormSystem(this.arena.halfWidth, this.arena.halfDepth);
     new CapitalShips(
       this.scene,
       this.arena.halfWidth,
@@ -537,6 +554,7 @@ export class Game {
 
     this.explosions = new ExplosionSystem(this.scene, this.glowLayer);
     this.jumpFlashes = new JumpFlashSystem(this.scene, this.glowLayer);
+    this.lightning = new LightningSystem(this.scene, this.glowLayer, this.stormClouds);
 
     // A rock shattered — the feedback (explosion + sound + trauma) is depicted
     // by the asteroidShattered listener.
@@ -573,9 +591,13 @@ export class Game {
 
     // Per-faction sensor pictures — built before the controller worlds, which
     // hold the contact arrays by reference. The combat nebulas' footprints
-    // are what the sensors treat as concealment.
+    // are what the sensors treat as concealment — and the storm zones conceal
+    // the same way (hide in the storm, pay in HP).
     this.sensors = new SensorSystem(this.motherships);
-    this.sensors.concealmentZones = this.combatNebulas.zones;
+    this.sensors.concealmentZones = [
+      ...this.combatNebulas.zones,
+      ...this.storms.zones,
+    ];
 
     // Each faction's controllers see the OTHER faction as opponents — through
     // their own faction's SENSOR PICTURE, not ground truth. The contact
@@ -979,6 +1001,18 @@ export class Game {
       }
     });
 
+    // Storm zap: lightning cracks from the cloud onto the victim (any ship —
+    // it ties the HP tick to a visible cause) + an impact spark; the player
+    // additionally gets the ram-weight cue (trauma + hit SFX).
+    this.events.on("stormZap", ({ ship }) => {
+      this.lightning.strike(ship.position);
+      this.explosions.spawnSpark(ship.position);
+      if (ship === this.playerShip) {
+        this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
+        this.sound.playHit(ship.position);
+      }
+    });
+
     // Ship death: explosion + sound + (distance-scaled for AI) trauma/hitstop.
     this.events.on("shipDied", ({ ship }) => {
       const isPlayer = ship === this.playerShip;
@@ -1347,6 +1381,18 @@ export class Game {
     }
   }
 
+  /** Zap every ship loitering in a storm. Mid-launch ships are exempt like
+   *  the asteroid rams — the catapult owns them until they clear the bow. */
+  private resolveStormZaps(nowMs: number): void {
+    if (!this.storms.hasZones) return;
+    for (const c of this.combatants) {
+      if (c.launch && !c.launch.isComplete) continue;
+      if (this.storms.tryZap(c.ship, nowMs)) {
+        this.events.emit("stormZap", { ship: c.ship });
+      }
+    }
+  }
+
   /** Refill the per-faction ship rosters that back the controller world. */
   private refreshRosters(): void {
     this.shipsByFaction.humans.length = 0;
@@ -1377,6 +1423,8 @@ export class Game {
     for (const hulk of this.hulks) {
       for (const section of hulk.sections) this.aiObstacles.push(section);
     }
+    // Storm keep-outs: pilots route around the banks instead of eating zaps.
+    for (const o of this.storms.obstacles) this.aiObstacles.push(o);
   }
 
   /**
@@ -1781,6 +1829,8 @@ export class Game {
     this.resolveMothershipCollisions();
     // Wrecks are solid too (circular keep-out, no damage).
     this.resolveHulkCollisions();
+    // Ion storms zap anyone loitering inside (per-ship cadence in StormSystem).
+    this.resolveStormZaps(nowMs);
 
     // Death FX + respawn, per combatant.
     for (const c of this.combatants) {
@@ -1895,6 +1945,11 @@ export class Game {
     if (!inHitstop) this.explosions.update(deltaSeconds, deltaMs);
     // Jump cracks ride the same hitstop gate as explosions.
     if (!inHitstop) this.jumpFlashes.update(deltaMs);
+    // Storm flicker + lightning ride it too (a freeze-frame mid-strike is fine).
+    if (!inHitstop) {
+      this.stormClouds.update(deltaSeconds);
+      this.lightning.update(deltaSeconds, deltaMs);
+    }
     // The shockwave refraction animates THROUGH hitstop (like camera shake —
     // it's a screen distortion, not a simulated object).
     this.jumpRipple.update(deltaMs);
@@ -2000,6 +2055,7 @@ export class Game {
         this.motherships,
         this.asteroids.asteroids,
         this.combatNebulas.zones,
+        this.stormClouds.zones,
         nowMs,
       );
     }

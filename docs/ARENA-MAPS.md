@@ -72,6 +72,11 @@ export interface MapConfig {
    *  Empty array = no stealth clouds. */
   nebulaZones: ReadonlyArray<{ xFrac: number; zFrac: number; radius: number }>;
 
+  /** Ion-storm footprints (GameConfig.storms.zones — same fractional shape).
+   *  Storms zap loitering ships, conceal like nebulas, and the AI steers
+   *  around them, so banks of these carve navigation lanes. Omitted = none. */
+  stormZones?: ReadonlyArray<{ xFrac: number; zFrac: number; radius: number }>;
+
   /** Per-faction fleet composition override (else GameConfig.fleets default). */
   fleets?: Partial<Record<Faction, {
     fleet: ReadonlyArray<{ type: ShipTypeId; count: number }>;
@@ -97,6 +102,7 @@ map system doesn't need reshaping when content arrives.
 | `asteroidBelt` | The Belt | ~90, smaller | 1 small | tight | stock — knife-fight, cover everywhere |
 | `nebulaVeil` | The Veil | ~25 | 4–5 large | mid | swarm-heavy (more light fighters) — ambush |
 | `theWreck` | The Wreck | ~40 | 1 | mid | stock + 1 hulk hazard (Phase 2) |
+| `theTempest` | The Tempest | ~20 | 1 (center lane) | wide | stock + 6 ion storms — a midline storm wall with lanes (2026-07-08) |
 
 `random` is a meta-id resolved to one concrete preset at launch (not stored as
 the saved map — we persist the *resolved* choice so quick-play is stable, or

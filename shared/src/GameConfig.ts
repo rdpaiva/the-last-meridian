@@ -546,6 +546,44 @@ export const GameConfig = {
   hazards: [] as ReadonlyArray<HazardSpec>,
 
   /**
+   * ION STORMS — the damaging sibling of the stealth nebulas
+   * (scenery.combatNebulas). A ship inside a storm zone takes a discrete
+   * damage ZAP every zapIntervalSec (deliberately discrete rather than a
+   * smooth drain, so each hit can crack a lightning bolt and read on the HP
+   * bar). Storm zones ALSO conceal exactly like combat nebulas — Game and
+   * BattleSim append them to the sensor concealment list — so a desperate
+   * pilot can hide in the storm, paying HP for the broken track. AI pilots
+   * steer around them (StormSystem.obstacles feeds the shared avoidance
+   * list), which is what lets maps use storm banks as soft walls that carve
+   * navigation lanes.
+   *
+   * Zones default EMPTY — maps place storms via applyMap (Maps.ts), the same
+   * contract as `hazards`, so the headless smoke baseline runs storm-free.
+   * Storm VISUALS (cloud tint, flicker, lightning bolts) live in `stormFx`.
+   */
+  storms: {
+    /**
+     * Storm footprints: position as fractions of the arena half-extents +
+     * the damage/concealment radius in world units (the same shape as
+     * scenery.combatNebulas.zones). Maps overwrite this via applyMap.
+     */
+    zones: [] as ReadonlyArray<{ xFrac: number; zFrac: number; radius: number }>,
+    /** HP lost per zap. */
+    zapDamage: 6,
+    /**
+     * Seconds between zaps for one ship loitering inside a storm. The first
+     * zap lands the moment a ship enters (instant feedback that the cloud
+     * bites); the interval paces every zap after that.
+     */
+    zapIntervalSec: 0.8,
+    /**
+     * Extra keep-out radius (world units) the AI steers by beyond the damage
+     * edge, so pilots don't skim the boundary and eat fringe zaps.
+     */
+    avoidanceMargin: 12,
+  },
+
+  /**
    * Derelict-wreck VIEW config (slice 5b). The wreck GLBs — battle-damaged,
    * burned-out versions of the carriers — keyed by `source` faction. A hulk's
    * HulkView loads `model.file[source]` under its spinning root; a null entry
@@ -1987,6 +2025,49 @@ export const GameConfig = {
       trailLength: 0.4,
       /** Subtle cool brightening right at the leading edge (0 = none). */
       highlight: 0.35,
+    },
+  },
+
+  /**
+   * Ion-storm VIEW tuning (client-only): the storm clouds' electric tint +
+   * interior lightning flicker (StormClouds) and the procedural bolt flashes
+   * (LightningSystem). Sim truth (zones, damage) lives in `storms`.
+   */
+  stormFx: {
+    /** Y level of the cloud quads: above the fighters, like combat nebulas. */
+    yLevel: 7,
+    /** Opacity cap of the cloud quad (the PNG's feathered alpha modulates). */
+    alpha: 0.55,
+    /** Visual quad edge = zone radius × this (see combatNebulas.visualScale). */
+    visualScale: 2.6,
+    /**
+     * Cloud tint (emissiveColor — the texture only carries shape, gotcha #9).
+     * Electric blue-cyan, deliberately far from the stealth nebulas'
+     * violet/magenta band so "hurts" and "hides" never read alike.
+     */
+    cloudColor: { r: 0.16, g: 0.5, b: 0.68 },
+    /** Ambient interior shimmer: emissive intensity wanders ±this fraction. */
+    shimmerAmplitude: 0.22,
+    /** Emissive intensity spike when a bolt cracks inside the cloud (added on
+     *  top of the ambient 1.0, then decays — lightning lighting the cloud). */
+    popBoost: 1.5,
+    /** Exponential decay rate (1/sec) of the pop back to ambient shimmer. */
+    popDecayRate: 6,
+    /** Procedural lightning bolts (LightningSystem). */
+    bolt: {
+      /** Seconds between ambient in-cloud bolts, rolled per zone in [min, max]. */
+      ambientIntervalMinSec: 1.2,
+      ambientIntervalMaxSec: 3.2,
+      /** Bolt lifetime (ms): full-bright flash, then a fast fade-out. */
+      durationMs: 150,
+      /** Ribbon width (world units) of the bolt core. */
+      width: 1.1,
+      /** Interior polyline points — more = crinklier bolt. */
+      segments: 6,
+      /** Sideways jitter per point, as a fraction of the bolt's length. */
+      jaggedness: 0.24,
+      /** Emissive tint (>1 punches through the bloom, like jumpFx.flashColor). */
+      color: { r: 1.5, g: 1.9, b: 2.6 },
     },
   },
 

@@ -31,7 +31,12 @@ import { isOverridden, hasOverrideUnder } from "./ConfigOverrides";
 
 /** "random" is a meta-id resolved to one concrete map at launch. */
 export type MapId = ConcreteMapId | "random";
-export type ConcreteMapId = "openVoid" | "asteroidBelt" | "nebulaVeil" | "theWreck";
+export type ConcreteMapId =
+  | "openVoid"
+  | "asteroidBelt"
+  | "nebulaVeil"
+  | "theWreck"
+  | "theTempest";
 
 type NebulaZone = { xFrac: number; zFrac: number; radius: number };
 type FleetComposition = {
@@ -68,6 +73,11 @@ export interface MapConfig {
   /** Combat (stealth) nebula footprints, fractional like the config default.
    *  Empty array = no stealth clouds. */
   nebulaZones: ReadonlyArray<NebulaZone>;
+
+  /** Ion-storm footprints (GameConfig.storms.zones — same fractional shape).
+   *  Storms zap loitering ships, conceal like nebulas, and the AI steers
+   *  around them, so banks of these carve navigation lanes. Omitted = none. */
+  stormZones?: ReadonlyArray<NebulaZone>;
 
   /** Optional per-faction fleet composition override (else GameConfig.fleets). */
   fleets?: Partial<Record<Faction, FleetComposition>>;
@@ -158,6 +168,28 @@ export const MAPS: Record<ConcreteMapId, MapConfig> = {
     // (rotationRate = flat yaw, pitchRate = nose-over somersault; both 0 here.)
     hazards: [{ kind: "hulk", source: "humans", x: 0, z: 0, rotationY: Math.PI / 2,
                 rotationRate: 0.0, pitchRate: 0.0, rollRate: 0.06, scale: 0.5 }],
+  },
+  theTempest: {
+    id: "theTempest",
+    name: "The Tempest",
+    blurb: "Ion storm walls carve the midfield into lanes. Fly the gaps — or burn through.",
+    carrierZ: { player: -750, enemy: 750 },
+    asteroids: { count: 20 },
+    // One stealth pocket sits dead-center in the main lane: the safe route is
+    // also where you can break contact — and where everyone knows to look.
+    nebulaZones: [{ xFrac: 0.0, zFrac: 0.0, radius: 50 }],
+    // A storm wall across the midline: a wide center lane between ±0.42-frac
+    // banks, knife-edge slits between the paired banks, open flanks far out —
+    // but each flank is pinched by a picket storm so the wide route costs
+    // time. AI pilots route the lanes too (storm keep-outs feed avoidance).
+    stormZones: [
+      { xFrac: -0.78, zFrac: 0.0, radius: 95 },
+      { xFrac: -0.42, zFrac: 0.0, radius: 90 },
+      { xFrac: 0.42, zFrac: 0.0, radius: 90 },
+      { xFrac: 0.78, zFrac: 0.0, radius: 95 },
+      { xFrac: -0.6, zFrac: 0.55, radius: 70 },
+      { xFrac: 0.6, zFrac: -0.55, radius: 70 },
+    ],
   },
 };
 
@@ -254,6 +286,10 @@ export function applyMap(id: ConcreteMapId): void {
   // the textured CombatNebulas view and the sim-side computeConcealmentZones
   // read this, so they stay in lockstep automatically.
   GameConfig.scenery.combatNebulas.zones = map.nebulaZones;
+
+  // Ion-storm footprints — same contract (StormClouds view + the sim-side
+  // computeStormZones both read this). Empty = no storms.
+  GameConfig.storms.zones = map.stormZones ?? [];
 
   // Placed hazards (wrecks). No schema knob; always set (empty = none).
   GameConfig.hazards = map.hazards ?? [];

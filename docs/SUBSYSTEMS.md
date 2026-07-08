@@ -645,6 +645,43 @@ Full design + as-built notes: `docs/JUMP-DRIVE-AND-RESUPPLY.md`. Built sim/view-
   (hull + spine + tower + engine + 6 running lights). Engines and
   lights are emissive and opt into GlowLayer.
 
+## Ion storms (StormSystem + StormClouds + LightningSystem)
+The damaging sibling of the combat nebulas — an electric cloud that ZAPS any
+ship loitering inside while ALSO concealing it from radar (hurt-to-hide
+tradeoff). Zones default empty; maps place them via `MapConfig.stormZones`
+("The Tempest" is built from them), so the headless baseline runs storm-free.
+
+- **Sim truth** (`shared/src/sim/StormSystem.ts` + `StormZones.ts`,
+  `GameConfig.storms`): the CombatNebulaZones footprint math + the asteroid
+  ram-damage pattern. `tryZap(ship, nowMs)` applies `zapDamage` on a per-ship
+  `zapIntervalSec` cadence — the FIRST zap lands the instant a ship enters
+  (legibility), and the cooldown key survives leaving the cloud so darting in
+  and out earns no free zaps. Callers (Game.resolveStormZaps /
+  BattleSim.resolveStormZaps) loop combatants — mid-launch ships exempt, like
+  rams — and emit the `stormZap` SimEvent on a landed zap. A storm KILL
+  deliberately awards no kill credit (no weapon hit → no attribution; the
+  death still counts on the scoreboard).
+- **Three derived surfaces**, all wired at construction: `zones` are appended
+  to `SensorSystem.concealmentZones` (storms conceal exactly like nebulas —
+  missile-lock denial and the HIDDEN sig cue come free); `obstacles` (zone
+  radius + `avoidanceMargin`) feed the shared AI steering list so every pilot
+  routes around storm banks — which is what lets maps use them as soft walls
+  carving navigation lanes; and the radar draws the zones as electric-cyan
+  discs (`plotStormZone`), crisper-stroked than the violet cover discs.
+- **View** (`StormClouds.ts`, `GameConfig.stormFx`): the CombatNebulas quad
+  recipe (emissive texture + tint, gotchas #9/#10) with ONE uniform blue-cyan
+  tint — a hazard needs one consistent color read (cyan hurts, violet hides) —
+  plus a per-frame interior FLICKER: two-sine shimmer per zone, and `pop(i)`
+  spikes the emissive when a bolt fires inside zone i, decaying back.
+- **Lightning** (`LightningSystem.ts` + `LightningBolt.ts`): procedural
+  jagged emissive ribbons, flat in the XZ plane (the top-down camera sees a
+  plan-view zigzag; a vertical hairline would vanish). AMBIENT bolts crack on
+  a per-zone random interval so a storm looks charged before anyone's in it;
+  the `stormZap` listener fires `strikeShip` — a slanted bolt from the cloud
+  layer down onto the victim, tying the HP tick to a visible cause. One fresh
+  mesh/material per bolt, disposed on expiry (JumpFlash lifecycle pattern);
+  Math.random throughout (view-only — the sim RNG stays the sim's).
+
 ## Splash flow (loadout front door / intro gate)
 - `main.ts` owns a small state machine; the current state lives in
   `data-state` on `#splash` and ALL visibility is CSS keyed off that
