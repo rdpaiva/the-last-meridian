@@ -25,6 +25,7 @@ export interface PlayerLoadout {
 const FACTION_KEY = "lastMeridian_faction";
 const SHIP_KEY = "lastMeridian_ship";
 const INTRO_KEY = "lastMeridian_introSeen";
+const GUIDE_KEY = "lastMeridian_guideSeen";
 const PILOT_NAME_KEY = "lastMeridian_pilotName";
 const MODE_KEY = "lastMeridian_mode";
 /** Pre-rename single-JSON key — still read as a fallback, removed on save. */
@@ -156,5 +157,23 @@ export function markIntroSeen(): void {
     localStorage.setItem(INTRO_KEY, "true");
   } catch {
     // Non-essential — the player just gets the intro gate again next time.
+  }
+}
+
+/** True once the Field Manual has been opened (auto-open happens only once,
+ *  right after the first-run intro — the footer link covers everyone else). */
+export function hasSeenGuide(): boolean {
+  try {
+    return localStorage.getItem(GUIDE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function markGuideSeen(): void {
+  try {
+    localStorage.setItem(GUIDE_KEY, "true");
+  } catch {
+    // Non-essential — the manual just auto-opens again next first run.
   }
 }

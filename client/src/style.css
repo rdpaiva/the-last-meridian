@@ -195,7 +195,9 @@
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  /* header rail / stage / (optional rookie callout) / footer rail — the
+     callout row collapses to nothing when LoadoutMenu omits it. */
+  grid-template-rows: auto 1fr auto auto;
 }
 
 /* ── The rails ── */
@@ -217,6 +219,50 @@
   border-top: 1px solid rgba(120, 140, 200, 0.12);
   background: rgba(5, 7, 14, 0.4);
   padding: 11px 26px;
+}
+
+/* ── Rookie callout ── */
+/* The gold "review the Field Manual" strip above the footer rail — shown by
+   LoadoutMenu.rookieCallout() until the manual is opened once. Same gold
+   language as the PILOT chip / CONTINUE CTA (gold = "for you, pilot"). */
+.lo-rookie {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 26px;
+  border-top: 1px solid rgba(249, 226, 175, 0.22);
+  background: rgba(38, 30, 10, 0.45);
+  color: #f9e2af;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+  flex-wrap: wrap;
+}
+
+.lo-rookie-star {
+  color: #f9e2af;
+  text-shadow: 0 0 8px rgba(249, 226, 175, 0.6);
+}
+
+.lo-rookie-link {
+  padding: 4px 10px;
+  background: none;
+  border: 1px solid rgba(249, 226, 175, 0.5);
+  border-radius: 4px;
+  color: #f9e2af;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+.lo-rookie-link:hover {
+  background: rgba(249, 226, 175, 0.12);
+  box-shadow: 0 0 12px rgba(249, 226, 175, 0.25);
 }
 
 .lo-title {
@@ -1173,6 +1219,261 @@ video.faction-portrait-video {
 #controls-close:hover {
   border-color: rgba(180, 196, 240, 0.55);
   color: #cdd6f4;
+}
+
+/* ── Field Manual (FieldManual.ts) — the gameplay-guide card deck ──────────
+   Same overlay dress as the controls overlay; one card at a time, a diagram
+   strip on top (ship thumbnails / inline SVG / HUD specimens), bullet rows
+   below, PREV/NEXT + page dots in the footer. */
+
+#field-manual {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(3, 4, 10, 0.86);
+  backdrop-filter: blur(3px);
+  align-items: center;
+  justify-content: center;
+}
+
+#field-manual.open {
+  display: flex;
+}
+
+.fm-panel {
+  border: 1px solid rgba(120, 140, 200, 0.3);
+  border-radius: 8px;
+  background: #0b0d16;
+  padding: 30px 44px 22px;
+  width: min(860px, 94%);
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.fm-head {
+  text-align: center;
+  margin-bottom: 18px;
+}
+
+.fm-tag {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  color: #5f6c8f;
+  margin-bottom: 6px;
+}
+
+.fm-title {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #eef2ff;
+}
+
+/* The diagram strip — fixed-ish height so paging doesn't reflow the text. */
+.fm-visual {
+  min-height: 170px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+  padding: 10px 6px;
+  border: 1px solid rgba(120, 140, 200, 0.14);
+  border-radius: 6px;
+  background: rgba(8, 11, 20, 0.5);
+}
+
+.fm-visual-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+
+.fm-svg {
+  width: min(500px, 100%);
+  height: auto;
+}
+
+.fm-svg-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 8px;
+  letter-spacing: 0.12em;
+}
+
+/* Ship thumbnail cell (fed by ShipPreview's cached captures). */
+.fm-ship {
+  text-align: center;
+}
+
+.fm-ship-thumb {
+  width: 150px;
+  height: 104px;
+  margin: 0 auto 7px;
+  border-radius: 4px;
+  border: 1px solid rgba(120, 140, 200, 0.18);
+  background: radial-gradient(ellipse at 50% 60%, rgba(120, 140, 200, 0.14), rgba(6, 8, 15, 0.9) 75%);
+  background-size: cover;
+  background-position: center;
+}
+
+.fm-ship-name {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: #cdd6f4;
+}
+
+.fm-ship-sub {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: #5f6c8f;
+}
+
+.fm-roster {
+  gap: 30px;
+}
+
+.fm-roster-tag {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: #5f6c8f;
+  margin-bottom: 6px;
+}
+
+/* Compact key chips (card 1). */
+.fm-keys {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 9px 16px;
+}
+
+.fm-key {
+  font-size: 13px;
+  color: #7f8aa6;
+  white-space: nowrap;
+}
+
+.fm-key b {
+  display: inline-block;
+  min-width: 46px;
+  margin-right: 8px;
+  padding: 3px 7px;
+  border: 1px solid rgba(120, 140, 200, 0.3);
+  border-radius: 3px;
+  text-align: center;
+  color: #89b4fa;
+  font-weight: 600;
+}
+
+/* Specimen HUD chips (card 6) — the real in-game HUD dress. */
+.fm-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.fm-chip {
+  padding: 9px 16px;
+  background: rgba(11, 13, 22, 0.9);
+  border: 1px solid rgba(120, 140, 200, 0.18);
+  border-radius: 6px;
+  font-size: 16px;
+  letter-spacing: 0.02em;
+}
+
+.fm-chip-label {
+  color: #7f8aa6;
+  margin-right: 6px;
+}
+
+.fm-legend {
+  width: 240px;
+}
+
+.fm-legend .fm-svg-label {
+  font-size: 9px;
+}
+
+/* The card's text: bullet rows. */
+.fm-lines {
+  margin: 0 0 18px;
+  padding: 0 0 0 22px;
+  font-size: 15px;
+  line-height: 1.65;
+  color: #a6b0cc;
+}
+
+.fm-lines li {
+  margin-bottom: 11px;
+}
+
+.fm-lines b {
+  color: #cdd6f4;
+}
+
+.fm-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: auto;
+}
+
+.fm-nav {
+  padding: 11px 24px;
+  background: none;
+  border: 1px solid rgba(120, 140, 200, 0.3);
+  border-radius: 4px;
+  color: #8a96b8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+  letter-spacing: 0.16em;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.fm-nav:hover:not(:disabled) {
+  border-color: rgba(180, 196, 240, 0.55);
+  color: #cdd6f4;
+}
+
+.fm-nav:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.fm-dots {
+  display: flex;
+  gap: 8px;
+}
+
+.fm-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1px solid rgba(120, 140, 200, 0.45);
+  cursor: pointer;
+}
+
+.fm-dot.now {
+  background: #89b4fa;
+  border-color: #89b4fa;
+}
+
+.fm-hint {
+  margin-top: 12px;
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: #4d5776;
 }
 
 /* ── Small screens: stack the columns, let the panel scroll ── */

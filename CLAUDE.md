@@ -28,13 +28,17 @@ and kills/score with a persistent best. No waves, no networking. See
 - **TypeScript** ^5.4, strict mode, ES2022 target
 - **Babylon.js** core + loaders **^7.50** (pinned to 7.x — 9.x's `@babylonjs/inspector` has a breaking peer dep)
 - **`@babylonjs/inspector`** ^7.54 (dev-only; useful for live mesh debugging)
-- **Node** 20.19+ or 22 LTS, **npm**
+- **Node** 20.19+ or 22 LTS, **npm workspaces** — three packages:
+  `shared/` (sim + config, `@space-duel/shared`), `client/` (Babylon view +
+  menus), `server/` (Colyseus). Root scripts fan out to the right workspace.
 
 ```bash
-npm install          # ~14 packages
-npm run dev          # http://localhost:5173
-npm run build        # tsc --noEmit + vite production build
-npm run typecheck    # tsc --noEmit alone
+npm install          # all workspaces
+npm run dev          # client → http://localhost:5173
+npm run server       # Colyseus dev server (tsx watch)
+npm run build        # typecheck + vite production build (client)
+npm run typecheck    # tsc --noEmit across ALL workspaces
+npm run test         # vitest (headless sim tests)
 ```
 
 **The dev/build pipeline must stay green.** Run `npm run typecheck` after
@@ -163,78 +167,114 @@ gets clobbered every frame; modifying inner root persists.
 ## File map
 
 ```
-src/
-  main.ts                  entry: splash state machine — the loadout frame IS the front door (factionSelect); the intro cinematic (IntroCinematic.ts) is a first-run gate between its MODE and HANGAR steps (replayable from the rail) → construct Game with the chosen loadout; first-gesture audio unlock + splash music ("Last Stand in Deep Space" across intro + all menu states); applies the active Map + Difficulty at launch; handle resize
-  style.css                full-viewport canvas + HUD styling
-  game/
-    Game.ts                top-level coordinator and render loop
-    GameConfig.ts          ALL tuning constants (see "GameConfig surface" below)
-    types.ts               InputState, ShipState, DamageTarget interface
-    math.ts                clamp, lerp, exponentialDecay, exponentialMultiplier
-    InputManager.ts        keyboard tracker with blur-safe key clearing
-    Arena.ts               wireframe grid plane + position clamping helper
-    Asteroid.ts            single destructible drifting rock (faceted icosphere; DamageTarget + line-of-sight cover obstacle)
-    AsteroidField.ts       rock collection: spawn/drift/wrap + shatter-into-chunks; exposes obstacles[] (held by reference by the weapon systems for cover)
-    AssetLoader.ts         GLB importer with procedural fallback (two-tier root); fallback has two designs (classic/viper) via GameConfig.player.shipDesign
-    Faction.ts             humans|machines type + opposing() + FACTION_THEME (colors/labels)
-    Loadout.ts             PlayerLoadout {faction, shipType} + localStorage persistence (lastMeridian_* keys incl. introSeen, mode solo|online, pilotName; validated vs GameConfig.factionShips; hasSavedLoadout + hasSeenIntro gate the step-1 CONTINUE relaunch). The map + difficulty selections persist under sibling lastMeridian_* keys (Maps.ts / Difficulty.ts), not on PlayerLoadout
-    LoadoutMenu.ts         the splash front door, THREE STEPS in a fixed header-rail/stage/footer-rail frame (stage scrolls, card heights clamp to vh — overlap-proof on laptops): 1 MODE (solo/multiplayer boxes + gold callsign "pilot registration" → PILOT chip; returning players get a gold CONTINUE CTA — Enter = one-press relaunch of the saved loadout) → 2 HANGAR (faction cards → roster + live preview) → 3 MISSION (solo: difficulty+arena; online: quick-match/invite briefing) → LAUNCH fires onPlay(mode). MODE→HANGAR advance first offers main.ts the firstRunIntro gate (story cinematic for first-timers; enterHangar() resumes). Keyboard-driven (←/→ select, ↑/↓ row, ENTER continue/next-then-launch, ESC back); owns ENTER while in factionSelect. Footer links = controls overlay + main.ts LoadoutActions (replay intro / match settings)
-    Maps.ts                arena presets (docs/ARENA-MAPS.md): named battlefield bundles (carrier spacing, asteroids, nebula zones, hazards, fleet comp) written into GameConfig at launch via applyMap; selection persists (lastMeridian_map); player match-settings overrides win
-    Difficulty.ts          ENEMY-skill presets (easy/normal/hard), parallel to Maps: applyDifficulty writes ai.*/commander.* knobs into GameConfig at launch (reflex/accuracy/missile pacing/how many press you); selection persists (lastMeridian_difficulty, default normal); player overrides win; player's own wing unaffected
-    IntroCinematic.ts      the story intro as a cinematic slideshow (data-state="intro"): full-screen images/intro/* art crossfading with slow Ken Burns drifts + caption beats over the lower third (the story text lives HERE, not index.html); setTimeout timeline, stop() = skip-safe teardown; ends on the title poster → onFinished hands the splash back to main.ts
-    ShipPreview.ts         standalone Babylon engine for the splash: rotating selected-ship GLB turntable + cached ship-card thumbnails (disposed at launch)
-    TuningSchema.ts        CURATED declarative tuning surface (~70 gameplay knobs w/ label+bounds+step) — the match-settings GUI renders from this; add an entry = expose a knob
-    ConfigOverrides.ts     sparse {dot-path: value} override map (lastMeridian_tuning) written into the live GameConfig at startup; schema-clamped; JSON export/import for sharing setups
-    SettingsMenu.ts        splash match-settings screen (data-state="settings"): slider+number per knob w/ ⓘ hint popover, collapsible groups, per-row/global reset, COPY/PASTE SETUP share blob (plain DOM; JSON textarea only appears on paste/clipboard-fallback)
-    SensorSystem.ts        per-faction sensor picture: SensorContacts w/ last-known positions, ghost decay, nebula concealment
-    CombatNebulas.ts       gameplay stealth clouds above the fighter plane; zones[] feeds SensorSystem + Radar
-    FleetCommander.ts      enemy fleet doctrine (strikers/escorts/dynamic pool) re-tasked ~2s via AIController.setOrder()
-    sim/SimEvents.ts       sim→view event channel: typed SimEventBus (synchronous on/emit) — sim sites EMIT facts (laserHit/missileHit/shipDied/mothershipDied/…), Game.wireSimEventFeedback() subscribes the client FX. Headless/server runs don't subscribe. Becomes the Phase 2 FX network messages (docs/MULTIPLAYER.md)
-    Ship.ts                unified ship sim + HP + DamageTarget + muzzle/fire (config-injected; merges old PlayerShip/EnemyShip)
-    ShipController.ts      controller interface + ControllerWorld (opponents/mothership/leader → InputState)
-    LocalInputController.ts  keyboard controller (surfaces InputManager.state) = the player
-    MouseSteering.ts         client-only mouse input: cursor = desired heading → InputState.turn (same P-controller as the AI; ship still turns at its normal rate), LMB/RMB = fire/missile; last-touched device wins vs keyboard (docs/SUBSYSTEMS.md → MouseSteering)
-    GamepadSteering.ts       client-only gamepad input: left stick = desired heading (screen-relative, honors the flipped north-end view) → same InputState.turn P-controller; RT/LT thrust/reverse, A/X/Y fire/missile/jump, LB/RB strafe, d-pad zoom; stick self-gates vs keyboard/mouse (docs/SUBSYSTEMS.md → GamepadSteering)
-    AIController.ts        order-driven AI (patrol/strike/hunt/cover/formation/defend), emits InputState; targets SENSOR CONTACTS; missile launch doctrine (fresh-track + envelope + LOS + pacing); setOrder() = runtime re-task seam
-    FighterMesh.ts         faction-themed procedural fighter mesh + randomFighterSpawn helper
+shared/src/                @space-duel/shared — the SIM + config + AI: everything a headless
+                           server tick needs. Imported by client AND server; no Babylon scene
+                           code (math-only imports). One package = one source of truth.
+  GameConfig.ts            ALL tuning constants (see "GameConfig surface" below)
+  types.ts                 InputState, ShipState, DamageTarget interface
+  math.ts                  clamp, lerp, exponentialDecay, exponentialMultiplier
+  Faction.ts               humans|machines type + opposing() + FACTION_THEME (colors/labels)
+  ShipController.ts        controller interface + ControllerWorld (opponents/mothership/leader → InputState)
+  AIController.ts          order-driven AI (patrol/strike/hunt/cover/formation/defend), emits InputState; targets SENSOR CONTACTS; missile launch doctrine (fresh-track + envelope + LOS + pacing); setOrder() = runtime re-task seam
+  FleetCommander.ts        enemy fleet doctrine (strikers/escorts/dynamic pool) re-tasked ~2s via AIController.setOrder()
+  SensorSystem.ts          per-faction sensor picture: SensorContacts w/ last-known positions, ghost decay, nebula concealment
+  LaunchSequence.ts        per-ship catapult (hold→launching→complete); player's hold is the cinematic intro+3-2-1 countdown, others a staggered wait; skipIntro = respawn relaunch
+  WingPlan.ts              resolveWingPlan: GameConfig.player.wingmen ROLE COUNTS → concrete {shipType, order} wing slots for the picked loadout (+ formationSlot, the expanding-V generator)
+  NetworkController.ts     controller fed by a remote player's input (the networked seat)
+  Callsigns.ts             pilot callsign pool + sanitizePilotName (PILOT_NAME_MAX)
+  protocol.ts              client↔server wire types + PROTOCOL_VERSION (bump on ANY wire change) + error codes (PROTOCOL_MISMATCH, FACTION_FULL)
+  index.ts                 the package's public re-export surface
+  sim/
+    BattleSim.ts           the whole battle as ONE headless sim (seats both fleets + weapons + commander per tick); the server's BattleRoom drives it — solo Game wires the same subsystems itself
+    Ship.ts                unified ship sim + HP + DamageTarget + muzzle/fire + the jump-drive state machine (idle→spooling→cooldown; docs/JUMP-DRIVE-AND-RESUPPLY.md)
     Laser.ts               single bolt entity (position, age, kill flag)
-    LaserSystem.ts         per-faction bolt collection + collision + onHit
-    Missile.ts             single homing missile (composite mesh + trail; steers to target)
+    LaserSystem.ts         per-faction bolt collection + swept collision + onHit
+    Missile.ts             single homing missile sim (steers to target)
     MissileSystem.ts       per-faction missile pool: lock-fed homing, shooter attribution, collision, onHit
-    MissileWarning.ts      player RWR: polls enemy missiles homing on the player; beep w/ proximity tempo ramp + HUD border pulse (re-triggered per beep) + radar threat list
+    Mothership.ts          carrier sim; DamageTarget objective (HP) + multi-bay launch helpers; hullSections = solid hull footprint, avoidanceCircles = AI steering shapes
+    MothershipSection.ts   one world-space rectangle of a carrier's hull footprint: weapons-collision proxy via intersectsSegmentXZ + ship keep-out box
+    Turret.ts              carrier defense gun SIM: auto-tracks a fresh SensorContact, slews, returns fire commands; own HP = individually destructible; setMuzzleData = GLB fire-point seam
+    AsteroidSim.ts         single destructible drifting rock (DamageTarget + line-of-sight cover obstacle)
+    AsteroidFieldSim.ts    rock collection: spawn/drift/wrap + shatter-into-chunks; exposes obstacles[] (held by reference by the weapon systems for cover)
+    Hulk.ts                wreck hazard: a dead carrier's hull as terrain (map "hulk" hazards)
+    HulkSection.ts         the wreck's world-space collision rectangles (HulkSection ≈ MothershipSection for hulks)
+    CombatNebulaZones.ts   the gameplay stealth-cloud ZONE footprints (ConcealmentZone) — feeds SensorSystem; visuals live client-side
+    SimEvents.ts           sim→view event channel: typed SimEventBus (synchronous on/emit) — sim sites EMIT facts (laserHit/missileHit/shipDied/…), the client subscribes FX; headless/server runs don't
+    SimRng.ts              seeded deterministic sim RNG — never Math.random() inside the sim
+
+client/src/                @space-duel/client — the Babylon view, menus, and entry (Vite root)
+  main.ts                  entry: splash state machine — the loadout frame IS the front door (factionSelect); the intro cinematic (IntroCinematic.ts) is a first-run gate between its MODE and HANGAR steps (replayable from the rail); → construct Game (solo) or NetworkGame (online) with the chosen loadout; first-gesture audio unlock + splash music; applies the active Map + Difficulty at launch; handle resize
+  style.css                full-viewport canvas + HUD + splash/overlay styling
+  net/
+    NetClient.ts           Colyseus client wrapper: quickMatch/joinById/createMatch + the #join=<roomId> invite-hash helpers
+    DelayQueue.ts          dev network-condition simulator's ordered release queue (GameConfig.net.sim)
+  game/
+    Game.ts                top-level SOLO coordinator and render loop
+    NetworkGame.ts         the ONLINE coordinator: server state in → prediction + interpolation over the same view stack (mirrors BattleSim math where it predicts)
+    InputManager.ts        keyboard tracker with blur-safe key clearing
+    LocalInputController.ts  keyboard controller (surfaces InputManager.state) = the player
+    MouseSteering.ts       client-only mouse input: cursor = desired heading → InputState.turn (same P-controller as the AI), LMB/RMB = fire/missile; last-touched device wins (docs/SUBSYSTEMS.md)
+    GamepadSteering.ts     client-only gamepad input: left stick = desired heading → same InputState.turn channel; RT/LT thrust/reverse, A/X/Y fire/missile/jump, LB/RB strafe, d-pad zoom (docs/SUBSYSTEMS.md)
+    Arena.ts               wireframe grid plane + position clamping helper
+    AssetLoader.ts         GLB importer with procedural fallback (two-tier root)
+    Loadout.ts             PlayerLoadout {faction, shipType} + localStorage persistence (lastMeridian_* keys incl. introSeen, guideSeen, mode solo|online, pilotName; validated vs GameConfig.factionShips; hasSavedLoadout + hasSeenIntro gate the step-1 CONTINUE relaunch). Map + difficulty selections persist under sibling lastMeridian_* keys (Maps.ts / Difficulty.ts)
+    LoadoutMenu.ts         the splash front door, THREE STEPS in a fixed header-rail/stage/footer-rail frame: 1 MODE (solo/multiplayer + callsign; returning players get a gold CONTINUE CTA) → 2 HANGAR (faction cards → roster + live preview) → 3 MISSION (solo: difficulty+arena; online: quick-match/invite briefing) → LAUNCH fires onPlay(mode). MODE→HANGAR advance first offers main.ts the firstRunIntro gate. Keyboard-driven; owns ENTER in factionSelect (yields to the controls overlay and the Field Manual while they're open). Footer links = controls overlay + LoadoutActions (field manual / replay intro / match settings)
+    FieldManual.ts         the "hit the ground running" guide: a self-paced card deck (one gameplay concept per card — flight, weapons, carrier ops + Meridian Drive, ship roles, terrain, HUD/sensors) opened from the loadout footer link, or the gold ROOKIE PILOTS callout strip (LoadoutMenu.rookieCallout) that shows until the manual is first opened (lastMeridian_guideSeen). ALL text lives in buildCards() — edit/add lines there; timing numbers interpolate live from GameConfig. Visuals are game-rendered (ShipPreview thumbnails, HUD-color specimens, inline SVG) — no art assets
+    Maps.ts                arena presets (docs/ARENA-MAPS.md): named battlefield bundles written into GameConfig at launch via applyMap; selection persists (lastMeridian_map); match-settings overrides win
+    Difficulty.ts          ENEMY-skill presets (easy/normal/hard): applyDifficulty writes ai.*/commander.* knobs at launch; persists (lastMeridian_difficulty); player's own wing unaffected
+    IntroCinematic.ts      the story intro as a cinematic slideshow (data-state="intro"): full-screen images/intro/* art w/ Ken Burns drifts + caption beats (the story text lives HERE); stop() = skip-safe teardown
+    ShipPreview.ts         standalone Babylon engine for the splash: rotating selected-ship GLB turntable + cached ship-card thumbnails (also feeds the Field Manual; disposed at launch)
+    TuningSchema.ts        CURATED declarative tuning surface (~70 gameplay knobs w/ label+bounds+step) — the match-settings GUI renders from this; add an entry = expose a knob
+    ConfigOverrides.ts     sparse {dot-path: value} override map (lastMeridian_tuning) written into the live GameConfig at startup; schema-clamped; JSON export/import
+    SettingsMenu.ts        splash match-settings screen (data-state="settings"): slider+number per knob, collapsible groups, per-row/global reset, COPY/PASTE SETUP share blob
+    CombatNebulas.ts       the stealth clouds' VISUALS above the fighter plane (zones come from shared CombatNebulaZones)
+    FighterMesh.ts         faction-themed procedural fighter mesh + randomFighterSpawn helper
+    MissileWarning.ts      player RWR: polls enemy missiles homing on the player; beep w/ proximity tempo ramp + HUD border pulse + radar threat list
     CameraRig.ts           top-down camera, velocity lead, trauma-based shake
     EngineGlow.ts          core sphere + TrailMesh behind player, thrust-driven
+    SecondaryThrusters.ts  strafe/reverse puff jets (view)
     DamageFlash.ts         red emissive sphere pulses around player on damage
     Explosion.ts           short-lived explosion (flash sphere + N debris)
     ExplosionSystem.ts     spawns/updates/disposes explosions
-    JumpFlash.ts           jump-drive "FTL crack" core: cool flash sphere that pops then collapses (view; one per jump END)
+    JumpFlash.ts           jump-drive "FTL crack" core: cool flash sphere that pops then collapses (one per jump end)
     JumpFlashSystem.ts     spawns/updates/disposes jump flashes off the jumpFired SimEvent (departure + arrival)
-    JumpRipple.ts          jump shockwave: screen-space refraction post-process (expanding wavefront + pond ripples behind it); detaches when idle
-    SoundSystem.ts         CC0 SFX + engine hum loop + audio unlock; per-ship jump-drive lifecycle (start/stop/release, own vs spatial)
-    Starfield.ts           camera-locked wrapping parallax field (thin-instanced; count independent of arena size)
-    Nebulas.ts             alpha-blended cloud quads from PNG textures (count via GameConfig)
+    JumpRipple.ts          jump shockwave: screen-space refraction post-process; detaches when idle
+    PostPipeline.ts        ACES tone-mapping / rendering pipeline setup
+    SoundSystem.ts         CC0 SFX + engine hum loop + audio unlock; per-ship jump-drive sound lifecycle (start/stop/release, own vs spatial)
+    MusicSystem.ts         in-game background music: shuffled playlist cycling (GameConfig.music)
+    Starfield.ts           camera-locked wrapping parallax field (thin-instanced)
+    Nebulas.ts             alpha-blended cloud quads from PNG textures (scenery, not gameplay)
     Backdrop.ts            full-screen deep-space background Layer (2D blit)
     CapitalShips.ts        3 procedural destroyer composites in deep background
-    Mothership.ts          BSG-style carrier; DamageTarget objective (HP) + multi-bay launch helpers (getLaunchStartPosition(bayIndex)); hullSections = solid hull footprint, avoidanceCircles = AI steering shapes
-    MothershipSection.ts   one world-space rectangle of a carrier's hull footprint: weapons-collision proxy via intersectsSegmentXZ (damage forwards to the carrier's single HP pool) + ship keep-out box
-    sim/Turret.ts          carrier defense gun SIM: auto-tracks a fresh SensorContact, slews, returns fire commands (Mothership.updateTurrets spawns them into the faction LaserSystem); own HP = individually destructible DamageTarget; setMuzzleData = GLB fire-point seam. Pure sim
-    view/TurretView.ts     carrier turret VIEW: per-faction skinned GLB (static base + rotating gun), procedural box fallback; reads sim aimAngle each frame; on load derives the fire point (distance/height/barrel-yaw) from the model's `muzzle` empty
-    LaunchSequence.ts      per-ship catapult (hold→launching→complete); player's hold is the cinematic intro+3-2-1 countdown, others a staggered wait. Both fleets launch from their carrier's two bays at match start (Game.assignInitialLaunches/launchFleet); skipIntro = respawn relaunch
-    Hud.ts                 DOM HUD: HP cue + sig (DETECTED/HIDDEN) + kills/score + mothership bars + victory/defeat banner
-    Radar.ts               player-centered canvas minimap oriented to the screen (north-up; 180°-flipped for the north-end pilot, matching CameraRig) (friendlies = truth; hostiles = sensor picture w/ ghost rings; nebula zones)
-public/
-  models/                  drop fighter.glb here if you want a real ship
-  sounds/                  5 CC0 MP3s + SOURCES.md attribution
+    Hud.ts                 DOM HUD: HP cue + sig (DETECTED/HIDDEN/NO TRACK) + kills/score + mothership bars + victory/defeat banner + scoreboard
+    Radar.ts               player-centered canvas minimap oriented to the screen (north-up; 180°-flipped for the north-end pilot) (friendlies = truth; hostiles = sensor picture w/ ghost rings; nebula zones)
+    Nameplates.ts          callsign labels projected under ships (fixed full-viewport DOM layer)
+    ScoreBoard.ts          per-pilot kill/death/score ledger for the OFFLINE match (mirrors the server's lastHitBy attribution)
+    NetDebugOverlay.ts     dev overlay: netcode internals gathered by NetworkGame.tick
+    view/                  per-entity VIEWS: read sim state each frame, own all meshes/FX
+      ShipView / LaserSystemView / MissileSystemView / MothershipView /
+      TurretView / AsteroidView / AsteroidFieldView / HulkView
+
+server/src/                @space-duel/server — Colyseus authoritative server (docs/MULTIPLAYER.md)
+  index.ts                 server entry: registers BattleRoom, listens (dev: npm run server)
+  rooms/BattleRoom.ts      server-authoritative room: ticks the shared BattleSim at a fixed rate, replicates per-ship state
+  schema/                  Colyseus replication schema
+
+client/public/
+  models/                  ship + carrier GLBs
+  sounds/                  CC0 MP3s + SOURCES.md attribution
   textures/                nebula cloud PNGs + space-backdrop.jpg (+ SOURCES.md)
+  images/ music/ videos/   splash art, intro slides, menu music, faction videos
 scripts/
-  measure-carrier-footprint.mjs  headless (NullEngine) GLB footprint measurer — run after re-exporting a carrier model to re-fit GameConfig.mothership.hullRects + verify the launch-exit clearance
+  measure-carrier-footprint.mjs  headless (NullEngine) GLB footprint measurer — run after re-exporting a carrier model to re-fit GameConfig.mothership.hullRects
+  measure-hulk-colliders.mjs / hulk_colliders.py / build_wreck.py / skin_carrier.py  wreck + carrier-skin art pipeline (Blender/py)
 ```
 
 ---
 
 ## GameConfig: the tuning surface
 
-The whole game's tuning lives in `src/game/GameConfig.ts`. Major sections:
+The whole game's tuning lives in `shared/src/GameConfig.ts`. Major sections:
 
 | Section | What it controls |
 |---|---|
@@ -426,11 +466,11 @@ for one, do it. Otherwise: don't.
   same `InputState.turn` channel, no parallel path).
 - **A complex menu system**. The splash flow (the three-step loadout frame
   as the front door, the intro cinematic as a first-run gate, one-press CONTINUE
-  for returning players) is the deliberate ceiling — keyboard-first, saved
-  choice, Enter back into play. ONE sanctioned exception: the match-settings
-  tuning screen (`SettingsMenu`, dev/playtest tooling — see
-  `docs/SUBSYSTEMS.md`). Don't grow it into general settings
-  (audio/video/keybinds) or pause menus unprompted.
+  for returning players, the Field Manual gameplay-guide card deck) is the
+  deliberate ceiling — keyboard-first, saved choice, Enter back into play. ONE
+  sanctioned exception: the match-settings tuning screen (`SettingsMenu`,
+  dev/playtest tooling — see `docs/SUBSYSTEMS.md`). Don't grow it into general
+  settings (audio/video/keybinds) or pause menus unprompted.
 - **Asset preloading splash screens**.
 
 ---

@@ -136,6 +136,34 @@ bumped to **20** (GameConfig shape change). Docs synced: CLAUDE.md
 RECIPES.md, ROADMAP.md. NOT yet owner-verified in the browser (the new
 rows + notes need one visual pass).
 
+**Built 2026-07-08 — Field Manual** (owner-requested "hit the ground
+running" guide): a 6-card self-paced deck (flight / weapons / carrier ops +
+Meridian Drive / ship roles / battlefield / HUD-sensors) as a splash
+overlay. ALL text lives in `buildCards()` in
+`client/src/game/FieldManual.ts` — the owner wants to revise copy over
+time; edit lines there, timing numbers (spool/cooldown/commit seconds,
+missile burn, ghost memory) interpolate live from GameConfig so retuning
+re-words the manual. Visuals are game-rendered, no art assets: ShipPreview
+thumbnail captures (`preview.thumbnail(id)`), HUD-color specimen chips,
+inline SVG diagrams (`visual*()` builders, same file). Wiring: footer-rail
+"Field Manual" link (`LoadoutMenu.railBottom` + `LoadoutActions.openManual`
+→ `main.ts openManual()`); first-timers are pointed at it by the gold
+"ROOKIE PILOTS — review the FIELD MANUAL" strip above the footer rail
+(`LoadoutMenu.rookieCallout`, `.lo-rookie` styles) which shows until the
+manual is first opened (key `lastMeridian_guideSeen` in
+`client/src/game/Loadout.ts`; opening marks it seen — there is NO forced
+auto-open, owner picked callout-over-interruption 2026-07-08);
+`#field-manual` root in `client/index.html`;
+`.fm-*` styles in `client/src/style.css` (controls-overlay dress).
+Keyboard: ←/→/Enter page, Esc closes; `LoadoutMenu.onKeyDown` yields while
+the manual is open (same pattern as the controls overlay). Typecheck +
+22/22 tests green. Deck layout owner-verified 2026-07-08 (font scale
+bumped on feedback — `.fm-*` sizes); the rookie callout is NOT yet
+owner-verified (clear `lastMeridian_guideSeen` to see it). CLAUDE.md file map
+was also rewritten this session to the REAL workspace layout
+(client/shared/server split) — it had still shown the pre-multiplayer
+`src/` tree.
+
 **Owner goal**: a friends playtest — HOSTING IS LIVE (provisioned
 2026-07-06, CI-path verified same day). Topology in `docs/DEPLOY.md`
 ("Provisioned state" section has every detail): ONE DigitalOcean droplet

@@ -9,6 +9,7 @@ import { PROTOCOL_MISMATCH, FACTION_FULL } from "@space-duel/shared";
 import { applyStoredOverrides } from "./game/ConfigOverrides";
 import { applyMap, resolveMapId, loadSavedMapSelection } from "./game/Maps";
 import { applyDifficulty, loadSavedDifficulty } from "./game/Difficulty";
+import { FieldManual } from "./game/FieldManual";
 import {
   hasSeenIntro,
   loadSavedLoadout,
@@ -42,6 +43,7 @@ const splash = document.getElementById("splash") as HTMLDivElement | null;
 const introRoot = document.getElementById("intro-cinematic") as HTMLDivElement | null;
 const skipBtn = document.getElementById("splash-skip") as HTMLButtonElement | null;
 const loadoutRoot = document.getElementById("loadout") as HTMLDivElement | null;
+const manualRoot = document.getElementById("field-manual") as HTMLDivElement | null;
 const settingsRoot = document.getElementById("settings") as HTMLDivElement | null;
 
 if (!canvas) throw new Error("Canvas #renderCanvas not found in DOM");
@@ -50,6 +52,7 @@ if (!splash) throw new Error("#splash not found in DOM");
 if (!introRoot) throw new Error("#intro-cinematic not found in DOM");
 if (!skipBtn) throw new Error("#splash-skip not found in DOM");
 if (!loadoutRoot) throw new Error("#loadout not found in DOM");
+if (!manualRoot) throw new Error("#field-manual not found in DOM");
 if (!settingsRoot) throw new Error("#settings not found in DOM");
 
 // Write any saved match-settings overrides into GameConfig BEFORE anything
@@ -143,6 +146,15 @@ let game: Game | null = null;
 let netGame: NetworkGame | null = null;
 let menu: LoadoutMenu | null = null;
 let preview: ShipPreview | null = null;
+/** The Field Manual card deck. Built lazily (it needs the ShipPreview for
+ *  its thumbnails); survives open/close cycles like the menu does. */
+let manual: FieldManual | null = null;
+
+function openManual(): void {
+  if (!preview) return; // only reachable from factionSelect, where it exists
+  if (!manual) manual = new FieldManual(manualRoot!, preview);
+  manual.open();
+}
 
 /**
  * Launch modes (Phase 1 entry polish — replaces the old `?online` flag):
@@ -336,6 +348,7 @@ function setState(next: SplashState): void {
             settingsReturn = state;
             setState("settings");
           },
+          openManual,
         });
       }
       preview.start();
@@ -366,6 +379,9 @@ function finishIntro(): void {
   const toHangar = introReturn === "hangar";
   introReturn = "stay";
   setState("factionSelect");
+  // First-timers land in the hangar with the gold ROOKIE PILOTS callout
+  // pointing at the Field Manual (LoadoutMenu.rookieCallout) — a link beats
+  // a forced overlay, so the manual is never auto-opened.
   if (toHangar) menu?.enterHangar();
 }
 

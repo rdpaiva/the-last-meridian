@@ -2,6 +2,7 @@ import { GameConfig, PILOT_NAME_MAX, type ShipTypeId } from "@space-duel/shared"
 import { FACTION_THEME, opposing, type Faction } from "@space-duel/shared";
 import {
   hasSavedLoadout,
+  hasSeenGuide,
   hasSeenIntro,
   loadPilotName,
   loadSavedLoadout,
@@ -41,6 +42,8 @@ export interface LoadoutActions {
   firstRunIntro(): boolean;
   replayIntro(): void;
   openSettings(): void;
+  /** Open the Field Manual card deck (FieldManual.ts). */
+  openManual(): void;
 }
 
 /**
@@ -362,6 +365,9 @@ export class LoadoutMenu {
       }
       return;
     }
+    // The Field Manual owns the keyboard while it's up (its own handler pages
+    // with ←/→/Enter and closes on Esc) — the menu must not also act on them.
+    if (document.getElementById("field-manual")?.classList.contains("open")) return;
     // A focused form control owns the arrow keys (the match-settings overlay
     // can sit on top of this menu, and its sliders/number fields would be
     // frozen by the preventDefault below).
@@ -508,8 +514,23 @@ export class LoadoutMenu {
     this.root.innerHTML = `
       ${this.railTop()}
       <div class="lo-stage"><div class="lo-stage-inner">${stage}</div></div>
+      ${this.rookieCallout()}
       ${this.railBottom()}`;
     this.bind();
+  }
+
+  /** A gold strip above the footer rail pointing first-timers at the Field
+   *  Manual. Shows until the manual is opened once (lastMeridian_guideSeen) —
+   *  opening it marks it seen, and the re-render on click retires the strip. */
+  private rookieCallout(): string {
+    if (hasSeenGuide()) return "";
+    return `
+      <div class="lo-rookie">
+        <span class="lo-rookie-star">★</span>
+        ROOKIE PILOTS — new to the cockpit? Review the
+        <button class="lo-rookie-link" id="loadout-rookie-manual">FIELD MANUAL</button>
+        before your first sortie.
+      </div>`;
   }
 
   /** Header rail: title · step dots · the PILOT chip (fed by the callsign). */
@@ -567,6 +588,7 @@ export class LoadoutMenu {
       <div class="lo-rail lo-rail-bot">
         <div class="lo-utils">
           <button class="lo-util" id="loadout-controls">Controls</button>
+          <button class="lo-util" id="loadout-manual">Field Manual</button>
           <button class="lo-util" id="loadout-replay">Replay Intro</button>
           <button class="lo-util" id="loadout-settings">${settingsLabel}</button>
         </div>
@@ -731,6 +753,17 @@ export class LoadoutMenu {
       ?.addEventListener("click", () =>
         document.getElementById("controls-overlay")?.classList.add("open"),
       );
+    this.root
+      .querySelector<HTMLButtonElement>("#loadout-manual")
+      ?.addEventListener("click", () => this.actions.openManual());
+    // The rookie callout's link: open the manual (which marks it seen), then
+    // re-render so the strip is gone when the overlay closes.
+    this.root
+      .querySelector<HTMLButtonElement>("#loadout-rookie-manual")
+      ?.addEventListener("click", () => {
+        this.actions.openManual();
+        this.render();
+      });
     this.root
       .querySelector<HTMLButtonElement>("#loadout-replay")
       ?.addEventListener("click", () => this.actions.replayIntro());
