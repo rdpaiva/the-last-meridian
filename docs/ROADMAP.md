@@ -221,6 +221,16 @@ and explicitly skipped. Update this when you finish or start work.
   (no longer a right-hand side panel). A **Replay Intro** link is reachable
   from faction select, and **Esc returns to the menu** from anywhere in a live
   match (a clean reload without the restart flag).
+- **Online arena selection — the ROOM owns the map** (2026-07-08,
+  PROTOCOL_VERSION 22): the arena picker shows on the online MISSION step
+  too; the creator's selection rides `JoinOptions.mapSelection`,
+  `BattleRoom` applies it (shared `applyMap`, catalog moved to
+  `shared/src/Maps.ts`) before the sim constructs and replicates
+  `BattleState.mapId`; every client applies the same map before building
+  `NetworkGame` (joiners inherit the host's board). `NetworkGame` now
+  depicts wreck hazards (local `Hulk` sims on the render clock + prediction
+  bump via shared `bumpShipOutOfHulkSection`), so The Wreck plays online.
+  See docs/ARENA-MAPS.md → "Multiplayer".
 - **Difficulty levels** (`Difficulty.ts`, parallel to arena `Maps`) — Easy /
   Normal / Hard preset bundles chosen on page 2, persisted under
   `lastMeridian_difficulty` (default Normal). Applied at launch like a map

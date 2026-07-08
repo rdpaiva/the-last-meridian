@@ -5,7 +5,7 @@ import { IntroCinematic } from "./game/IntroCinematic";
 import { LoadoutMenu, type LaunchMode } from "./game/LoadoutMenu";
 import { ShipPreview } from "./game/ShipPreview";
 import { SettingsMenu } from "./game/SettingsMenu";
-import { PROTOCOL_MISMATCH, FACTION_FULL } from "@space-duel/shared";
+import { PROTOCOL_MISMATCH, FACTION_FULL, applyMap as applyServerMap } from "@space-duel/shared";
 import { applyStoredOverrides } from "./game/ConfigOverrides";
 import { applyMap, resolveMapId, loadSavedMapSelection } from "./game/Maps";
 import { applyDifficulty, loadSavedDifficulty } from "./game/Difficulty";
@@ -222,7 +222,15 @@ function startGame(mode: LaunchMode): void {
 async function startOnline(base: ReturnType<typeof loadSavedLoadout>): Promise<void> {
   // The persisted pilot name rides the join as the seat's callsign (the
   // loadout menu's field saves per keystroke; quick play reads the same key).
-  const loadout = { ...base, pilotName: loadPilotName() };
+  // The map selection rides too: it becomes the room's arena when this join
+  // CREATES the room (quick match to an empty server, WITH FRIENDS host, or
+  // the faction-full fallback create); joining an existing room inherits its
+  // arena instead — either way the server replicates the resolved map back.
+  const loadout = {
+    ...base,
+    pilotName: loadPilotName(),
+    mapSelection: loadSavedMapSelection(),
+  };
   // Status lands where the player is looking: the loadout's online launch
   // CTA (step 3) or the CONTINUE CTA (step 1) — setOnlineStatus feeds both.
   const setStatus = (text: string | null): void => menu?.setOnlineStatus(text);
@@ -270,6 +278,13 @@ async function startOnline(base: ReturnType<typeof loadSavedLoadout>): Promise<v
     }
     // Shareable WITH FRIENDS link (replaceState: no scroll/history spam).
     history.replaceState(null, "", `#join=${net.roomId}`);
+    // The ROOM owns the arena: apply its replicated map (awaited — the join
+    // can settle before the first full state decodes) into GameConfig before
+    // NetworkGame constructs, so carrier placement, nebula/storm zones, and
+    // wreck hazards match the server's board. The shared applier, WITHOUT the
+    // match-settings override hooks the solo path uses: online, local
+    // hand-tuning of board knobs must not desync the view from the server.
+    applyServerMap(await net.mapId());
     stopSplashMusic();
     preview?.dispose();
     preview = null;

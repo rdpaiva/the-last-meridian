@@ -23,7 +23,10 @@ import {
   AsteroidSim,
   collideShipWithAsteroid,
   bumpShipOutOfSection,
+  bumpShipOutOfHulkSection,
+  Hulk,
   exponentialMultiplier,
+  type DamageTarget,
   type Laser,
   type Faction,
   type ShipTypeId,
@@ -53,6 +56,7 @@ import { AssetLoader } from "./AssetLoader";
 import { buildFighterMesh } from "./FighterMesh";
 import { ShipView } from "./view/ShipView";
 import { MothershipView } from "./view/MothershipView";
+import { HulkView } from "./view/HulkView";
 import { AsteroidView } from "./view/AsteroidView";
 import { LaserSystemView } from "./view/LaserSystemView";
 import { MissileSystemView } from "./view/MissileSystemView";
@@ -370,6 +374,23 @@ export class NetworkGame {
   /** Live rock sims, held BY REFERENCE as the cosmetic lasers' obstacles so
    *  depicted bolts get consumed by rocks (line-of-sight reads correctly). */
   private readonly rockObstacles: AsteroidSim[] = [];
+  /**
+   * Everything a depicted bolt dies against: the live rocks (mirrored from
+   * rockObstacles by syncRocks — the radar wants rocks ONLY, so the two lists
+   * stay separate) plus any wreck's hull sections. Held by reference by both
+   * cosmetic LaserSystems.
+   */
+  private readonly cosmeticObstacles: DamageTarget[] = [];
+  /**
+   * Placed wreck hazards (the room's map put them in GameConfig.hazards):
+   * local Hulk sims driven to the render clock — their yaw/pitch/roll rates
+   * are constant, so integrating on the interpolated sim time reproduces the
+   * server's pose exactly, the same trick as the rocks. `hulkSimT` = the sim
+   * time the poses are at (null until the first patch sets the clock offset).
+   */
+  private readonly hulks: Hulk[] = [];
+  private readonly hulkViews: HulkView[] = [];
+  private hulkSimT: number | null = null;
   /** Server FX facts awaiting their sim time on the render clock. */
   private readonly fxQueue: Array<{ t: number; e: NetEvent }> = [];
 
@@ -508,6 +529,21 @@ export class NetworkGame {
       }
     }
 
+    // --- Placed wrecks (the room's map wrote them into GameConfig.hazards
+    // before construction — see main.ts startOnline). Local sims + views,
+    // mirroring solo Game; poses advance on the render clock in tick. Their
+    // hull sections block depicted bolts (cosmeticObstacles) and bump the
+    // predicted ship (updatePrediction) — the REAL collision/LOS truth stays
+    // server-side.
+    for (const hazard of GameConfig.hazards) {
+      if (hazard.kind === "hulk") {
+        const hulk = new Hulk(hazard);
+        this.hulks.push(hulk);
+        this.hulkViews.push(new HulkView(this.scene, this.glowLayer, hulk));
+        for (const section of hulk.sections) this.cosmeticObstacles.push(section);
+      }
+    }
+
     this.cameraRig = new CameraRig(this.scene, this.viewFlipped);
     // Mouse steering unprojects the cursor through the rig's camera; it
     // merges into input.state each frame BEFORE the input send (tick step 1),
@@ -545,8 +581,8 @@ export class NetworkGame {
     this.rockMaterial.specularColor = Color3.Black();
 
     this.cosmeticLasers = {
-      humans: new LaserSystem({ damage: 0, obstacles: this.rockObstacles }),
-      machines: new LaserSystem({ damage: 0, obstacles: this.rockObstacles }),
+      humans: new LaserSystem({ damage: 0, obstacles: this.cosmeticObstacles }),
+      machines: new LaserSystem({ damage: 0, obstacles: this.cosmeticObstacles }),
     };
     const tb = GameConfig.mothership.turrets.boltEmissive;
     const turretBoltEmissive = new Color3(tb.r, tb.g, tb.b);
@@ -737,6 +773,14 @@ export class NetworkGame {
   /** Preload the ship GLBs, then start the render loop. */
   async start(): Promise<void> {
     await this.preloadTemplates();
+    // Swap each wreck's placeholder blocks for its battle-damaged GLB (same
+    // fallback contract as solo Game.start — the procedural placeholder stays
+    // if the file is missing/fails).
+    await Promise.all(
+      this.hulks.map((hulk, i) =>
+        this.hulkViews[i].applyModel(GameConfig.hulk.model.file[hulk.source]),
+      ),
+    );
     this.music.playPlaylist("game");
     this.engine.runRenderLoop(this.tick);
     // Loaded + rendering: tell the room we can actually SEE the battlefield.
@@ -1050,6 +1094,24 @@ export class NetworkGame {
         entry.simT = renderT;
       }
       entry.view.sync();
+    }
+
+    // Wrecks: same trick as the rocks — the server integrates each hulk from
+    // sim time 0 at constant yaw/pitch/roll rates, so driving our local copy
+    // to the render clock lands on the same pose (the first advance fast-
+    // forwards from the spec pose; a mid-match join catches up in one step).
+    // Gated on the clock offset: before the first patch renderT is garbage.
+    if (this.hulks.length > 0 && this.clockOffsetMs !== null) {
+      const dtHulk = (renderT - (this.hulkSimT ?? 0)) / 1000;
+      this.hulkSimT = renderT;
+      for (let i = 0; i < this.hulks.length; i++) {
+        if (dtHulk !== 0) this.hulks[i].update(dtHulk);
+        this.hulkViews[i].update(
+          this.hulks[i].rotationY,
+          this.hulks[i].rotationX,
+          this.hulks[i].rotationZ,
+        );
+      }
     }
 
     let havePlayer = false;
@@ -1641,12 +1703,15 @@ export class NetworkGame {
         simT: r.t0,
       });
       this.rockObstacles.push(sim);
+      this.cosmeticObstacles.push(sim);
     });
     for (const [id, entry] of this.rocks) {
       if (seen.has(id)) continue;
       entry.view.dispose();
       const i = this.rockObstacles.indexOf(entry.sim);
       if (i >= 0) this.rockObstacles.splice(i, 1);
+      const j = this.cosmeticObstacles.indexOf(entry.sim);
+      if (j >= 0) this.cosmeticObstacles.splice(j, 1);
       this.rocks.delete(id);
     }
   }
@@ -1757,6 +1822,11 @@ export class NetworkGame {
     for (const f of ["humans", "machines"] as Faction[]) {
       for (const s of this.carrierSims[f].hullSections) {
         bumpShipOutOfSection(ship, s);
+      }
+    }
+    for (const hulk of this.hulks) {
+      for (const s of hulk.sections) {
+        bumpShipOutOfHulkSection(ship, s);
       }
     }
 

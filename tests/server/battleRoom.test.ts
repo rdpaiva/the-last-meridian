@@ -46,6 +46,9 @@ const joinOpts = (over: Partial<JoinOptions> = {}): JoinOptions => ({
   faction: "humans",
   shipType: "spitfire",
   pilotName: "",
+  // Pin the arena: the creating join's selection becomes the room's map, and
+  // a "random" board (midline rocks, storm zaps) would make these sims flaky.
+  mapSelection: "openVoid",
   ...over,
 });
 

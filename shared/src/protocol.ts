@@ -9,7 +9,7 @@ import type { InputState } from "./types";
  * message protocol or to GameConfig (balance lives in shared, so a tweak is a
  * both-sides deploy) — see docs/MULTIPLAYER.md → Decisions (protocol version).
  */
-export const PROTOCOL_VERSION = 21;
+export const PROTOCOL_VERSION = 22;
 
 /** Room name registered on the server + asked for by the client. */
 export const BATTLE_ROOM = "battle";
@@ -31,6 +31,16 @@ export interface JoinOptions {
   /** Player-entered pilot name (sanitizePilotName runs on both sides; ""
    *  falls back to the seat's AI callsign so no ship flies anonymous). */
   pilotName: string;
+  /**
+   * The player's arena selection (a MapId — a concrete map or "random").
+   * Consulted only when THIS join CREATES the room: the creator's pick
+   * becomes the room's arena (BattleRoom resolves + applies it before the
+   * sim constructs, then replicates the concrete id as BattleState.mapId).
+   * Joiners inherit the room's arena; their value is ignored. Typed as
+   * string on the wire — the server validates with isMapSelection and
+   * falls back to "random" rather than trusting the client.
+   */
+  mapSelection: string;
 }
 
 /**

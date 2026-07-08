@@ -25,6 +25,9 @@ import {
   MSG,
   aiCallsign,
   sanitizePilotName,
+  applyMap,
+  isMapSelection,
+  resolveMapId,
 } from "@space-duel/shared";
 
 import {
@@ -128,8 +131,20 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     { view: StateView; faction: Faction; visibleEnemies: Set<Seat> }
   >();
 
-  override onCreate(): void {
+  override onCreate(options?: Partial<JoinOptions>): void {
     this.setState(new BattleState());
+
+    // The room's arena: the CREATING client's selection (its join options are
+    // also the create options), validated — never trust the wire — with
+    // "random" as the fallback for a missing/corrupt value, then resolved to
+    // a concrete map and written into GameConfig BEFORE the sim constructs
+    // (the same startup-mutation contract the solo client follows; the
+    // multi-room caveat is documented on applyMap). Joiners inherit this via
+    // the replicated state.mapId and never re-apply their own.
+    const selection = options?.mapSelection;
+    const mapId = resolveMapId(isMapSelection(selection) ? selection : "random");
+    applyMap(mapId);
+    this.state.mapId = mapId;
 
     // Per-room seed: reproducible within a match, different across matches.
     BattleSim.seedRng((Math.random() * 0xffffffff) >>> 0);

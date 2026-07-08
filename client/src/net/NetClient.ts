@@ -4,9 +4,12 @@ import {
   BATTLE_ROOM,
   GameConfig,
   PROTOCOL_VERSION,
+  isMapSelection,
   sanitizePilotName,
+  type ConcreteMapId,
   type JoinOptions,
   type Faction,
+  type MapId,
   type ShipTypeId,
 } from "@space-duel/shared";
 
@@ -16,6 +19,9 @@ export interface NetLoadout {
   shipType: ShipTypeId;
   /** Pilot name for the seat's callsign ("" = server keeps the AI callsign). */
   pilotName?: string;
+  /** Arena selection — becomes the room's map if THIS join creates the room
+   *  (joiners inherit the existing room's arena; see protocol.ts). */
+  mapSelection?: MapId;
 }
 
 /**
@@ -105,7 +111,36 @@ export class NetClient {
       faction: loadout.faction,
       shipType: loadout.shipType,
       pilotName: sanitizePilotName(loadout.pilotName ?? ""),
+      mapSelection: loadout.mapSelection ?? "random",
     };
+  }
+
+  /**
+   * The room's resolved arena (BattleState.mapId), awaited because the join
+   * promise can settle before the initial full state decodes — main.ts needs
+   * the map BEFORE constructing NetworkGame (carrier placement, nebula/storm
+   * zones, and wreck hazards are all read from GameConfig at construction).
+   * The protocol-version gate guarantees a matched server always sends it.
+   */
+  async mapId(): Promise<ConcreteMapId> {
+    const read = (): ConcreteMapId | null => {
+      const v = (this.room.state as { mapId?: string } | undefined)?.mapId;
+      // A concrete catalog id only — "random" never replicates (the server
+      // resolves it) and an empty string means the state hasn't arrived yet.
+      return v && isMapSelection(v) && v !== "random" ? v : null;
+    };
+    const immediate = read();
+    if (immediate) return immediate;
+    return new Promise((resolve) => {
+      const check = (): void => {
+        const v = read();
+        if (v) {
+          this.room.onStateChange.remove(check);
+          resolve(v);
+        }
+      };
+      this.room.onStateChange(check);
+    });
   }
 
   get sessionId(): string {

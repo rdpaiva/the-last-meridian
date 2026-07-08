@@ -455,3 +455,44 @@ that instead — a camera render won't show wireframes.)
 - The roll spin is `Maps.theWreck` `rollRate` (+ `rotationY: π/2` sideways).
 
 **When machines is fitted:** merge `feat/phase0-smoke-harness` → `main`.
+
+---
+
+## Multiplayer: the ROOM owns the arena (implemented 2026-07-08)
+
+Online, the map is a **room property**, not a per-client choice — the sim is
+server-authoritative, so every client must render the board the server built.
+The flow (PROTOCOL_VERSION 22):
+
+- The catalog + `applyMap` moved to **`shared/src/Maps.ts`** so the server can
+  run them; `client/src/game/Maps.ts` is now the client shim (localStorage
+  persistence + the SOLO applier that wires the ConfigOverrides precedence
+  hooks in). The override check is an injectable `MapOverrideHooks` param on
+  the shared `applyMap` — server/online pass nothing ("no overrides").
+- The player's saved arena selection rides `JoinOptions.mapSelection` on
+  every join. It is consulted only when that join **creates** the room
+  (Colyseus hands the creating client's options to `onCreate`): `BattleRoom`
+  validates it (`isMapSelection`, fallback `"random"`), resolves `"random"`,
+  runs `applyMap(mapId)` **before** constructing `BattleSim`, and replicates
+  the concrete id as `BattleState.mapId`. Joiners inherit; their value is
+  ignored.
+- The client (`main.ts` `startOnline`) awaits `NetClient.mapId()` (the join
+  promise can settle before the first full state decodes) and applies the
+  server's map into its local GameConfig before constructing `NetworkGame` —
+  carrier placement, nebula/storm zones, and wreck hazards are all read from
+  config at construction.
+- `NetworkGame` gained wreck support for The Wreck: local `Hulk` sims +
+  `HulkView`s built from `GameConfig.hazards`, poses integrated on the render
+  clock (constant rates — same trick as the replicated rocks), hull sections
+  added to the cosmetic-bolt obstacle list, and the predicted own-ship bumped
+  out via the shared `bumpShipOutOfHulkSection` (extracted from
+  `BattleSim.resolveHulkCollisions`).
+- The loadout menu shows the arena picker on the online MISSION step too,
+  with the briefing spelling out host-picks/joiners-inherit. Difficulty stays
+  solo-only (server bots fly stock `ai`/`commander` knobs).
+
+**Server caveat** (documented on `applyMap`): GameConfig is process-global, so
+on a multi-room server the last-created room's map owns the globals. Every
+map-driven field is read at construction, so existing rooms keep their board;
+the one mid-match read is shatter-chunk drift speed, which is cosmetic-only
+(chunks replicate with their actual drift).

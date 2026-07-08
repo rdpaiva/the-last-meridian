@@ -14,6 +14,7 @@ import { MissileSystem } from "./MissileSystem";
 import { AsteroidFieldSim } from "./AsteroidFieldSim";
 import type { AsteroidSim } from "./AsteroidSim";
 import { Hulk } from "./Hulk";
+import type { HulkSection } from "./HulkSection";
 import type { MothershipSection } from "./MothershipSection";
 import type { Turret } from "./Turret";
 import type { DamageTarget, InputState } from "../types";
@@ -642,23 +643,7 @@ export class BattleSim {
       if (c.launch && !c.launch.isComplete) continue;
       for (const hulk of this.hulks) {
         for (const section of hulk.sections) {
-          const dx = ship.position.x - section.position.x;
-          const dz = ship.position.z - section.position.z;
-          const distSq = dx * dx + dz * dz;
-          const bound = ship.hitRadius + section.hitRadius;
-          if (distSq >= bound * bound || distSq === 0) continue;
-          const dist = Math.sqrt(distSq);
-          const nx = dx / dist;
-          const nz = dz / dist;
-          const r = ship.hitRadius + section.surfaceRadiusToward(dx, dz);
-          if (dist >= r) continue;
-          ship.position.x = section.position.x + nx * r;
-          ship.position.z = section.position.z + nz * r;
-          const vn = ship.velocity.x * nx + ship.velocity.z * nz;
-          if (vn < 0) {
-            ship.velocity.x -= vn * nx;
-            ship.velocity.z -= vn * nz;
-          }
+          bumpShipOutOfHulkSection(ship, section);
         }
       }
     }
@@ -833,5 +818,33 @@ export function bumpShipOutOfSection(ship: Ship, s: MothershipSection): void {
       ship.position.z = s.maxZ + r;
       if (ship.velocity.z < 0) ship.velocity.z = 0;
     }
+  }
+}
+
+/**
+ * Push a ship out of a wreck hull section (ORIENTED box, unlike the carrier's
+ * axis-aligned sections): broad phase against the box's bounding circle, then
+ * eject to the oriented hull surface along the contact direction — so the
+ * keep-out hugs the rectangle and thins as the wreck rolls edge-on
+ * (surfaceRadiusToward). Exported for the networked client's prediction, the
+ * same reason as bumpShipOutOfSection.
+ */
+export function bumpShipOutOfHulkSection(ship: Ship, section: HulkSection): void {
+  const dx = ship.position.x - section.position.x;
+  const dz = ship.position.z - section.position.z;
+  const distSq = dx * dx + dz * dz;
+  const bound = ship.hitRadius + section.hitRadius;
+  if (distSq >= bound * bound || distSq === 0) return;
+  const dist = Math.sqrt(distSq);
+  const nx = dx / dist;
+  const nz = dz / dist;
+  const r = ship.hitRadius + section.surfaceRadiusToward(dx, dz);
+  if (dist >= r) return;
+  ship.position.x = section.position.x + nx * r;
+  ship.position.z = section.position.z + nz * r;
+  const vn = ship.velocity.x * nx + ship.velocity.z * nz;
+  if (vn < 0) {
+    ship.velocity.x -= vn * nx;
+    ship.velocity.z -= vn * nz;
   }
 }

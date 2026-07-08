@@ -67,7 +67,11 @@ export interface LoadoutActions {
  *       styled as pilot registration (it feeds the PILOT chip live).
  *   2 — HANGAR: faction cards, the selected side's roster, the live preview.
  *   3 — MISSION: solo → difficulty + arena; online → the quick-match/invite
- *       briefing (the server owns the arena, so no picker is shown).
+ *       briefing + the arena picker (the ROOM owns the arena: the pick rides
+ *       the join and applies when this player's join creates the room —
+ *       joiners inherit the host's board; difficulty stays solo-only). An
+ *       INVITE join hides the picker entirely: the friend's room already
+ *       has its arena, so there is genuinely nothing to pick.
  *
  * Interaction:
  *   - every selection (mode, faction, ship, difficulty, map, callsign) is
@@ -343,12 +347,16 @@ export class LoadoutMenu {
     this.render();
   }
 
-  /** The keyboard-walkable rows of the current step. Online mission setup has
-   *  none — the server owns difficulty and arena, so there's nothing to pick. */
+  /** The keyboard-walkable rows of the current step. Online mission setup
+   *  keeps the arena row (the pick becomes the room's map when this player
+   *  hosts a fresh one) but not difficulty — bots fly server defaults. An
+   *  INVITE join gets no picker at all: the friend's room already has its
+   *  arena, so offering a choice that can't apply would just mislead. */
   private rows(): readonly Row[] {
     if (this.step === 1) return ["mode"];
     if (this.step === 2) return ["faction", "ship"];
-    return this.mode === "solo" ? ["difficulty", "map"] : [];
+    if (this.mode === "solo") return ["difficulty", "map"];
+    return inviteRoomId() ? [] : ["map"];
   }
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
@@ -583,7 +591,9 @@ export class LoadoutMenu {
           ? "←/→ SELECT · ↑/↓ ROW · ENTER NEXT · ESC BACK"
           : this.mode === "solo"
             ? "←/→ SELECT · ↑/↓ ROW · ENTER LAUNCH · ESC BACK"
-            : "ENTER LAUNCH · ESC BACK";
+            : this.rows().length > 0
+              ? "←/→ SELECT · ENTER LAUNCH · ESC BACK"
+              : "ENTER LAUNCH · ESC BACK"; // invite join — nothing to pick
     return `
       <div class="lo-rail lo-rail-bot">
         <div class="lo-utils">
@@ -670,29 +680,34 @@ export class LoadoutMenu {
       </div>`;
   }
 
-  /** Step 3 — solo: difficulty + arena; online: the quick-match briefing
-   *  (the server owns the battlefield, so there's nothing to pick). */
+  /** Step 3 — solo: difficulty + arena; online: the quick-match briefing +
+   *  the arena picker (the ROOM owns the arena: the pick applies when this
+   *  player's join creates the room; joiners inherit the host's board). */
   private stageMission(): string {
+    const mapCards = MAP_OPTIONS.map((id) => this.mapCard(id)).join("");
+    const mapRow = `
+      <div class="loadout-subheading">Arena</div>
+      <div class="loadout-row${this.activeRow === "map" ? " active" : ""}" id="loadout-maps">${mapCards}</div>`;
     if (this.mode === "online") {
+      // An invite join inherits the friend's arena — no picker (rows() agrees).
       const invite = inviteRoomId() !== null;
       const briefing = invite
-        ? `<b>JOIN FRIENDS</b> — your invite link seats you in your friend's room. If it's gone, you'll quick-match instead.`
-        : `<b>QUICK MATCH</b> — you'll be seated against the next pilot on the server.<br>
+        ? `<b>JOIN FRIENDS</b> — your invite link seats you in your friend's room, on <b>their arena</b>. If it's gone, you'll quick-match instead.`
+        : `<b>QUICK MATCH</b> — you'll be seated against the next pilot on the server. Your arena pick applies when you start the room; joining one in progress flies its host's arena.<br>
            After launch the address bar becomes your <b>invite link</b> — share it and a friend joins your room.`;
       const info = SHIP_INFO[this.shipType];
       return `
         <div class="loadout-heading">Mission setup</div>
         <div class="online-note">${briefing}</div>
+        ${invite ? "" : mapRow}
         <div class="mission-summary">${FACTION_THEME[this.faction].fullName} · ${info.name} ${info.role}</div>`;
     }
     const diffCards = DIFFICULTY_ORDER.map((id) => this.diffCard(id)).join("");
-    const mapCards = MAP_OPTIONS.map((id) => this.mapCard(id)).join("");
     return `
       <div class="loadout-heading">Mission setup</div>
       <div class="loadout-subheading">Difficulty</div>
       <div class="loadout-row${this.activeRow === "difficulty" ? " active" : ""}" id="loadout-difficulty">${diffCards}</div>
-      <div class="loadout-subheading">Arena</div>
-      <div class="loadout-row${this.activeRow === "map" ? " active" : ""}" id="loadout-maps">${mapCards}</div>`;
+      ${mapRow}`;
   }
 
   /** Re-bind every handler after a render (innerHTML wipes the old ones). */

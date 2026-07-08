@@ -1,4 +1,19 @@
-import { schema, type SchemaType } from "@colyseus/schema";
+import { Encoder, schema, type SchemaType } from "@colyseus/schema";
+
+/**
+ * Encoder buffer headroom. @colyseus/schema defaults to 8KB, and a room that
+ * uses StateView (our sensor-filtered `ships` map) SILENTLY TRUNCATES a
+ * joining client's initial full state when it overflows that: `encode()`
+ * resizes into a fresh buffer on overflow, but `encodeAllView()` slices the
+ * STALE one it was handed (`SchemaSerializer.fullEncodeBuffer`, sized once at
+ * room creation from this constant). Symptom: the last entries of a big
+ * initial state decode with undefined fields — a dense-map join (The Belt's
+ * 95 asteroids) shipped NaN rocks that poisoned the client's prediction and
+ * blanked the scene. Sized here, next to the schema it protects, so every
+ * hosting process (server entry AND the @colyseus/testing boot) gets it
+ * before the first room constructs. 64KB ≈ 8× the worst current map.
+ */
+Encoder.BUFFER_SIZE = 64 * 1024;
 
 /**
  * Replicated state, defined with the v4 decorator-free `schema()` factory (no
@@ -147,6 +162,10 @@ export const BattleState = schema(
      *  board must show every pilot including never-seen stealthed ones —
      *  same rationale as pilotHumans/pilotBots. */
     scores: { map: ScoreSchema },
+    /** The room's resolved arena — a ConcreteMapId (shared Maps.ts). Set once
+     *  at room creation from the creator's selection; every client applies
+     *  this exact map before building its view, so the boards match. */
+    mapId: "string",
     /** "launching" | "playing" | "ended" */
     phase: "string",
     /** "" | "humans" | "machines" */

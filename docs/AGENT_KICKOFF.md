@@ -45,9 +45,10 @@ bar; MP-only HUD row flashes LINK COPIED; rejoin-last-match prompt
 deliberately skipped — see PHASE1_OPEN_ISSUES). OWNER-VERIFIED 2026-07-06:
 Enter after Victory lands in the right (fresh) room. Not individually
 exercised (low risk, integration-tested): the I key and the 60s banner
-linger. Hosting artifacts are in `docs/DEPLOY.md`. PROTOCOL_VERSION **20**
+linger. Hosting artifacts are in `docs/DEPLOY.md`. PROTOCOL_VERSION **22**
 (18 = 2026-07-07 match scoreboard; 19 = 2026-07-07 gunship balance pass;
-20 = 2026-07-07 wing-composition GameConfig restructure — config lives in
+20 = 2026-07-07 wing-composition GameConfig restructure; 21 = 2026-07-08
+ion storms; 22 = 2026-07-08 online arena selection — config lives in
 shared, so it's a both-sides deploy; the DEPLOYED server still answers
 v17 until the next "Deploy game" dispatch — old clients get the refresh
 prompt, so deploy both halves together as always).
@@ -193,6 +194,53 @@ SUBSYSTEMS "Ion storms", ARENA-MAPS table, ROADMAP, CLAUDE.md file map +
 config table, Field Manual terrain card grew a storm line. NOT yet
 owner-verified in-game (pick The Tempest on the MISSION step).
 
+**Built 2026-07-08 — online arena selection (the ROOM owns the map)**
+(owner-requested; online matches previously always ran the stock vanilla
+board — `applyMap` was solo-only and `BattleRoom` had no map concept).
+Flow: the arena picker now ALSO shows on the online MISSION step
+(`LoadoutMenu.rows()`/`stageMission()`); the saved selection rides
+`JoinOptions.mapSelection` (`NetClient.options`, fed by `main.ts`
+`startOnline`); `BattleRoom.onCreate(options)` validates
+(`isMapSelection`) + resolves "random" + `applyMap(mapId)` BEFORE
+`new BattleSim()`, then replicates `BattleState.mapId`; the client awaits
+`NetClient.mapId()` (first-state race guard) and applies the server's map
+into local GameConfig before constructing `NetworkGame`. Joiners inherit
+the host's board; a joiner's selection is ignored. Anchors: catalog +
+applier MOVED to `shared/src/Maps.ts` (injectable `MapOverrideHooks` —
+solo passes the ConfigOverrides predicates via the client shim
+`client/src/game/Maps.ts`, server/online pass none so local tuning can't
+desync the board); `server/src/rooms/BattleRoom.ts` onCreate;
+`server/src/schema/BattleState.ts` `mapId`; `client/src/net/NetClient.ts`
+`mapId()`; `client/src/main.ts` `startOnline`. NetworkGame grew WRECK
+support (The Wreck online): local `Hulk` sims + `HulkView`s from
+`GameConfig.hazards`, poses integrated on the render clock like the
+replicated rocks, sections in the cosmetic-bolt obstacle list
+(`cosmeticObstacles` — separate from `rockObstacles`, which the radar
+draws), prediction bump via the NEW shared `bumpShipOutOfHulkSection`
+(extracted from `BattleSim.resolveHulkCollisions`). PROTOCOL_VERSION
+**22**. Multi-room caveat documented on the shared `applyMap` (GameConfig
+is process-global; all map fields are construction-time reads). Tests: the
+server suite pins `mapSelection: "openVoid"` in `joinOpts`
+(`tests/server/battleRoom.test.ts`); 22/22 green + typecheck.
+**Found+fixed in browser verification (blank-screen bug)**: The Belt's
+95-rock initial state overflowed @colyseus/schema's 8KB
+`Encoder.BUFFER_SIZE` — and `encodeAllView` (the StateView path our
+sensor-filtered `ships` map forces every client through) slices the STALE
+pre-resize buffer, silently TRUNCATING the joining client's full state
+(upstream bug; the last ~18 rocks decoded with undefined fields → NaN
+AsteroidSims → the prediction's collision bump NaN-poisoned the camera →
+blank scene, live HUD). Fix: `Encoder.BUFFER_SIZE = 64 * 1024` set in
+`server/src/schema/BattleState.ts` (imported by the server entry AND the
+test boot). Verified 2026-07-08 in-browser: Belt online joins with 95/95
+healthy rocks, zero NaN, scene renders. Symptom signature if a future map
+outgrows 64KB: same blank screen + "@colyseus/schema buffer overflow"
+warning in the server log.
+OWNER-VERIFIED 2026-07-08: Belt online (post buffer fix), invite join
+inherits the host's arena, and the invite MISSION step now HIDES the
+picker (a joiner's pick can't apply — quick match keeps it, since that
+join may create the room). Two-tab run also exercised The Wreck online
+(hulk replicated + depicted on both clients).
+
 **Owner goal**: a friends playtest — HOSTING IS LIVE (provisioned
 2026-07-06, CI-path verified same day). Topology in `docs/DEPLOY.md`
 ("Provisioned state" section has every detail): ONE DigitalOcean droplet
@@ -219,6 +267,11 @@ playtest results: what broke, what felt off, overlay numbers if netcode>
    (`storms.zapDamage`/`zapIntervalSec` are match-settings knobs), the AI
    actually flies the lanes, and hiding in a storm breaks lock/track.
    Balance findings → GameConfig/`Maps.ts` `theTempest` zone tweaks.
+0b. ~~Owner check of online arena selection~~ DONE 2026-07-08 (see the
+   state paragraph): Belt + Wreck verified online two-tab; The Tempest
+   online not individually exercised (low risk — same zone/replication
+   path as nebulas, stormZap event predates this work). Remember: both
+   halves must be deployed together (v22).
 1. **The friends playtest** — everything before it is DONE and
    owner-verified working (2026-07-06): apex DNS + cert live, Pages
    unpublished (old URL 404s), unified "Deploy game" workflow proven

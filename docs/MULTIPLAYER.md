@@ -84,6 +84,19 @@ them. Status summary belongs in `docs/ROADMAP.md` as phases complete.
   `shipDied` relay off the existing `lastHitBy` ledger; tallies stay with
   the SEAT across human↔AI occupancy swaps (the row renames). Bumped
   PROTOCOL_VERSION to 18.
+- **The ROOM owns the arena** (decided 2026-07-08). The map is a room
+  property, not a per-client choice: the creating client's saved arena
+  selection rides `JoinOptions.mapSelection`, `BattleRoom.onCreate`
+  validates + resolves it and runs the shared `applyMap` BEFORE the
+  BattleSim constructs, and the concrete id replicates as
+  `BattleState.mapId`. Every client (creator included — "random" resolves
+  server-side) awaits that id and applies the same map locally before
+  building its view; joiners inherit the host's board and their own
+  selection is ignored. Online, `applyMap` runs WITHOUT the
+  ConfigOverrides precedence hooks — local match-settings tuning of board
+  knobs must not desync a client from the server. Full flow + the
+  multi-room GameConfig caveat: docs/ARENA-MAPS.md → "Multiplayer".
+  Bumped PROTOCOL_VERSION to 22.
 - **AI wingmen stay in multiplayer** (decided 2026-06-12). Quick-match
   rooms backfill every empty seat with `AIController` ships: solo join =
   today's single-player on the server, humans silently replace AI as
