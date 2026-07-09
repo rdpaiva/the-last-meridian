@@ -1788,7 +1788,10 @@ export class Game {
           if (home.isAlive) {
             const fromX = ship.position.x;
             const fromZ = ship.position.z;
-            const bay = home.getLaunchStartPosition(c.bayIndex);
+            // Arrival point, NOT the raw bay staging coordinate — the bay sits
+            // inside the hull colliders and an unprotected teleport there
+            // wedges the ship (no launch sequence to suspend the keep-out).
+            const bay = home.getJumpArrivalPosition(c.bayIndex);
             ship.jumpTeleport(bay.x, bay.z, home.rotationY);
             this.events.emit("jumpFired", {
               ship,

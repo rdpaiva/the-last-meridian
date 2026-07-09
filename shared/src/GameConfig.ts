@@ -1954,6 +1954,19 @@ export const GameConfig = {
     commitMs: 1000,
     /** Camera trauma kick when the player's jump fires (the "whoosh out" punch). */
     arrivalTrauma: 0.35,
+    /**
+     * Free space (world units) required between a jump-arrival point and the
+     * nearest hull collider face. The raw launch-bay staging coordinate sits
+     * INSIDE the carrier's solid hull boxes (that's fine for catapult launches,
+     * which suspend the keep-out), but a jump arrival has no launch sequence —
+     * teleporting there wedged the ship between overlapping colliders (the
+     * Choirship's bay housing + nacelle nose ping-ponged it forever). So
+     * Mothership.getJumpArrivalPosition pushes the arrival outboard of the bay
+     * until it clears every hull box by this margin. Must comfortably exceed
+     * the largest fighter hitRadius (~1.9) and stay small enough that the
+     * arrival remains inside the service bubble (service.radius around the bay).
+     */
+    arrivalClearance: 6,
 
     /**
      * AI jump-out doctrine (AIController). A pilot rolls its OWN thresholds

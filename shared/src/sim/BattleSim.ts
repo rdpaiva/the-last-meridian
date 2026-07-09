@@ -450,7 +450,10 @@ export class BattleSim {
         if (ship.tickJump(dtSeconds)) {
           const home = this.motherships[ship.faction];
           if (home.isAlive) {
-            const bay = home.getLaunchStartPosition(c.bayIndex);
+            // Arrival point, NOT the raw bay staging coordinate — the bay sits
+            // inside the hull colliders and an unprotected teleport there
+            // wedges the ship (no launch sequence to suspend the keep-out).
+            const bay = home.getJumpArrivalPosition(c.bayIndex);
             const fromX = ship.position.x;
             const fromZ = ship.position.z;
             ship.jumpTeleport(bay.x, bay.z, home.rotationY);

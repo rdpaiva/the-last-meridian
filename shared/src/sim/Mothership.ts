@@ -343,6 +343,64 @@ export class Mothership implements DamageTarget {
   }
 
   /**
+   * World-space JUMP-ARRIVAL point for bay `bayIndex`: the bay's staging
+   * coordinate pushed OUTBOARD (away from the keel) until it clears every
+   * hull collider box by GameConfig.jump.arrivalClearance. The raw staging
+   * point sits inside the solid hull (fine for catapult launches, which
+   * suspend the keep-out — see BattleSim.resolveMothershipCollisions), but a
+   * jump arrival is unprotected: teleporting there wedged the ship between
+   * overlapping colliders. INVARIANT: the cleared point must stay inside the
+   * service bubble (service.radius around the bay) so an arrival still gets
+   * serviced, per docs/JUMP-DRIVE-AND-RESUPPLY.md ("arrive stopped in the
+   * bubble"); both carriers clear within ~20 units, radius is 40. Computed on
+   * demand (jumps are rare) — no cache to go stale when setModelLaunchData
+   * refines the bays off the loaded GLB. Y forced to 0 like
+   * getLaunchStartPosition.
+   */
+  getJumpArrivalPosition(bayIndex = 0): Vector3 {
+    const bays = this.launchBays();
+    const bay = bays[bayIndex % bays.length];
+    const sin = Math.sin(this.rotationY);
+    const cos = Math.cos(this.rotationY);
+    // Outboard = the bay's side of the keel, in carrier-local ±x rotated to
+    // world (a centerline bay defaults starboard).
+    const side = bay.x < 0 ? -1 : 1;
+    const outX = cos * side;
+    const outZ = -sin * side;
+    const clearance = GameConfig.jump.arrivalClearance;
+    const step = 2;
+    const maxSteps = 64;
+    let x = this.position.x + cos * bay.x + sin * bay.z;
+    let z = this.position.z - sin * bay.x + cos * bay.z;
+    for (let i = 0; i <= maxSteps; i++) {
+      let clear = true;
+      for (const s of this.hullSections) {
+        if (
+          x >= s.minX - clearance &&
+          x <= s.maxX + clearance &&
+          z >= s.minZ - clearance &&
+          z <= s.maxZ + clearance
+        ) {
+          clear = false;
+          break;
+        }
+      }
+      if (clear) return new Vector3(x, 0, z);
+      x += outX * step;
+      z += outZ * step;
+    }
+    // Paranoia fallback: the catapult exit point, which the hullRects/colliders
+    // invariant already guarantees is outside the keep-out.
+    const fwd = this.getLaunchForward();
+    const exit = this.getLaunchExitDistance();
+    return new Vector3(
+      this.position.x + fwd.x * exit,
+      0,
+      this.position.z + fwd.z * exit,
+    );
+  }
+
+  /**
    * Unit forward direction (world X/Z) the catapult fires along — the carrier's
    * facing. Humans (rotationY=0) launch toward +Z; machines (rotationY=π) toward
    * -Z. Pairs with getLaunchExitDistance() so the launch works for either side.
