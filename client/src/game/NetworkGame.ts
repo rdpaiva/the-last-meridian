@@ -133,7 +133,13 @@ class ShadowShip {
    *  float over the carrier hull; DOM ignores occlusion). */
   launching = true;
 
-  constructor(readonly faction: Faction) {}
+  constructor(
+    readonly faction: Faction,
+    /** The ship type's collision radius — the predictive missile contact
+     *  fuse (fuseFriendlyMissiles) detonates depicted rounds against the
+     *  RENDERED hull, so it needs the same radius the server tests. */
+    readonly hitRadius: number,
+  ) {}
 
   get isSpoolingJump(): boolean {
     return this.spoolStartMs !== null;
@@ -394,6 +400,17 @@ export class NetworkGame {
   private hulkSimT: number | null = null;
   /** Server FX facts awaiting their sim time on the render clock. */
   private readonly fxQueue: Array<{ t: number; e: NetEvent }> = [];
+  /**
+   * Recent PREDICTIVE missile detonations (fuseFriendlyMissiles): our own
+   * depicted rounds fly on the predicted timeline, so they visibly reach the
+   * enemy hull ~a round trip + interp delay BEFORE the server's missileHit
+   * event can play — the fuse pops the boom on contact, records it here, and
+   * the matching event (arriving moments later) is consumed instead of
+   * double-popping. Entries expire (wall clock) if the server turns out to
+   * have missed — the round is gone either way, damage was never predicted.
+   */
+  private readonly localDetonations: Array<{ x: number; z: number; expiresMs: number }> =
+    [];
 
   // ─── Dev tooling: netsim inbound delay + netcode overlay ───
   /** Netsim-held state patches (cloned at arrival — see DelayedState). */
@@ -825,7 +842,10 @@ export class NetworkGame {
       this.seenKeys.add(key);
       if (!this.meta.has(key)) {
         this.meta.set(key, { faction: ship.faction, shipType: ship.shipType });
-        this.shadows.set(key, new ShadowShip(ship.faction));
+        this.shadows.set(
+          key,
+          new ShadowShip(ship.faction, GameConfig.shipTypes[ship.shipType].hitRadius),
+        );
       }
       const stub = this.shadows.get(key)!;
       if (!stub.present) {
@@ -1221,6 +1241,7 @@ export class NetworkGame {
       this.cosmeticMissiles[f].update(dt, dtMs, nowMs);
       this.missileViews[f].update();
     }
+    this.fuseFriendlyMissiles(nowMs);
     this.explosions.update(dt, dtMs);
     this.jumpFlashes.update(dtMs);
     this.stormClouds.update(dt);
@@ -1498,10 +1519,22 @@ export class NetworkGame {
       }
       case "missileHit":
       case "missileIntercepted": {
+        this.killNearestMissile(e.x, e.z);
+        // Our predictive fuse may have already depicted this exact boom
+        // (fuseFriendlyMissiles) — consume the ledger entry instead of
+        // double-popping. Never consumed for hits ON US (those come from
+        // the ENEMY pool, which the fuse doesn't touch — being hit stays
+        // strictly authoritative).
+        if (
+          e.k === "missileHit" &&
+          !(this.myKey !== null && e.target === this.myKey) &&
+          this.consumeLocalDetonation(e.x, e.z)
+        ) {
+          return;
+        }
         this.fxVec.set(e.x, e.y, e.z);
         this.explosions.spawn(this.fxVec);
         this.sound.playExplosion(this.fxVec);
-        this.killNearestMissile(e.x, e.z);
         if (e.k === "missileHit" && this.myKey !== null && e.target === this.myKey) {
           this.cameraRig.addTrauma(shake.traumaPlayerMissileHit);
         } else {
@@ -2053,6 +2086,73 @@ export class NetworkGame {
       }
     }
     best?.kill();
+  }
+
+  /**
+   * Predictive contact fuse for OUR faction's depicted missiles. Our own
+   * rounds launch from the PREDICTED ship the instant the key acts
+   * (updatePrediction), which puts them ~a round trip + interp delay ahead
+   * of the render timeline — left alone they visibly fly THROUGH the enemy
+   * and the server's missileHit boom pops behind them. Detonate the
+   * depiction the moment a round touches a rendered enemy hull (the same
+   * hitRadius the server tests), and log it so the echoing missileHit event
+   * is consumed instead of double-popping. DAMAGE IS NEVER PREDICTED — if
+   * the server disagrees (a last-instant juke), we showed a boom that dealt
+   * nothing, the standard client-prediction trade. Teammates' rounds ride
+   * the render timeline, so for them this fires ≤ a frame before their
+   * event would — the dedup absorbs it either way.
+   */
+  private fuseFriendlyMissiles(nowMs: number): void {
+    const rounds = this.cosmeticMissiles[this.playerFaction].rounds;
+    if (rounds.length === 0) return;
+    const enemies = this.shadowStubs[this.enemyFaction];
+    for (const round of rounds) {
+      if (!round.isAlive) continue;
+      for (const shadow of enemies) {
+        if (!shadow.isAlive || shadow.launching) continue;
+        const dx = round.position.x - shadow.position.x;
+        const dz = round.position.z - shadow.position.z;
+        const r = shadow.hitRadius;
+        if (dx * dx + dz * dz > r * r) continue;
+        round.kill();
+        this.fxVec.set(round.position.x, 0, round.position.z);
+        this.explosions.spawn(this.fxVec);
+        this.sound.playExplosion(this.fxVec);
+        this.cameraRig.addTrauma(
+          this.traumaAtDistance(GameConfig.shake.traumaMissileHit, this.fxVec.x, this.fxVec.z),
+        );
+        this.localDetonations.push({
+          x: this.fxVec.x,
+          z: this.fxVec.z,
+          expiresMs: nowMs + 600,
+        });
+        break;
+      }
+    }
+  }
+
+  /**
+   * Match a server missileHit against a recent predictive detonation
+   * (fuseFriendlyMissiles) and consume it — true means the boom was already
+   * depicted locally and the event should skip its own. Expired entries
+   * (server never confirmed — it missed) are pruned as encountered.
+   */
+  private consumeLocalDetonation(x: number, z: number): boolean {
+    const now = performance.now();
+    for (let i = this.localDetonations.length - 1; i >= 0; i--) {
+      const d = this.localDetonations[i];
+      if (now > d.expiresMs) {
+        this.localDetonations.splice(i, 1);
+        continue;
+      }
+      const dx = d.x - x;
+      const dz = d.z - z;
+      if (dx * dx + dz * dz <= 6 * 6) {
+        this.localDetonations.splice(i, 1);
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Same as killNearestBolt, for cosmetic missile rounds (wider net — the

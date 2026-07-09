@@ -270,6 +270,54 @@ CLAUDE.md (file map + out-of-scope menu exception now TWO) +
 SUBSYSTEMS.md "Map editor". Typecheck + 22/22 green. NOT yet
 owner-verified in the browser.
 
+**Built 2026-07-08 — projectile tunneling fix (both-body swept collision)**
+(from the owner's friends-playtest finding: missiles flew straight through
+opposing players and looped back). ROOT CAUSE: `MissileSystem` tested a
+point at the missile's end-of-tick position; at the server's 30Hz a head-on
+pass closes ~2.4 u/tick vs a fighter's 2.0u capture diameter, so dead-center
+hits skipped the circle entirely (~25% of true hits ghosted); `LaserSystem`
+swept only the bolt while pinning the target at end-of-tick (~7.5% ghosted).
+FIX: both weapon systems now sweep the closest approach of BOTH bodies'
+per-tick paths — `sweptClosestT` in `shared/src/math.ts`; the target's
+tick-start is reconstructed `position - velocity * dt` (new optional
+`DamageTarget.velocity`; teleports zero velocity so the sweep collapses to
+a point — jump drive can't smear a phantom hitbox). Hits now report the
+CONTACT POINT (kills the "explosion pops behind the ship" client depiction).
+Regression suite `tests/sim/missileTunneling.test.ts` pins the sim against
+an independent dense-sampling continuous-time oracle (it FAILS on the old
+code: 3/6). Baseline recaptured (18,349 → 35,575 ticks — more shots land,
+fleet attrition changed; outcome still victory). NOTE: an identical fix was
+built + verified earlier on 2026-07-08 but never committed; the owner
+retested against code that couldn't have contained it (the DEPLOYED server
+runs the collision test) and discarded it as ineffective. THE RETEST MUST
+RUN ON A SERVER BUILT FROM THIS CODE: local `npm run server` + two tabs, or
+owner-dispatched "Deploy game" first. 32/32 tests green. NO protocol bump
+(sim behavior, no wire shape change) — but server redeploy required to take
+effect online.
+
+**Built 2026-07-08 — predictive missile contact fuse (client depiction)**:
+owner's local retest of the tunneling fix confirmed the SERVER hit lands,
+but exposed the depiction seam it had been masking: our OWN missiles launch
+from the PREDICTED ship (`NetworkGame.updatePrediction`) ~a round trip +
+`net.interpDelayMs` ahead of the render timeline, so the depicted round
+visibly flew THROUGH the enemy and the `missileHit` boom popped behind it
+~130ms later. Fix (client-only, no protocol change): `fuseFriendlyMissiles`
+detonates our faction's depicted rounds on contact with a rendered enemy
+hull (`ShadowShip` now carries the type's `hitRadius`), logs the boom in
+`localDetonations`, and the echoing `missileHit` event is consumed by
+`consumeLocalDetonation` instead of double-popping. Damage is never
+predicted; hits ON US never consume (enemy-pool rounds are untouched —
+being hit stays authoritative). If the server misses after a fuse pop, the
+entry just expires (600ms): one boom that dealt nothing, the standard
+prediction trade. Anchors: `client/src/game/NetworkGame.ts`
+(`fuseFriendlyMissiles` / `consumeLocalDetonation` / `localDetonations`,
+fuse call after the cosmetic pools in `tick`, dedup atop the `missileHit`
+case in `applyFxEvent`, `ShadowShip.hitRadius`). Known remaining seams,
+deliberately unfixed: our own LASER bolts overfly the same way (~12u at 95
+u/s) before `killNearestBolt` — fainter artifact, watch for owner reports;
+missiles into CARRIER hulls/turrets/rocks still boom event-late (fuse only
+covers ship shadows).
+
 **Owner goal**: a friends playtest — HOSTING IS LIVE (provisioned
 2026-07-06, CI-path verified same day). Topology in `docs/DEPLOY.md`
 ("Provisioned state" section has every detail): ONE DigitalOcean droplet
@@ -290,6 +338,17 @@ playtest results: what broke, what felt off, overlay numbers if netcode>
 
 **Work order**:
 
+0a. **Verify the tunneling fix ON A SERVER RUNNING IT** (built 2026-07-08,
+   see the state paragraph above — this is the second landing of this fix;
+   the first was discarded after a retest that never exercised it): deploy
+   both halves ("Deploy game" dispatch, owner clicks) or run
+   `npm run server` locally with two browser tabs, then joust head-on with
+   missiles. Missiles should now detonate ON the hull; designed near-misses
+   (hard jukes beating `missile.turnRate`) still loop back but pass to the
+   SIDE, never through the centerline. Anchors:
+   `shared/src/sim/MissileSystem.ts` + `LaserSystem.ts` target loops,
+   `sweptClosestT` in `shared/src/math.ts`,
+   `tests/sim/missileTunneling.test.ts`.
 0. **Owner check of the ion storms** (built 2026-07-08, see the state
    paragraph above for anchors): launch The Tempest, verify the storm
    clouds read as danger (cyan + lightning), zap pacing feels fair
