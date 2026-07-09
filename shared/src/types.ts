@@ -53,6 +53,17 @@ export interface DamageTarget {
   readonly hitRadius: number;
   readonly isAlive: boolean;
   /**
+   * Optional world-space velocity (units/sec), present on targets that MOVE
+   * (ships). Weapon collision sweeps BOTH bodies' per-tick paths — the
+   * target's tick-start is reconstructed as `position - velocity * dt`, so
+   * this must be the velocity the tick's position integration actually used.
+   * Absent = the target is treated as static for the tick (turrets, hull
+   * sections, motherships). Teleports (jump drive, respawn) MUST zero the
+   * velocity in the same tick, so the reconstruction collapses to a point
+   * instead of sweeping a phantom hitbox across the arena (Ship does).
+   */
+  readonly velocity?: Vector3;
+  /**
    * Apply damage at sim time `nowMs`. The timestamp is the CALLER's sim
    * clock (Game.tick's frame clock today, the server's tick clock in
    * multiplayer) — death timers must run on sim time, never wall clock.

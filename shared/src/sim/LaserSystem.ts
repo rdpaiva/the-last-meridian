@@ -1,6 +1,11 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 
 import { GameConfig } from "../GameConfig";
+import {
+  closestTOnSegmentXZ,
+  distSqSegmentToPointXZ,
+  sweptClosestT,
+} from "../math";
 import { Laser } from "./Laser";
 import type { DamageTarget, Interceptable } from "../types";
 import type { Ship } from "./Ship";
@@ -15,8 +20,9 @@ import type { Ship } from "./Ship";
  * per-hit damage, the shared asteroid obstacle list, and an optional onHit
  * callback (the client uses it for feedback; the server, for replication).
  *
- * Collision check is intentionally simple: swept X/Z segment vs. each target's
- * `hitRadius`. Y is ignored because gameplay is on a single plane. On a hit,
+ * Collision sweeps BOTH bodies: the bolt's per-tick path segment against the
+ * target's per-tick path (reconstructed from its velocity — see sweptClosestT
+ * in math.ts). Y is ignored because gameplay is on a single plane. On a hit,
  * the target takes damage and the bolt is killed for removal on the next sweep.
  */
 export type LaserSystemOptions = {
@@ -199,7 +205,9 @@ export class LaserSystem {
         if (!rock.isAlive) continue;
         // Closest point on the bolt's path segment to the rock center; the
         // squared distance there is what we test the silhouette against.
-        const t = closestTOnSegment(rock.position.x, rock.position.z, ax, az, bx, bz);
+        // Rocks are tested STATIC by contract: the field updates AFTER the
+        // weapon systems each tick, so `position` is the rock's tick pose.
+        const t = closestTOnSegmentXZ(rock.position.x, rock.position.z, ax, az, bx, bz);
         const cx = ax + (bx - ax) * t;
         const cz = az + (bz - az) * t;
         const dx = cx - rock.position.x;
@@ -225,10 +233,14 @@ export class LaserSystem {
       // Same swept-segment test, against the missile's intercept bubble; the
       // first one the path crosses is destroyed and consumes the bolt. Checked
       // before ship targets so a defensive shot favors the incoming round.
+      // NOTE: point defense deliberately stays a STATIC test (missile pinned
+      // at its current position): missiles update AFTER lasers each tick, so
+      // a velocity reconstruction here would need the opposite sign, and the
+      // generous interceptRadius already lands ~96% of dead-aimed bolts.
       let intercepted = false;
       for (const missile of interceptables) {
         if (!missile.isAlive) continue;
-        const distSq = distSqSegmentToPoint(
+        const distSq = distSqSegmentToPointXZ(
           missile.position.x,
           missile.position.z,
           ax,
@@ -246,10 +258,16 @@ export class LaserSystem {
       }
       if (intercepted) continue;
 
-      // Collision: swept X/Z test of the path segment against each live target.
-      // Y axis is ignored — gameplay is on one plane. First overlap consumes
-      // the bolt. The hitRadius circle is the broad phase; targets with an
-      // exact silhouette (mothership hull boxes) refine it via
+      // Collision: closest approach of the bolt's path vs. EACH TARGET'S PATH
+      // this tick (both bodies swept — see sweptClosestT; pinning the target
+      // at its end-of-tick point lets fast head-on targets slip a bolt). The
+      // target's tick-start is reconstructed from its velocity: ships advance
+      // BEFORE the weapon systems in BattleSim.advance, so `position` is
+      // end-of-tick and `position - velocity * dt` is where the tick began
+      // (teleports zero velocity, collapsing the sweep to a point). Y axis is
+      // ignored — gameplay is on one plane. First overlap consumes the bolt.
+      // The hitRadius circle is the broad phase; targets with an exact
+      // silhouette (mothership hull boxes — always static) refine it via
       // intersectsSegmentXZ so the bolt only dies on the visible hull.
       for (const target of targets) {
         if (!target.isAlive) continue;
@@ -266,9 +284,18 @@ export class LaserSystem {
         ) {
           continue;
         }
-        const distSq = distSqSegmentToPoint(target.position.x, target.position.z, ax, az, bx, bz);
+        const tex = target.position.x;
+        const tez = target.position.z;
+        const vel = target.velocity;
+        const tsx = vel ? tex - vel.x * deltaSeconds : tex;
+        const tsz = vel ? tez - vel.z * deltaSeconds : tez;
+        const t = sweptClosestT(ax, az, bx, bz, tsx, tsz, tex, tez);
+        const px = ax + (bx - ax) * t;
+        const pz = az + (bz - az) * t;
+        const dx = px - (tsx + (tex - tsx) * t);
+        const dz = pz - (tsz + (tez - tsz) * t);
         const radiusSq = target.hitRadius * target.hitRadius;
-        if (distSq > radiusSq) continue;
+        if (dx * dx + dz * dz > radiusSq) continue;
         if (
           target.intersectsSegmentXZ &&
           !target.intersectsSegmentXZ(ax, az, bx, bz)
@@ -276,6 +303,12 @@ export class LaserSystem {
           continue;
         }
         target.takeDamage(laser.damage, nowMs);
+        // Report the impact at the CONTACT POINT, not the bolt's post-move
+        // tip — a 3.2u step past a 2.4u ship is exactly the "bolt sails
+        // through, spark pops behind it" clients would otherwise depict
+        // (the server sends this position on the wire as laserHit).
+        laser.position.x = px;
+        laser.position.z = pz;
         laser.kill();
         this.onHit?.(target, laser.shooter, laser.position);
         break;
@@ -295,52 +328,4 @@ export class LaserSystem {
   get count(): number {
     return this.lasers.length;
   }
-}
-
-/**
- * Clamped parameter `t` in [0, 1] of the point on segment a→b nearest to
- * point p, in the X/Z plane. `t = 0` is at `a`, `t = 1` is at `b`. Used to
- * resolve where along a bolt's per-frame path it passes closest to a circle
- * center (degenerate zero-length segments — e.g. a bolt's spawn frame, where
- * it hasn't moved yet — return 0).
- */
-function closestTOnSegment(
-  px: number,
-  pz: number,
-  ax: number,
-  az: number,
-  bx: number,
-  bz: number,
-): number {
-  const abx = bx - ax;
-  const abz = bz - az;
-  const lenSq = abx * abx + abz * abz;
-  if (lenSq <= 0) return 0;
-  let t = ((px - ax) * abx + (pz - az) * abz) / lenSq;
-  if (t < 0) t = 0;
-  else if (t > 1) t = 1;
-  return t;
-}
-
-/**
- * Squared distance from point p to the nearest point on segment a→b, in the
- * X/Z plane. This is the swept collision primitive: comparing it to a target's
- * squared hit radius tells us whether the bolt's path THIS FRAME crossed the
- * target's circle, regardless of how far the bolt stepped — closing the
- * tunneling gap a point-at-new-position test leaves open.
- */
-function distSqSegmentToPoint(
-  px: number,
-  pz: number,
-  ax: number,
-  az: number,
-  bx: number,
-  bz: number,
-): number {
-  const t = closestTOnSegment(px, pz, ax, az, bx, bz);
-  const cx = ax + (bx - ax) * t;
-  const cz = az + (bz - az) * t;
-  const dx = px - cx;
-  const dz = pz - cz;
-  return dx * dx + dz * dz;
 }

@@ -1,7 +1,7 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 
 import { GameConfig } from "../GameConfig";
-import { wrapAngle } from "../math";
+import { closestTOnSegmentXZ, sweptClosestT, wrapAngle } from "../math";
 // Damage rolls draw from the seeded SIM RNG (not Math.random) so battles are
 // reproducible from a seed — see src/game/sim/SimRng.ts for the rule.
 import { simRandom } from "./SimRng";
@@ -20,11 +20,15 @@ import type { Ship } from "./Ship";
  * so kill attribution and feedback scaling work the same whether the player
  * or an AI pilot fired.
  *
- * Collision reuses the laser pattern: a simple X/Z distance test against every
- * registered target each frame (so a ballistic or off-target missile still
- * detonates on contact). On a hit, damage is rolled uniformly in
+ * Collision reuses the laser pattern: the missile's per-tick path segment is
+ * swept against every registered target's per-tick path (BOTH bodies move —
+ * see sweptClosestT in math.ts; a point test at the missile's new position
+ * tunnels at the 30Hz server tick, where a head-on pass closes more than a
+ * fighter's whole capture diameter per step). A ballistic or off-target
+ * missile still detonates on contact. On a hit, damage is rolled uniformly in
  * [minDamage, maxDamage], the missile is killed, and onHit fires with the
- * impact position so the caller can pop an explosion there.
+ * impact position — the contact point — so the caller can pop an explosion
+ * there.
  */
 export type MissileSystemOptions = {
   /** Inclusive damage roll bounds applied per hit. */
@@ -141,8 +145,19 @@ export class MissileSystem {
     const targets = this.targets;
 
     for (const missile of this.missiles) {
+      // Capture the round's position BEFORE it moves: a→b is its path this
+      // tick, and every collision test below sweeps that segment. A point
+      // test at only the new position tunnels — at the 30Hz server tick a
+      // head-on pass closes ~2.4 units/tick against a fighter's 2.0-unit
+      // capture diameter, so dead-center hits skip clean across the circle
+      // between two samples (the "missile flies through the ship and loops
+      // back" playtest bug).
+      const ax = missile.position.x;
+      const az = missile.position.z;
       missile.update(deltaSeconds, deltaMs);
       if (missile.isExpired) continue;
+      const bx = missile.position.x;
+      const bz = missile.position.z;
 
       // Mid-flight re-acquisition: a missile launched without a lock seeks the
       // nearest live enemy ahead of it (within seekRange + seekConeAngle) and
@@ -153,12 +168,17 @@ export class MissileSystem {
       }
 
       // Cover: a rock in the way detonates the missile (and chips the rock).
-      // Checked before targets so a missile can't punch through cover.
+      // Checked before targets so a missile can't punch through cover. Rocks
+      // are tested STATIC by contract (the field updates AFTER the weapon
+      // systems each tick), but the MISSILE's path is swept, same as lasers.
       let blocked = false;
       for (const rock of this.obstacles) {
         if (!rock.isAlive) continue;
-        const dx = missile.position.x - rock.position.x;
-        const dz = missile.position.z - rock.position.z;
+        const t = closestTOnSegmentXZ(rock.position.x, rock.position.z, ax, az, bx, bz);
+        const cx = ax + (bx - ax) * t;
+        const cz = az + (bz - az) * t;
+        const dx = cx - rock.position.x;
+        const dz = cz - rock.position.z;
         const distSq = dx * dx + dz * dz;
         // Broad phase vs. the conservative circle, then the exact directional
         // silhouette (see LaserSystem — squashed rocks shouldn't detonate a
@@ -169,6 +189,9 @@ export class MissileSystem {
           : rock.hitRadius;
         if (distSq <= r * r) {
           rock.takeDamage(this.rollDamage(), nowMs);
+          // Detonate at the contact point on the path, not past the rock.
+          missile.position.x = cx;
+          missile.position.z = cz;
           this.onHit?.(missile.position, null, missile.shooter);
           missile.kill();
           blocked = true;
@@ -177,25 +200,42 @@ export class MissileSystem {
       }
       if (blocked) continue;
 
-      // Collision: X/Z distance vs. each live target (Y ignored — single
-      // plane). First overlap detonates the missile. hitRadius is the broad
-      // phase; targets with an exact silhouette (mothership hull boxes)
-      // refine it via intersectsSegmentXZ with a zero-length segment.
+      // Collision: closest approach of the missile's path vs. EACH TARGET'S
+      // PATH this tick — both bodies swept (sweptClosestT). The target's
+      // tick-start is reconstructed from its velocity (`position - velocity
+      // * dt`): ships advance BEFORE the weapon systems in BattleSim.advance,
+      // so `position` is end-of-tick — and teleports (jump drive, respawn)
+      // zero the velocity, collapsing the sweep to a point instead of a
+      // phantom hitbox smeared across the arena. Y ignored — single plane.
+      // First overlap detonates the missile. hitRadius is the broad phase;
+      // targets with an exact silhouette (mothership hull boxes — always
+      // static) refine it via intersectsSegmentXZ over the missile's segment.
       for (const target of targets) {
         if (!target.isAlive) continue;
-        const mx = missile.position.x;
-        const mz = missile.position.z;
-        const dx = mx - target.position.x;
-        const dz = mz - target.position.z;
+        const tex = target.position.x;
+        const tez = target.position.z;
+        const vel = target.velocity;
+        const tsx = vel ? tex - vel.x * deltaSeconds : tex;
+        const tsz = vel ? tez - vel.z * deltaSeconds : tez;
+        const t = sweptClosestT(ax, az, bx, bz, tsx, tsz, tex, tez);
+        const px = ax + (bx - ax) * t;
+        const pz = az + (bz - az) * t;
+        const dx = px - (tsx + (tex - tsx) * t);
+        const dz = pz - (tsz + (tez - tsz) * t);
         const radiusSq = target.hitRadius * target.hitRadius;
         if (dx * dx + dz * dz > radiusSq) continue;
         if (
           target.intersectsSegmentXZ &&
-          !target.intersectsSegmentXZ(mx, mz, mx, mz)
+          !target.intersectsSegmentXZ(ax, az, bx, bz)
         ) {
           continue;
         }
         target.takeDamage(this.rollDamage(), nowMs);
+        // Report the impact at the CONTACT POINT — this position rides the
+        // wire as missileHit, and the client pops the explosion (and kills
+        // its cosmetic round) there.
+        missile.position.x = px;
+        missile.position.z = pz;
         this.onHit?.(missile.position, target, missile.shooter);
         missile.kill();
         break;
