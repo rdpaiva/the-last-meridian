@@ -468,18 +468,6 @@ playtest results: what broke, what felt off, overlay numbers if netcode>
    100/250/500 and feel each upgrade. Pace knobs live in the new
    "Subsystems & Stations" match-settings group. Deploy note: v25 — both
    halves together.
-0g. **M3 — Loom Fragment event + strategic polish** (optional, queued;
-   spec is READY): the full plan — config shape (`GameConfig.loom`),
-   the Loom Resonance buff (`SensorSystem.omniscient[faction]`),
-   events + `BattleState` fields (protocol bump → 26), the new
-   `LoomFragmentView`, commander diversion, Field Manual card, and the
-   verify gate — lives in **`docs/strategic-layer-plan.md` § M3**.
-   Build on the M1/M2 seams from the same doc: the sim-clock timer +
-   faction effects go in `shared/src/sim/StrategicSystem.ts`, map
-   arming via `MapConfig` in `shared/src/Maps.ts` (M2's `stations`
-   pattern), view per the JumpFlash recipe. M2's acceptance gate
-   applies: `tests/sim/baseline.json` must stay untouched (loom only
-   arms when map-enabled).
 1. **The friends playtest** — everything before it is DONE and
    owner-verified working (2026-07-06): apex DNS + cert live, Pages
    unpublished (old URL 404s), unified "Deploy game" workflow proven
