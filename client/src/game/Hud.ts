@@ -35,6 +35,53 @@ export function compareScoreRows(a: ScoreRow, b: ScoreRow): number {
  * HP gets a color cue (green / yellow / red) so the player can read their
  * health at a glance without parsing the number.
  */
+/** What the capture-status line should read for a docked player. */
+export interface CaptureStatus {
+  text: string;
+  tone: "good" | "bad" | "neutral";
+}
+
+/**
+ * Compose the capture-status line for the local pilot docked at `station`
+ * (shared by solo Game and NetworkGame so both modes read identically).
+ * Percentages are the live capture meter; "draining" shows the ENEMY meter
+ * you're burning down before your own climb starts.
+ */
+export function captureStatusFor(
+  station: {
+    owner: Faction | null;
+    capturingFaction: Faction | null;
+    progress: number;
+    contested: boolean;
+  },
+  faction: Faction,
+): CaptureStatus {
+  if (station.contested) {
+    return { text: "CAPTURE CONTESTED — CLEAR HOSTILES", tone: "bad" };
+  }
+  const pct = Math.round(station.progress * 100);
+  if (station.capturingFaction === faction) {
+    return station.owner && station.owner !== faction
+      ? { text: `NEUTRALIZING ENEMY STATION ${pct}%`, tone: "good" }
+      : { text: `CAPTURING STATION ${pct}%`, tone: "good" };
+  }
+  if (station.capturingFaction) {
+    return { text: `DRAINING ENEMY PROGRESS ${pct}%`, tone: "good" };
+  }
+  if (station.owner === faction) return { text: "STATION SECURE", tone: "neutral" };
+  return { text: "DOCKING…", tone: "neutral" };
+}
+
+/** Player-facing names for the strategic upgrade effects (toast copy). */
+export const UPGRADE_LABELS: Record<
+  "fasterRespawn" | "sensorBoost" | "subsystemRepair",
+  string
+> = {
+  fasterRespawn: "RAPID REDEPLOY",
+  sensorBoost: "SENSOR UPLINK",
+  subsystemRepair: "SUBSYSTEM REPAIR",
+};
+
 export class Hud {
   // Using HTMLElement<T> through querySelector's generic — these are spans
   // we control, so the cast is safe. We need HTMLElement for .style access
@@ -61,6 +108,19 @@ export class Hud {
   private readonly launchOverlayEl: HTMLElement | null;
   private readonly humansFillEl: HTMLElement | null;
   private readonly machinesFillEl: HTMLElement | null;
+  private humansSubsEl: HTMLElement | null = null;
+  private machinesSubsEl: HTMLElement | null = null;
+  private humansEnergyEl: HTMLElement | null = null;
+  private machinesEnergyEl: HTMLElement | null = null;
+  /** Last energy-line signature written (write-on-change; called per frame). */
+  private lastEnergySig = "";
+  private strategicToastEl: HTMLElement | null = null;
+  private strategicToastTimer: number | null = null;
+  private captureStatusEl: HTMLElement | null = null;
+  /** Last capture-status signature written (write-on-change; per frame). */
+  private lastCaptureSig = "";
+  /** Last pip signature written (write-on-change; called per frame). */
+  private lastSubsSig = "";
   private readonly endBannerEl: HTMLElement | null;
   private readonly scoreboardEl: HTMLElement | null;
 
@@ -151,15 +211,41 @@ export class Hud {
       <div class="ms-bar ms-humans">
         <span class="ms-label">${FACTION_THEME.humans.mothershipName.toUpperCase()}</span>
         <div class="ms-track"><div class="ms-fill" id="ms-fill-humans"></div></div>
+        <div class="ms-subs" id="ms-subs-humans"></div>
+        <div class="ms-energy" id="ms-energy-humans"></div>
       </div>
       <div class="ms-bar ms-machines">
         <span class="ms-label">${FACTION_THEME.machines.mothershipName.toUpperCase()}</span>
         <div class="ms-track"><div class="ms-fill" id="ms-fill-machines"></div></div>
+        <div class="ms-subs" id="ms-subs-machines"></div>
+        <div class="ms-energy" id="ms-energy-machines"></div>
       </div>
     `;
     document.body.appendChild(msBars);
     this.humansFillEl = msBars.querySelector<HTMLElement>("#ms-fill-humans");
     this.machinesFillEl = msBars.querySelector<HTMLElement>("#ms-fill-machines");
+    this.humansSubsEl = msBars.querySelector<HTMLElement>("#ms-subs-humans");
+    this.machinesSubsEl = msBars.querySelector<HTMLElement>("#ms-subs-machines");
+    this.humansEnergyEl = msBars.querySelector<HTMLElement>("#ms-energy-humans");
+    this.machinesEnergyEl = msBars.querySelector<HTMLElement>("#ms-energy-machines");
+
+    // Strategic toast — transient top-center line under the objective bars
+    // ("SHIELD GENERATOR DESTROYED" / "SHIELDS DOWN"). One at a time; a new
+    // toast replaces the current one and restarts the fade timer.
+    const toast = document.createElement("div");
+    toast.id = "strategic-toast";
+    toast.className = "strategic-toast";
+    document.body.appendChild(toast);
+    this.strategicToastEl = toast;
+
+    // Capture status — the "how much have I captured?" line while the player
+    // is docked at a station, bottom-center above the jump ring. Continuous
+    // (per-frame percentage), unlike the transient toast.
+    const capture = document.createElement("div");
+    capture.id = "capture-status";
+    capture.className = "capture-status";
+    document.body.appendChild(capture);
+    this.captureStatusEl = capture;
 
     // Victory / defeat banner — fullscreen, hidden until the match ends.
     const banner = document.createElement("div");
@@ -262,6 +348,121 @@ export class Hud {
     if (this.machinesFillEl) {
       this.machinesFillEl.style.width = `${Math.max(0, Math.min(1, machinesFrac)) * 100}%`;
     }
+  }
+
+  /**
+   * Update the subsystem pips under each carrier bar (shield generators +
+   * hangar, lit while alive). Accepts each carrier's live `subsystems` array
+   * (structural type — both Game's motherships and NetworkGame's carrierSims
+   * qualify). Write-on-change: cheap to call every frame.
+   */
+  setSubsystems(
+    humans: ReadonlyArray<{ kind: "shield" | "hangar"; isAlive: boolean }>,
+    machines: ReadonlyArray<{ kind: "shield" | "hangar"; isAlive: boolean }>,
+  ): void {
+    const sig =
+      humans.map((s) => `${s.kind}:${s.isAlive ? 1 : 0}`).join(",") +
+      "|" +
+      machines.map((s) => `${s.kind}:${s.isAlive ? 1 : 0}`).join(",");
+    if (sig === this.lastSubsSig) return;
+    this.lastSubsSig = sig;
+    const render = (
+      el: HTMLElement | null,
+      subs: ReadonlyArray<{ kind: "shield" | "hangar"; isAlive: boolean }>,
+    ) => {
+      if (!el) return;
+      el.textContent = "";
+      for (const s of subs) {
+        const pip = document.createElement("span");
+        pip.className = `ms-pip ${s.kind}${s.isAlive ? "" : " dead"}`;
+        pip.title = s.kind === "shield" ? "Shield generator" : "Hangar";
+        el.appendChild(pip);
+      }
+    };
+    render(this.humansSubsEl, humans);
+    render(this.machinesSubsEl, machines);
+  }
+
+  /**
+   * Update the per-faction Energy lines under the carrier bars (strategic
+   * layer — capture-station income + upgrade tiers). `active` false (maps
+   * without stations) keeps the lines empty/hidden. Write-on-change; cheap
+   * to call every frame.
+   */
+  setEnergy(
+    active: boolean,
+    humansEnergy: number,
+    humansTier: number,
+    machinesEnergy: number,
+    machinesTier: number,
+  ): void {
+    const hE = Math.floor(humansEnergy);
+    const mE = Math.floor(machinesEnergy);
+    const sig = active ? `${hE}:${humansTier}|${mE}:${machinesTier}` : "off";
+    if (sig === this.lastEnergySig) return;
+    this.lastEnergySig = sig;
+    const render = (el: HTMLElement | null, energy: number, tier: number) => {
+      if (!el) return;
+      if (!active) {
+        el.textContent = "";
+        return;
+      }
+      el.textContent = "";
+      const num = document.createElement("span");
+      num.className = "ms-energy-num";
+      num.textContent = `⚡ ${energy}`;
+      el.appendChild(num);
+      const tiers = GameConfig.energy.thresholds.length;
+      for (let i = 0; i < tiers; i++) {
+        const pip = document.createElement("span");
+        pip.className = `ms-tier${i < tier ? " lit" : ""}`;
+        pip.textContent = "▮";
+        pip.title = GameConfig.energy.thresholds[i].effect;
+        el.appendChild(pip);
+      }
+    };
+    render(this.humansEnergyEl, hE, humansTier);
+    render(this.machinesEnergyEl, mE, machinesTier);
+  }
+
+  /**
+   * Show/update the docked capture-status line (null = hidden). Continuous —
+   * called every frame with the live meter; write-on-change keeps the DOM
+   * quiet between percentage steps.
+   */
+  setCaptureStatus(status: CaptureStatus | null): void {
+    const el = this.captureStatusEl;
+    if (!el) return;
+    const sig = status ? `${status.tone}|${status.text}` : "";
+    if (sig === this.lastCaptureSig) return;
+    this.lastCaptureSig = sig;
+    if (!status) {
+      el.className = "capture-status";
+      el.textContent = "";
+      return;
+    }
+    el.textContent = status.text;
+    el.className = `capture-status show ${status.tone}`;
+  }
+
+  /**
+   * Flash a transient strategic notification under the objective bars
+   * ("SHIELD GENERATOR DESTROYED", "SHIELDS DOWN — HULL EXPOSED"). `tone`
+   * colors it from the local pilot's perspective: "good" = enemy setback,
+   * "bad" = ours. A new toast replaces the current one.
+   */
+  showStrategicToast(text: string, tone: "good" | "bad"): void {
+    const el = this.strategicToastEl;
+    if (!el) return;
+    el.textContent = text;
+    el.className = `strategic-toast show ${tone}`;
+    if (this.strategicToastTimer !== null) {
+      window.clearTimeout(this.strategicToastTimer);
+    }
+    this.strategicToastTimer = window.setTimeout(() => {
+      el.className = "strategic-toast";
+      this.strategicToastTimer = null;
+    }, 4000);
   }
 
   /**

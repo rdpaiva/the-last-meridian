@@ -25,7 +25,7 @@ import { SimEventBus } from "@space-duel/shared";
 import { wrapAngle } from "@space-duel/shared";
 import { CameraRig } from "./CameraRig";
 import { buildPostPipeline } from "./PostPipeline";
-import { Hud } from "./Hud";
+import { Hud, UPGRADE_LABELS, captureStatusFor, type CaptureStatus } from "./Hud";
 import { Radar } from "./Radar";
 import { MissileWarning } from "./MissileWarning";
 import { Starfield } from "./Starfield";
@@ -38,6 +38,8 @@ import { CombatNebulas } from "./CombatNebulas";
 import { StormClouds } from "./StormClouds";
 import { LightningSystem } from "./LightningSystem";
 import { StormSystem } from "@space-duel/shared";
+import { StrategicSystem } from "@space-duel/shared";
+import { StationView } from "./view/StationView";
 import { Backdrop } from "./Backdrop";
 import { ExplosionSystem } from "./ExplosionSystem";
 import { JumpFlashSystem } from "./JumpFlashSystem";
@@ -221,6 +223,10 @@ export class Game {
   private readonly stormClouds: StormClouds;
   /** Ion-storm damage sim (zaps, concealment zones, AI keep-outs). */
   private readonly storms: StormSystem;
+  /** Capture stations + Energy + upgrade effects (strategic layer M2). */
+  private readonly strategic: StrategicSystem;
+  /** One depiction per capture station (empty on station-free maps). */
+  private readonly stationViews: StationView[] = [];
   /** Procedural in-storm lightning (ambient + stormZap strikes). */
   private readonly lightning: LightningSystem;
   /** Runtime re-tasking for the ENEMY fleet (built with it in start()). */
@@ -604,6 +610,18 @@ export class Game {
       ...this.storms.zones,
     ];
 
+    // Strategic layer: capture stations + Energy + upgrade effects (mirrors
+    // BattleSim — map-placed like storms; zero placements = only the
+    // declarative effect recompute runs).
+    this.strategic = new StrategicSystem(
+      this.events,
+      this.arena.halfWidth,
+      this.arena.halfDepth,
+    );
+    for (const station of this.strategic.stations) {
+      this.stationViews.push(new StationView(this.scene, station));
+    }
+
     // Each faction's controllers see the OTHER faction as opponents — through
     // their own faction's SENSOR PICTURE, not ground truth. The contact
     // arrays are rebuilt in place each frame, so these views stay current
@@ -615,6 +633,7 @@ export class Game {
         homeMothership: this.motherships.humans,
         leader: null, // set in start(): the player ship (player side) or the lead striker (AI side)
         obstacles: this.aiObstacles,
+        stations: this.strategic.stations,
         arenaHalfX: this.arena.halfWidth,
         arenaHalfZ: this.arena.halfDepth,
       },
@@ -624,6 +643,7 @@ export class Game {
         homeMothership: this.motherships.machines,
         leader: null, // set in start(): the player ship (player side) or the lead striker (AI side)
         obstacles: this.aiObstacles,
+        stations: this.strategic.stations,
         arenaHalfX: this.arena.halfWidth,
         arenaHalfZ: this.arena.halfDepth,
       },
@@ -904,6 +924,14 @@ export class Game {
         this.factionMissiles[opposing(f)].addTarget(turret);
       }
     }
+    // Named subsystems (shield generators + hangar) register like turrets —
+    // shootable, ahead of the hull sections (they sit proud of the hull).
+    for (const f of ["humans", "machines"] as Faction[]) {
+      for (const sub of this.motherships[f].subsystems) {
+        this.factionLasers[opposing(f)].addTarget(sub);
+        this.factionMissiles[opposing(f)].addTarget(sub);
+      }
+    }
     // Carriers are targeted per HULL SECTION (overlapping circles covering the
     // full hull, each forwarding damage to the one HP pool) — not via the
     // center hitRadius, which left the bow/stern intangible.
@@ -1088,6 +1116,58 @@ export class Game {
       this.sound.playExplosion(position);
       this.cameraRig.addTrauma(
         this.traumaAtDistance(GameConfig.mothership.turrets.destroyTrauma, position),
+      );
+    });
+    // A carrier subsystem (shield generator / hangar) fell: a slightly bigger
+    // cue than a turret — it moves the strategic picture — plus a HUD toast
+    // colored by whose carrier lost it.
+    this.events.on("subsystemDestroyed", ({ mothership, subsystem }) => {
+      this.explosions.spawn(subsystem.position);
+      this.sound.playExplosion(subsystem.position);
+      this.cameraRig.addTrauma(
+        this.traumaAtDistance(
+          GameConfig.mothership.subsystems.destroyTrauma,
+          subsystem.position,
+        ),
+      );
+      const name = FACTION_THEME[mothership.faction].mothershipName.toUpperCase();
+      const label =
+        subsystem.kind === "shield" ? "SHIELD GENERATOR" : "HANGAR";
+      this.hud.showStrategicToast(
+        `${name} ${label} DESTROYED`,
+        mothership.faction === this.playerFaction ? "bad" : "good",
+      );
+    });
+    // The last generator fell — the headline strategic beat of the match.
+    this.events.on("shieldsDown", ({ mothership }) => {
+      const name = FACTION_THEME[mothership.faction].mothershipName.toUpperCase();
+      this.hud.showStrategicToast(
+        `${name} SHIELDS DOWN — HULL EXPOSED`,
+        mothership.faction === this.playerFaction ? "bad" : "good",
+      );
+    });
+    // Capture-station beats (station maps only — the events never fire
+    // elsewhere). Toast text is from the player's perspective.
+    this.events.on("stationCaptured", ({ faction }) => {
+      const own = faction === this.playerFaction;
+      this.hud.showStrategicToast(
+        own ? "STATION CAPTURED — ENERGY ONLINE" : "ENEMY CAPTURED A STATION",
+        own ? "good" : "bad",
+      );
+    });
+    this.events.on("stationNeutralized", ({ faction }) => {
+      const own = faction === this.playerFaction;
+      this.hud.showStrategicToast(
+        own ? "ENEMY STATION NEUTRALIZED" : "STATION LOST — BEING NEUTRALIZED",
+        own ? "good" : "bad",
+      );
+    });
+    this.events.on("upgradeUnlocked", ({ faction, effect }) => {
+      const own = faction === this.playerFaction;
+      const label = UPGRADE_LABELS[effect];
+      this.hud.showStrategicToast(
+        own ? `UPGRADE ONLINE — ${label}` : `ENEMY UPGRADE — ${label}`,
+        own ? "good" : "bad",
       );
     });
 
@@ -1847,6 +1927,10 @@ export class Game {
     this.resolveHulkCollisions(nowMs);
     // Ion storms zap anyone loitering inside (per-ship cadence in StormSystem).
     this.resolveStormZaps(nowMs);
+    // Strategic layer: capture/energy (station maps only) + declarative
+    // effect application — same fixed tick position as BattleSim.advance
+    // (after storm zaps, before death/respawn).
+    this.strategic.update(deltaSeconds, this.combatants, this.sensors, this.motherships);
 
     // Death FX + respawn, per combatant.
     for (const c of this.combatants) {
@@ -1866,6 +1950,24 @@ export class Game {
         if (!turret.isAlive && !turret.explosionFired) {
           this.events.emit("turretDestroyed", { position: turret.position });
           turret.explosionFired = true;
+        }
+      }
+      // Subsystem death latch (mirrors BattleSim.advance): announce once on
+      // the subsystem's explosionFired flag — the strategic "subsystemRepair"
+      // upgrade re-arms it, so a revived-then-redestroyed subsystem announces
+      // again. Destruction EFFECTS (hangar respawn penalty) are applied
+      // declaratively by StrategicSystem.update, not here.
+      for (const sub of this.motherships[f].subsystems) {
+        if (!sub.isAlive && !sub.explosionFired) {
+          sub.explosionFired = true;
+          this.events.emit("subsystemDestroyed", {
+            mothership: this.motherships[f],
+            subsystem: sub,
+          });
+          if (sub.kind === "shield" && !this.motherships[f].shieldsUp) {
+            // The LAST generator just fell — the core is exposed.
+            this.events.emit("shieldsDown", { mothership: this.motherships[f] });
+          }
         }
       }
     }
@@ -1917,6 +2019,10 @@ export class Game {
     // so only the turrets need a per-frame sync).
     this.mothershipViews.humans.syncTurrets();
     this.mothershipViews.machines.syncTurrets();
+    this.mothershipViews.humans.syncSubsystems();
+    this.mothershipViews.machines.syncSubsystems();
+    // Capture stations: retint beacons/rings from ownership + capture state.
+    for (const sv of this.stationViews) sv.update(nowMs);
     this.factionLaserViews.humans.update();
     this.factionLaserViews.machines.update();
     this.factionMissileViews.humans.update();
@@ -2062,6 +2168,38 @@ export class Game {
       this.motherships.humans.hp / this.motherships.humans.maxHp,
       this.motherships.machines.hp / this.motherships.machines.maxHp,
     );
+    this.hud.setSubsystems(
+      this.motherships.humans.subsystems,
+      this.motherships.machines.subsystems,
+    );
+    this.hud.setEnergy(
+      this.strategic.active,
+      this.strategic.energy.humans,
+      this.strategic.tier.humans,
+      this.strategic.energy.machines,
+      this.strategic.tier.machines,
+    );
+    // Capture status: while the player sits inside a station's dock ring,
+    // say exactly what's happening — live meter %, contested, or the
+    // "you're too fast to dock" teach.
+    let captureStatus: CaptureStatus | null = null;
+    if (
+      this.playerShip?.isAlive &&
+      !this.playerLaunch &&
+      this.strategic.active
+    ) {
+      for (const st of this.strategic.stations) {
+        const dx = this.playerShip.position.x - st.position.x;
+        const dz = this.playerShip.position.z - st.position.z;
+        if (dx * dx + dz * dz > st.radius * st.radius) continue;
+        captureStatus =
+          this.playerShip.speed > GameConfig.stations.dockMaxSpeed
+            ? { text: "REDUCE SPEED TO DOCK", tone: "neutral" }
+            : captureStatusFor(st, this.playerFaction);
+        break;
+      }
+    }
+    this.hud.setCaptureStatus(captureStatus);
     if (this.playerShip) {
       this.radar.update(
         this.playerShip,
@@ -2072,6 +2210,7 @@ export class Game {
         this.asteroids.asteroids,
         this.combatNebulas.zones,
         this.stormClouds.zones,
+        this.strategic.stations,
         nowMs,
       );
     }

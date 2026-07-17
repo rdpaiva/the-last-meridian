@@ -2,6 +2,7 @@ import type { InputState } from "./types";
 import type { Ship } from "./sim/Ship";
 import type { Mothership } from "./sim/Mothership";
 import type { SensorContact } from "./SensorSystem";
+import type { CaptureStation } from "./sim/CaptureStation";
 
 /**
  * Minimal view of a round obstacle (an asteroid) for AI path avoidance.
@@ -47,6 +48,14 @@ export interface ControllerWorld {
    * avoidance pass over these after every order's plan.
    */
   obstacles: ReadonlyArray<AvoidObstacle>;
+  /**
+   * The map's capture stations (strategic layer M2; empty on station-free
+   * maps). GLOBAL knowledge by design — ownership is a broadcast beacon, not
+   * a sensor product — so both factions read the same array (held by
+   * reference from StrategicSystem.stations). FleetCommander tasks `capture`
+   * pilots from it.
+   */
+  stations: ReadonlyArray<CaptureStation>;
   arenaHalfX: number;
   arenaHalfZ: number;
 }

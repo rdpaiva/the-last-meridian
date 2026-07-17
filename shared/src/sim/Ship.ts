@@ -180,6 +180,15 @@ export class Ship implements DamageTarget, ShipPose {
   private jumpSpoolRemainingMs = 0;
   private jumpCooldownRemainingMs = 0;
 
+  /**
+   * Multiplier on the respawn delay — 1 normally. Written by the sim loops'
+   * strategic effects (hangar destroyed → slower respawns; energy upgrade →
+   * faster). The writers COMPOSE multiplicatively by recomputing from their
+   * source flags (hangarScale × upgradeScale), never by read-modify-write.
+   * Deliberately NOT reset by respawn(): the effect outlives any one death.
+   */
+  respawnDelayScale = 1;
+
   private readonly cfg: ShipMovementConfig;
   private readonly respawnDelayMs: number;
   private readonly startMissileAmmo: number;
@@ -280,7 +289,8 @@ export class Ship implements DamageTarget, ShipPose {
 
   shouldRespawn(nowMs: number): boolean {
     return (
-      this.deathTimeMs !== null && nowMs - this.deathTimeMs >= this.respawnDelayMs
+      this.deathTimeMs !== null &&
+      nowMs - this.deathTimeMs >= this.respawnDelayMs * this.respawnDelayScale
     );
   }
 

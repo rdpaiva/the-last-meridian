@@ -584,6 +584,86 @@ export const GameConfig = {
   },
 
   /**
+   * CAPTURE STATIONS — neutral strategic points a faction converts by DOCKING
+   * at them (the strategic layer's M2; docs/strategic-layer-plan.md). A ship
+   * inside `captureRadius` flying below `dockMaxSpeed` (the carrier
+   * service-bubble loiter gate, reused deliberately: capturing means slowing
+   * down and committing) drives the station's capture meter; an owned station
+   * trickles `energyPerSec` into its faction's shared Energy pool (see
+   * `energy` below). Both factions present → contested, progress frozen.
+   * Flipping an ENEMY station is two-stage (drain to neutral, then capture),
+   * so it takes ~2× a neutral grab. Ownership is GLOBAL knowledge (strategic
+   * beacons — no sensor filtering) and persists until actively flipped.
+   *
+   * `placements` default EMPTY — maps place stations via applyMap (Maps.ts),
+   * the same contract as `storms.zones`, so the headless smoke baseline runs
+   * station-free. Sim: sim/CaptureStation.ts + sim/StrategicSystem.ts; view:
+   * client StationView (procedural until `model` ships as a GLB).
+   */
+  stations: {
+    /** Station positions as fractions of the arena half-extents. Maps
+     *  overwrite this via applyMap; empty = the whole system is inert. */
+    placements: [] as ReadonlyArray<{ xFrac: number; zFrac: number }>,
+    /** Capture/dock radius (world units) around the station's center. */
+    captureRadius: 60,
+    /** Seconds one docked ship takes to fill the capture meter (neutral →
+     *  owned; draining an enemy station costs the same again). */
+    captureTimeSec: 12,
+    /** A capturing ship must fly slower than this (the docking gate — same
+     *  idea as service.loiterMaxSpeed; fly-throughs never capture). */
+    dockMaxSpeed: 14,
+    /** Extra docked allies multiply capture speed, capped here (2 = a full
+     *  wing caps out at twice one ship's rate). */
+    maxAssistFactor: 2,
+    /** Energy per second one owned station feeds its faction's pool. */
+    energyPerSec: 1.2,
+    /**
+     * Station GLB (user-authored art, drops in later — the two-tier
+     * procedural-fallback pattern every model in the game uses). Null/missing
+     * file = the procedural ring-and-pylon StationView build.
+     */
+    model: {
+      file: null as string | null,
+      rotX: 0,
+      rotY: 0,
+      rotZ: 0,
+      scale: 10,
+    },
+  },
+
+  /**
+   * FACTION ENERGY + AUTO UPGRADE THRESHOLDS — the shared resource captured
+   * stations generate (see `stations`). Energy only ever ACCUMULATES (nothing
+   * is spent in v1); each threshold crossed unlocks its effect for the whole
+   * faction automatically, in order — the emergent "match phases" beat.
+   * Effects (applied by sim/StrategicSystem.ts, both factions symmetric):
+   *  - "fasterRespawn": faction respawn delay × fasterRespawnScale
+   *    (composes multiplicatively with the hangar-destroyed penalty via
+   *    Ship.respawnDelayScale).
+   *  - "sensorBoost": faction radar ranges × sensorRangeScale
+   *    (SensorSystem.rangeScale — ship + carrier radar; eyeballs unchanged).
+   *  - "subsystemRepair": one-shot on unlock — revives/refills this faction's
+   *    shield generators + hangar to repairHpFrac of max.
+   */
+  energy: {
+    /** Cumulative-energy thresholds, unlocked strictly in order. */
+    thresholds: [
+      { cost: 100, effect: "fasterRespawn" },
+      { cost: 250, effect: "sensorBoost" },
+      { cost: 500, effect: "subsystemRepair" },
+    ] as ReadonlyArray<{
+      cost: number;
+      effect: "fasterRespawn" | "sensorBoost" | "subsystemRepair";
+    }>,
+    /** Respawn-delay multiplier once "fasterRespawn" unlocks (<1 = faster). */
+    fasterRespawnScale: 0.6,
+    /** Radar-range multiplier once "sensorBoost" unlocks (>1 = farther). */
+    sensorRangeScale: 1.35,
+    /** Fraction of max HP subsystems are restored to on "subsystemRepair". */
+    repairHpFrac: 1.0,
+  },
+
+  /**
    * Derelict-wreck VIEW config (slice 5b). The wreck GLBs — battle-damaged,
    * burned-out versions of the carriers — keyed by `source` faction. A hulk's
    * HulkView loads `model.file[source]` under its spinning root; a null entry
@@ -1209,6 +1289,87 @@ export const GameConfig = {
           arcHalf?: number;
         }>
       >,
+    },
+
+    /**
+     * Destructible mothership SUBSYSTEMS — named modules bolted to the hull,
+     * each an individually destructible DamageTarget with its OWN hp pool
+     * (the Turret pattern minus the gun; sim/MothershipSubsystem.ts). They
+     * register on the opposing weapon systems AHEAD of the hull sections, so
+     * like turrets they must poke past the hull silhouette to be hittable —
+     * keep mounts near the edges (weapon collision is X/Z; per-mount `y` is
+     * cosmetic deck height only, falls back to `mountY`).
+     *
+     * What destroying one MEANS:
+     *  - `shield`: while ANY shield generator lives, the carrier's hull pool
+     *    takes only `shieldedHullDamageFactor` of incoming damage
+     *    (Mothership.takeDamage). Kill every generator to expose the core.
+     *  - `hangar`: once destroyed, every ship of that faction respawns
+     *    `destroyedRespawnDelayScale`× slower (Ship.respawnDelayScale,
+     *    applied by the death-latch scan in each sim loop).
+     *
+     * `mounts` are PER-FACTION carrier-LOCAL coordinates (same frame as
+     * `turrets.mounts`: z along the keel, bow = +z), rotated into world space
+     * by the carrier's facing. Config is the HEADLESS truth (counts are a
+     * balance knob); a future carrier GLB can refine positions via
+     * `shield.*`/`hangar.*` empties, the turret-mount pattern.
+     */
+    subsystems: {
+      shield: {
+        /** Per-generator hit points. */
+        hp: 300,
+        /** Collision radius — sized to poke past the hull edge at its mount. */
+        hitRadius: 14,
+        /**
+         * Hull damage multiplier while ANY generator lives. NONZERO on
+         * purpose: a stalled AI-vs-AI battle must still end (the headless
+         * smoke baseline's anti-stall guarantee) — shields blunt the hull,
+         * they don't seal it.
+         */
+        shieldedHullDamageFactor: 0.2,
+        // Two generators per carrier, port + starboard, on the outer flanks
+        // (pod ridge / sponson step — the turret decks) between the turret
+        // mounts so each is individually strafeable.
+        mounts: {
+          humans: [
+            { x: -47, y: 12.2, z: 10 }, // port pod ridge, midship
+            { x: 47, y: 12.2, z: 10 },  // starboard pod ridge, midship
+          ],
+          machines: [
+            { x: -48, y: 11.5, z: -66 }, // port sponson, aft shoulder
+            { x: 48, y: 11.5, z: -66 },  // starboard sponson, aft shoulder
+          ],
+        } as Record<
+          import("./Faction").Faction,
+          ReadonlyArray<{ x: number; z: number; y?: number }>
+        >,
+      },
+      hangar: {
+        /** Hangar hit points (tougher than a shield generator — it's buried in hull). */
+        hp: 350,
+        /** Collision radius — sized to poke past the hull edge at its mount. */
+        hitRadius: 16,
+        /**
+         * Respawn-delay multiplier for the owning faction once the hangar is
+         * destroyed. Composes multiplicatively with the energy-upgrade
+         * respawn scale (M2) via Ship.respawnDelayScale.
+         */
+        destroyedRespawnDelayScale: 2.5,
+        // One per carrier, at the launch structure: Bastion catapults fire
+        // over the bow (mount pokes past the bow tip); Choirship launches
+        // from the port side-bay housing.
+        mounts: {
+          humans: [{ x: 0, y: 8, z: 138 }],    // bow tip, catapult mouth
+          machines: [{ x: -46, y: 8, z: 25 }], // port launch-bay housing
+        } as Record<
+          import("./Faction").Faction,
+          ReadonlyArray<{ x: number; z: number; y?: number }>
+        >,
+      },
+      /** Fallback deck height (root-LOCAL Y) for a mount without its own `y`. */
+      mountY: 8,
+      /** Camera trauma when a subsystem is destroyed (distance-scaled). */
+      destroyTrauma: 0.35,
     },
 
     // --- Death spectacle (played once when a mothership is destroyed). ---
@@ -2199,6 +2360,14 @@ export const GameConfig = {
     defendHoldThinks: 4,
     /** Max pool ships sent to "hunt" while any contact (fresh or ghost) exists. */
     huntCount: 2,
+    /**
+     * Max pool ships tasked to "capture" stations the fleet doesn't own
+     * (strategic layer M2). Sits BELOW the defense scramble in priority and
+     * ABOVE hunt — losing the carrier outranks losing a station. 0 = the
+     * commander ignores stations entirely. Only bites on maps that place
+     * stations.
+     */
+    captureCount: 2,
   },
 
   /**
@@ -2383,6 +2552,13 @@ export const GameConfig = {
      * out that they miss intruders slipping past.
      */
     defendOrbitRadius: 50,
+    /**
+     * "capture" order (strategic layer M2): a capturing pilot breaks its dock
+     * loiter to engage any enemy within this radius of the STATION (not of
+     * itself), then returns to finish the capture. A touch above defendRadius —
+     * a capturer guards its whole capture bubble.
+     */
+    captureEngageRange: 90,
     /**
      * Where a "hunt" wingman loiters when there's no prey AND it has no
      * configured formation slot: this far (world units) directly behind the

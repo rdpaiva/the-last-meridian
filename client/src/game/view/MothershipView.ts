@@ -18,6 +18,7 @@ import { GameConfig } from "@space-duel/shared";
 import { Mothership } from "@space-duel/shared";
 import { TurretView } from "./TurretView";
 import { includeInGlow } from "../GlowInclude";
+import { SubsystemView } from "./SubsystemView";
 
 /**
  * Procedural BSG-style carrier/battleship (Galactica silhouette) — the VIEW
@@ -73,6 +74,14 @@ export class MothershipView {
    */
   private readonly turretViews: TurretView[] = [];
 
+  /**
+   * One depiction per sim subsystem (shield generators + hangar), parented
+   * under `root` like the turrets. Index-aligned with `sim.subsystems` (both
+   * iterate the config mounts in kind order: shield, then hangar — see
+   * Mothership.buildSubsystems); syncSubsystems() drops each on death.
+   */
+  private readonly subsystemViews: SubsystemView[] = [];
+
   constructor(scene: Scene, glowLayer: GlowLayer, sim: Mothership) {
     this.scene = scene;
     this.glowLayer = glowLayer;
@@ -119,6 +128,40 @@ export class MothershipView {
           sim.rotationY,
         ),
       );
+    }
+
+    // Subsystem depictions — same recipe as the turrets: after the snapshot,
+    // from the SAME config mounts the sim builds from, in the sim's kind
+    // order (shield, then hangar) so indices align with sim.subsystems.
+    const scfg = GameConfig.mothership.subsystems;
+    for (const kind of ["shield", "hangar"] as const) {
+      for (const m of scfg[kind].mounts[faction] ?? []) {
+        this.subsystemViews.push(
+          new SubsystemView(
+            scene,
+            this.root,
+            faction,
+            kind,
+            m.x,
+            m.y ?? scfg.mountY,
+            m.z,
+          ),
+        );
+      }
+    }
+  }
+
+  /**
+   * Drop any destroyed subsystem to its charred base (fires once per
+   * subsystem, latched inside SubsystemView). Called each view frame
+   * alongside syncTurrets — offline from Game.updateViews, online from
+   * NetworkGame.tick after the replicated HP lands on the carrier sim.
+   */
+  syncSubsystems(): void {
+    const subs = this.sim.subsystems;
+    for (let i = 0; i < this.subsystemViews.length; i++) {
+      const s = subs[i];
+      if (s) this.subsystemViews[i].update(s.isAlive);
     }
   }
 

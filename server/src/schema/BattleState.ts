@@ -128,10 +128,44 @@ export const MothershipSchema = schema(
     hp: "float32",
     maxHp: "float32",
     alive: "boolean",
+    /**
+     * Subsystem HP, fixed slots (counts + maxes come from the shared
+     * GameConfig, which PROTOCOL_VERSION locks to the same value on both
+     * sides): two shield generators + one hangar per carrier, in the sim's
+     * subsystem build order. Replicated as schema (not events) so a
+     * mid-match joiner sees the correct shield state — shields gate the win
+     * condition. 0 = destroyed.
+     */
+    shield0Hp: "float32",
+    shield1Hp: "float32",
+    hangarHp: "float32",
   },
   "MothershipSchema",
 );
 export type MothershipSchema = SchemaType<typeof MothershipSchema>;
+
+/**
+ * One capture station (strategic layer M2). Position is written once at room
+ * creation (stations are static); owner/capture state patch as they change.
+ * UNFILTERED on purpose: station ownership is a strategic beacon both sides
+ * always see (no positional intel about ships leaks from it).
+ */
+export const StationSchema = schema(
+  {
+    id: "number",
+    x: "float32",
+    z: "float32",
+    /** "" = neutral, else the owning faction. */
+    owner: "string",
+    /** "" = idle meter, else the faction whose capture meter is filling. */
+    capturing: "string",
+    /** Capture meter 0..1 (belongs to `capturing`). */
+    progress: "float32",
+    contested: "boolean",
+  },
+  "StationSchema",
+);
+export type StationSchema = SchemaType<typeof StationSchema>;
 
 /**
  * Root replicated state. Ships keyed by stable id (the MapSchema patches only
@@ -151,6 +185,14 @@ export const BattleState = schema(
     ships: { map: ShipSchema, view: true },
     /** Live rocks by id — spawn states only (see AsteroidSchema). */
     asteroids: { map: AsteroidSchema },
+    /** Capture stations by id (empty on station-free maps). Unfiltered. */
+    stations: { map: StationSchema },
+    /** Shared faction Energy pools + thresholds crossed (strategic layer —
+     *  root fields, unfiltered like the scoreboard). */
+    humansEnergy: "float32",
+    machinesEnergy: "float32",
+    humansTier: "number",
+    machinesTier: "number",
     humansMothership: { type: MothershipSchema },
     machinesMothership: { type: MothershipSchema },
     /** Seat occupancy for the HUD's pilots row — root fields because the

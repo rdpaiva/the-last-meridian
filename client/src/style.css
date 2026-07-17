@@ -1754,6 +1754,133 @@ body {
   background: linear-gradient(90deg, #ff4d6d, #f38ba8);
 }
 
+/* Subsystem pips under each carrier bar: shield generators (diamonds) +
+   hangar (square). Lit while alive, hollow/dim once destroyed. */
+.ms-subs {
+  display: flex;
+  gap: 6px;
+  min-height: 8px;
+}
+
+.ms-pip {
+  width: 7px;
+  height: 7px;
+  border: 1px solid rgba(160, 180, 235, 0.65);
+  background: rgba(160, 190, 255, 0.85);
+  box-shadow: 0 0 5px rgba(140, 170, 255, 0.5);
+}
+
+.ms-pip.shield {
+  transform: rotate(45deg);
+  border-radius: 1px;
+}
+
+.ms-machines .ms-pip {
+  border-color: rgba(235, 160, 175, 0.65);
+  background: rgba(255, 150, 170, 0.85);
+  box-shadow: 0 0 5px rgba(255, 130, 155, 0.5);
+}
+
+.ms-pip.dead {
+  background: transparent;
+  box-shadow: none;
+  border-color: rgba(120, 130, 160, 0.4);
+}
+
+/* Per-faction Energy line under the carrier bar (strategic layer). */
+.ms-energy {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 12px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: #9aa6c8;
+}
+
+.ms-energy-num {
+  margin-right: 4px;
+}
+
+.ms-tier {
+  color: rgba(120, 130, 160, 0.35);
+  font-size: 9px;
+}
+
+.ms-tier.lit {
+  color: #f9e2af;
+  text-shadow: 0 0 6px rgba(249, 226, 175, 0.6);
+}
+
+/* Capture status — continuous docked-progress line above the jump ring. */
+.capture-status {
+  position: fixed;
+  left: 50%;
+  bottom: calc(13% + 110px);
+  transform: translateX(-50%);
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  padding: 3px 12px;
+  border-radius: 4px;
+  background: rgba(11, 13, 22, 0.7);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+  user-select: none;
+}
+
+.capture-status.show {
+  opacity: 1;
+}
+
+.capture-status.good {
+  color: #a6e3a1;
+  border: 1px solid rgba(120, 220, 140, 0.3);
+}
+
+.capture-status.bad {
+  color: #f38ba8;
+  border: 1px solid rgba(243, 139, 168, 0.35);
+}
+
+.capture-status.neutral {
+  color: #9aa6c8;
+  border: 1px solid rgba(120, 140, 200, 0.3);
+}
+
+/* Strategic toast — transient notification under the objective bars. */
+.strategic-toast {
+  position: fixed;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  padding: 4px 14px;
+  border-radius: 4px;
+  background: rgba(11, 13, 22, 0.75);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+  user-select: none;
+}
+
+.strategic-toast.show {
+  opacity: 1;
+}
+
+.strategic-toast.good {
+  color: #a6e3a1;
+  border: 1px solid rgba(120, 220, 140, 0.35);
+  text-shadow: 0 0 8px rgba(120, 220, 140, 0.45);
+}
+
+.strategic-toast.bad {
+  color: #f38ba8;
+  border: 1px solid rgba(243, 139, 168, 0.4);
+  text-shadow: 0 0 8px rgba(255, 77, 109, 0.5);
+}
+
 /* Victory / defeat banner. */
 .end-banner {
   position: fixed;

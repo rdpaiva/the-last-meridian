@@ -21,3 +21,6 @@ npm-debug.log*
 
 # Python bytecode cache (from scripts/ helpers run via Blender MCP)
 __pycache__/
+
+# Codex CLI local config (machine-specific MCP paths)
+.codex/

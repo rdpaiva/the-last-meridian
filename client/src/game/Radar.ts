@@ -7,6 +7,19 @@ import { GameConfig } from "@space-duel/shared";
 import type { SensorContact, ConcealmentZone } from "@space-duel/shared";
 
 /**
+ * What the radar needs to draw one capture station — structurally satisfied
+ * by the sim CaptureStation (offline) and NetworkGame's replicated
+ * client-side copies (online).
+ */
+export interface StationBlip {
+  position: { x: number; z: number };
+  owner: Faction | null;
+  capturingFaction: Faction | null;
+  progress: number;
+  contested: boolean;
+}
+
+/**
  * Tactical radar — a player-centered circular minimap drawn to its own
  * canvas in the bottom-right corner, redrawn every frame.
  *
@@ -90,6 +103,11 @@ export class Radar {
     asteroids: AsteroidSim[],
     nebulaZones: ReadonlyArray<ConcealmentZone>,
     stormZones: ReadonlyArray<ConcealmentZone>,
+    /** Capture stations (strategic layer; empty on station-free maps).
+     *  Structural — the sim CaptureStation and NetworkGame's replicated
+     *  client-side copies both qualify. Always drawn (strategic beacons,
+     *  not sensor-gated), owner-colored, blinking while contested. */
+    stations: ReadonlyArray<StationBlip>,
     nowMs: number,
     /**
      * Ships flown by a HUMAN pilot right now (multiplayer honesty rule:
@@ -138,6 +156,12 @@ export class Radar {
     // Always shown — carriers are stationary and pre-briefed, not sensor-gated.
     this.plotDiamond(motherships.humans, player, "humans");
     this.plotDiamond(motherships.machines, player, "machines");
+
+    // Capture stations: owner-colored squares (neutral = grey outline),
+    // capture-progress arc while flipping, blink while contested.
+    for (const st of stations) {
+      this.plotStation(st, player, nowMs);
+    }
 
     // Friendlies: ground truth (the wing shares its own telemetry).
     for (const ship of friendlies) {
@@ -293,6 +317,43 @@ export class Radar {
       ctx.arc(x, y, GameConfig.radar.fighterBlip + 2.5, 0, Math.PI * 2);
       ctx.lineWidth = 1;
       ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /**
+   * One capture-station marker: a square (structure, distinct from fighter
+   * dots / carrier diamonds), outlined grey while neutral and filled with
+   * the owner's faction color once held; a capture arc sweeps around it
+   * while a flip is in progress; contested = fast blink.
+   */
+  private plotStation(st: StationBlip, player: Ship, nowMs: number): void {
+    const { x, y, offEdge } = this.project(
+      st.position.x - player.position.x,
+      st.position.z - player.position.z,
+    );
+    const ctx = this.ctx;
+    const blink =
+      st.contested && Math.floor(nowMs / 250) % 2 === 0 ? 0.35 : 1;
+    ctx.globalAlpha = (offEdge ? 0.5 : 1) * blink;
+    const s = 3.5;
+    ctx.beginPath();
+    ctx.rect(x - s, y - s, s * 2, s * 2);
+    if (st.owner) {
+      ctx.fillStyle = Radar.BLIP[st.owner];
+      ctx.fill();
+    }
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = st.owner ? Radar.BLIP[st.owner] : "rgba(200, 210, 230, 0.8)";
+    ctx.stroke();
+    // Capture meter: an arc in the capturing faction's color.
+    if (st.capturingFaction && st.progress > 0) {
+      const start = -Math.PI / 2;
+      ctx.beginPath();
+      ctx.arc(x, y, s + 3, start, start + Math.PI * 2 * Math.min(1, st.progress));
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = Radar.BLIP[st.capturingFaction];
       ctx.stroke();
     }
     ctx.globalAlpha = 1;

@@ -42,7 +42,9 @@ export class FleetCommander {
   private readonly pool: CommandedPilot[];
 
   private nextThinkMs = 0;
-  /** Home-carrier hull at the last think — a drop means it's under fire. */
+  /** Home-carrier hull + subsystem HP at the last think — a drop means it's
+   *  under fire. Summing the subsystems in means a shield-generator strike
+   *  scrambles defenders even while the gated hull pool barely moves. */
   private lastHomeHp: number | null = null;
   /** Thinks the defense scramble stays up after the last alert. */
   private defendScrambleRemaining = 0;
@@ -72,8 +74,10 @@ export class FleetCommander {
     const home = this.world.homeMothership;
     let alert = false;
     if (home && home.isAlive) {
-      if (this.lastHomeHp !== null && home.hp < this.lastHomeHp) alert = true;
-      this.lastHomeHp = home.hp;
+      let totalHp = home.hp;
+      for (const sub of home.subsystems) totalHp += sub.hp;
+      if (this.lastHomeHp !== null && totalHp < this.lastHomeHp) alert = true;
+      this.lastHomeHp = totalHp;
       if (!alert) {
         const r = cfg.defendAlertRadius;
         for (const c of this.world.opponents) {
@@ -94,7 +98,16 @@ export class FleetCommander {
     // last-known position and search — the "they saw where you went" beat.
     const anyContact = this.world.opponents.some((c) => c.isAlive);
 
-    // --- Re-task the pool: defenders first (nearest home), hunters, patrol. ---
+    // Stations the fleet doesn't hold (neutral, enemy, or being flipped).
+    // Empty on station-free maps → the capture rung never fires. Runs at the
+    // think cadence (0.5Hz), so the filter allocation is fine.
+    const myFaction = home?.faction ?? null;
+    const stationTargets = myFaction
+      ? this.world.stations.filter((s) => s.owner !== myFaction)
+      : [];
+
+    // --- Re-task the pool: defenders first (nearest home), then capturers,
+    // hunters, patrol. Losing the carrier outranks losing a station. ---
     const available = this.pool.filter((p) => p.ship.isAlive);
     if (this.defendScrambleRemaining > 0 && home) {
       available.sort((a, b) => {
@@ -108,11 +121,43 @@ export class FleetCommander {
       });
     }
     let defenders = 0;
+    let capturers = 0;
     let hunters = 0;
+    const assignedStations = new Set<number>();
     for (const p of available) {
       if (this.defendScrambleRemaining > 0 && defenders < cfg.defendCount) {
         p.ai.setOrder("defend");
         defenders++;
+      } else if (stationTargets.length > 0 && capturers < cfg.captureCount) {
+        // Nearest contestable station to THIS pilot, spreading over stations
+        // not already assigned this think (fall back to nearest overall when
+        // there are more capturers than targets).
+        let best: (typeof stationTargets)[number] | null = null;
+        let bestSq = Infinity;
+        let bestUnassigned: (typeof stationTargets)[number] | null = null;
+        let bestUnassignedSq = Infinity;
+        for (const s of stationTargets) {
+          const dx = s.position.x - p.ship.position.x;
+          const dz = s.position.z - p.ship.position.z;
+          const dSq = dx * dx + dz * dz;
+          if (dSq < bestSq) {
+            bestSq = dSq;
+            best = s;
+          }
+          if (!assignedStations.has(s.id) && dSq < bestUnassignedSq) {
+            bestUnassignedSq = dSq;
+            bestUnassigned = s;
+          }
+        }
+        const target = bestUnassigned ?? best;
+        if (target) {
+          assignedStations.add(target.id);
+          p.ai.setOrder("capture");
+          p.ai.setCaptureTarget(target);
+          capturers++;
+        } else {
+          p.ai.setOrder("patrol");
+        }
       } else if (anyContact && hunters < cfg.huntCount) {
         p.ai.setOrder("hunt");
         hunters++;

@@ -49,7 +49,13 @@ import { CapitalShips } from "./CapitalShips";
 import { Starfield } from "./Starfield";
 import { CameraRig } from "./CameraRig";
 import { buildPostPipeline } from "./PostPipeline";
-import { Hud, type ScoreRow } from "./Hud";
+import {
+  Hud,
+  UPGRADE_LABELS,
+  captureStatusFor,
+  type CaptureStatus,
+  type ScoreRow,
+} from "./Hud";
 import { InputManager } from "./InputManager";
 import { MouseSteering } from "./MouseSteering";
 import { GamepadSteering } from "./GamepadSteering";
@@ -57,6 +63,8 @@ import { AssetLoader } from "./AssetLoader";
 import { buildFighterMesh } from "./FighterMesh";
 import { ShipView } from "./view/ShipView";
 import { MothershipView } from "./view/MothershipView";
+import { StationView } from "./view/StationView";
+import { CaptureStation } from "@space-duel/shared";
 import { HulkView } from "./view/HulkView";
 import { AsteroidView } from "./view/AsteroidView";
 import { LaserSystemView } from "./view/LaserSystemView";
@@ -365,6 +373,19 @@ export class NetworkGame {
   private readonly carrierCenters: Record<Faction, Vector3>;
   /** Carrier sims (hull sections) — the prediction bumps off these locally. */
   private readonly carrierSims: Record<Faction, Mothership>;
+  /** Carrier depictions — kept for the subsystem death-state sync in tick(). */
+  private readonly carrierViews: Record<Faction, MothershipView>;
+  /**
+   * Client-side capture-station copies (strategic layer M2): real
+   * CaptureStation objects built from the replicated StationSchema on first
+   * sight (positions are static), owner/capture state overwritten per patch —
+   * so StationView/Radar/AI-free HUD read the same shape as offline.
+   */
+  private readonly netStations = new Map<number, CaptureStation>();
+  private readonly netStationList: CaptureStation[] = [];
+  private readonly stationViews: StationView[] = [];
+  /** Faction tiers from the last patch (drives the client sensor rangeScale). */
+  private readonly netTier: Record<Faction, number> = { humans: 0, machines: 0 };
 
   // ─── Replicated asteroid field ───
   /** Shared rock material (mirrors AsteroidFieldView.buildMaterial). */
@@ -555,6 +576,8 @@ export class NetworkGame {
       humans: new MothershipView(this.scene, this.glowLayer, this.carrierSims.humans),
       machines: new MothershipView(this.scene, this.glowLayer, this.carrierSims.machines),
     };
+    // Retained so tick() can sync subsystem death states off the replicated HP.
+    this.carrierViews = carriers;
     for (const f of ["humans", "machines"] as Faction[]) {
       const file = GameConfig.mothership.model.file[f];
       if (file) {
@@ -1279,12 +1302,41 @@ export class NetworkGame {
     // 4. Sensor picture + HUD + radar straight from current state (HP/phase
     // need no interpolation; poses come from the shadow roster fed above).
     const state = this.net.room.state as unknown as {
-      humansMothership?: { hp: number; maxHp: number };
-      machinesMothership?: { hp: number; maxHp: number };
+      humansMothership?: {
+        hp: number;
+        maxHp: number;
+        shield0Hp?: number;
+        shield1Hp?: number;
+        hangarHp?: number;
+      };
+      machinesMothership?: {
+        hp: number;
+        maxHp: number;
+        shield0Hp?: number;
+        shield1Hp?: number;
+        hangarHp?: number;
+      };
       phase?: string;
       winner?: string;
       pilotHumans?: number;
       pilotBots?: number;
+      stations?: {
+        forEach: (
+          cb: (v: {
+            id: number;
+            x: number;
+            z: number;
+            owner: string;
+            capturing: string;
+            progress: number;
+            contested: boolean;
+          }) => void,
+        ) => void;
+      };
+      humansEnergy?: number;
+      machinesEnergy?: number;
+      humansTier?: number;
+      machinesTier?: number;
     };
     // Pilot counts are root fields — the ships map is sensor-filtered, so
     // counting replicated entries would miss every hidden enemy seat.
@@ -1306,11 +1358,53 @@ export class NetworkGame {
       // sensors lose their AWACS sweep when a carrier dies, like offline.
       this.carrierSims.humans.hp = state.humansMothership.hp;
       this.carrierSims.machines.hp = state.machinesMothership.hp;
+      // Subsystem HP rides the same path: writing the local Mothership's
+      // subsystem objects makes shieldsUp/hangarAlive, the views, and the
+      // HUD read identically to offline (mid-match joiners included).
+      this.applySubsystemHp(this.carrierSims.humans, state.humansMothership);
+      this.applySubsystemHp(this.carrierSims.machines, state.machinesMothership);
+      this.carrierViews.humans.syncSubsystems();
+      this.carrierViews.machines.syncSubsystems();
+      this.hud.setSubsystems(
+        this.carrierSims.humans.subsystems,
+        this.carrierSims.machines.subsystems,
+      );
       this.hud.setMothershipHp(
         this.fraction(state.humansMothership),
         this.fraction(state.machinesMothership),
       );
     }
+    // Capture stations + Energy (strategic layer): mirror the replicated
+    // state onto client-side CaptureStation copies (created on first sight —
+    // positions are static) so views/radar/HUD read the offline shape.
+    state?.stations?.forEach((s) => {
+      let st = this.netStations.get(s.id);
+      if (!st) {
+        st = new CaptureStation(s.id, s.x, s.z);
+        this.netStations.set(s.id, st);
+        this.netStationList.push(st);
+        this.stationViews.push(new StationView(this.scene, st));
+      }
+      st.owner = (s.owner || null) as Faction | null;
+      st.capturingFaction = (s.capturing || null) as Faction | null;
+      st.progress = s.progress;
+      st.contested = s.contested;
+    });
+    for (const sv of this.stationViews) sv.update(nowMs);
+    this.netTier.humans = state?.humansTier ?? 0;
+    this.netTier.machines = state?.machinesTier ?? 0;
+    this.hud.setEnergy(
+      this.netStationList.length > 0,
+      state?.humansEnergy ?? 0,
+      this.netTier.humans,
+      state?.machinesEnergy ?? 0,
+      this.netTier.machines,
+    );
+    // Sensor-boost parity: the SERVER's filter already replicates farther
+    // contacts once the tier unlocks; scaling the client's own sweep the
+    // same way keeps the radar picture in step with what arrives.
+    this.sensors.rangeScale.humans = this.sensorScaleFor("humans");
+    this.sensors.rangeScale.machines = this.sensorScaleFor("machines");
     const phase = state?.phase ?? "launching";
     this.updatePhase(phase, state?.winner ?? "");
 
@@ -1379,6 +1473,25 @@ export class NetworkGame {
       this.hud.setJumpSpool(
         myStub.isSpoolingJump && this.myAlive ? myStub.jumpSpoolProgress : null,
       );
+
+      // Capture status (offline parity — Game.updateViews's docked block):
+      // the meter itself is server truth riding the StationSchema; the
+      // predicted ship supplies "am I inside the ring, slow enough" for the
+      // line's presence, same approximation as the service cue above.
+      let captureStatus: CaptureStatus | null = null;
+      if (this.myAlive && !this.myLaunching) {
+        for (const st of this.netStationList) {
+          const dx = ship.position.x - st.position.x;
+          const dz = ship.position.z - st.position.z;
+          if (dx * dx + dz * dz > st.radius * st.radius) continue;
+          captureStatus =
+            ship.speed > GameConfig.stations.dockMaxSpeed
+              ? { text: "REDUCE SPEED TO DOCK", tone: "neutral" }
+              : captureStatusFor(st, this.playerFaction);
+          break;
+        }
+      }
+      this.hud.setCaptureStatus(captureStatus);
     }
     if (myStub) {
       this.radar.update(
@@ -1390,6 +1503,7 @@ export class NetworkGame {
         this.rockObstacles,
         this.combatNebulas.zones,
         this.stormClouds.zones,
+        this.netStationList,
         nowMs,
         this.humanPiloted,
       );
@@ -1635,6 +1749,65 @@ export class NetworkGame {
         this.sound.playExplosion(this.fxVec);
         this.cameraRig.addTrauma(
           this.traumaAtDistance(GameConfig.mothership.turrets.destroyTrauma, e.x, e.z),
+        );
+        return;
+      }
+      case "subsystemDestroyed": {
+        // Mirrors the offline subsystemDestroyed subscription in Game.ts —
+        // a slightly bigger cue than a turret (it moves the strategic
+        // picture) plus the HUD toast colored by whose carrier lost it.
+        this.fxVec.set(e.x, e.y, e.z);
+        this.explosions.spawn(this.fxVec);
+        this.sound.playExplosion(this.fxVec);
+        this.cameraRig.addTrauma(
+          this.traumaAtDistance(
+            GameConfig.mothership.subsystems.destroyTrauma,
+            e.x,
+            e.z,
+          ),
+        );
+        const name = FACTION_THEME[e.faction].mothershipName.toUpperCase();
+        const label = e.kind === "shield" ? "SHIELD GENERATOR" : "HANGAR";
+        this.hud.showStrategicToast(
+          `${name} ${label} DESTROYED`,
+          e.faction === this.playerFaction ? "bad" : "good",
+        );
+        return;
+      }
+      case "shieldsDown": {
+        // Pips/death-state derive from the replicated subsystem HP; the event
+        // marks the moment for the headline toast (mirrors Game.ts).
+        const name = FACTION_THEME[e.faction].mothershipName.toUpperCase();
+        this.hud.showStrategicToast(
+          `${name} SHIELDS DOWN — HULL EXPOSED`,
+          e.faction === this.playerFaction ? "bad" : "good",
+        );
+        return;
+      }
+      case "stationCaptured": {
+        // Continuous capture state rides the schema; the event is the toast
+        // moment (mirrors the offline subscriptions in Game.ts).
+        const own = e.faction === this.playerFaction;
+        this.hud.showStrategicToast(
+          own ? "STATION CAPTURED — ENERGY ONLINE" : "ENEMY CAPTURED A STATION",
+          own ? "good" : "bad",
+        );
+        return;
+      }
+      case "stationNeutralized": {
+        const own = e.faction === this.playerFaction;
+        this.hud.showStrategicToast(
+          own ? "ENEMY STATION NEUTRALIZED" : "STATION LOST — BEING NEUTRALIZED",
+          own ? "good" : "bad",
+        );
+        return;
+      }
+      case "upgradeUnlocked": {
+        const own = e.faction === this.playerFaction;
+        const label = UPGRADE_LABELS[e.effect];
+        this.hud.showStrategicToast(
+          own ? `UPGRADE ONLINE — ${label}` : `ENEMY UPGRADE — ${label}`,
+          own ? "good" : "bad",
         );
         return;
       }
@@ -2299,6 +2472,41 @@ export class NetworkGame {
 
   private fraction(ms: { hp: number; maxHp: number }): number {
     return ms.maxHp > 0 ? ms.hp / ms.maxHp : 0;
+  }
+
+  /** This faction's radar-range multiplier from its replicated upgrade tier
+   *  (mirrors StrategicSystem.applyEffects's sensorBoost half). */
+  private sensorScaleFor(f: Faction): number {
+    const thresholds = GameConfig.energy.thresholds;
+    const tier = Math.min(this.netTier[f], thresholds.length);
+    for (let i = 0; i < tier; i++) {
+      if (thresholds[i].effect === "sensorBoost") {
+        return GameConfig.energy.sensorRangeScale;
+      }
+    }
+    return 1;
+  }
+
+  /**
+   * Copy the replicated subsystem HP slots into the local carrier sim's
+   * subsystem objects (fixed slot order = the sim's build order: shield,
+   * shield, hangar — mirrors BattleRoom.syncSubsystems). Undefined fields
+   * (pre-first-patch) leave the local full-HP defaults untouched.
+   */
+  private applySubsystemHp(
+    carrier: Mothership,
+    ms: { shield0Hp?: number; shield1Hp?: number; hangarHp?: number },
+  ): void {
+    let shieldIdx = 0;
+    for (const sub of carrier.subsystems) {
+      if (sub.kind === "shield") {
+        const hp = shieldIdx === 0 ? ms.shield0Hp : ms.shield1Hp;
+        if (hp !== undefined) sub.hp = hp;
+        shieldIdx++;
+      } else if (sub.kind === "hangar" && ms.hangarHp !== undefined) {
+        sub.hp = ms.hangarHp;
+      }
+    }
   }
 
   /**

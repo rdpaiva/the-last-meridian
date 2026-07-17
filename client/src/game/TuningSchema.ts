@@ -305,6 +305,29 @@ export const TUNING_SCHEMA: ReadonlyArray<TuningGroup> = [
         "How fast a turret barrel tracks a moving target (radians/sec)."),
     ],
   },
+  {
+    title: "Subsystems & Stations",
+    note:
+      "The strategic layer: carrier shield generators/hangar, and the capture stations + Energy economy on maps that place stations.",
+    entries: [
+      num("mothership.subsystems.shield.hp", "Shield generator HP", 50, 1500, 25,
+        "Health of each carrier shield generator. While any generator lives, the carrier hull only takes a fraction of incoming damage."),
+      num("mothership.subsystems.shield.shieldedHullDamageFactor", "Shielded hull damage", 0, 1, 0.05,
+        "Fraction of damage the hull takes while shields are up. 0.2 = shields soak 80%. Keep above 0 so a match can always end."),
+      num("mothership.subsystems.hangar.hp", "Hangar HP", 50, 1500, 25,
+        "Health of the carrier hangar. Destroying it slows that faction's respawns."),
+      num("mothership.subsystems.hangar.destroyedRespawnDelayScale", "Hangar-down respawn ×", 1, 6, 0.25,
+        "Respawn-delay multiplier a faction suffers once its hangar is destroyed."),
+      num("stations.captureTimeSec", "Station capture time (s)", 3, 60, 1,
+        "Seconds one docked ship takes to flip a neutral station (draining an enemy one costs the same again)."),
+      num("stations.dockMaxSpeed", "Dock speed limit", 4, 40, 1,
+        "A ship must fly slower than this inside the station radius to capture — fly-throughs don't count."),
+      num("stations.energyPerSec", "Energy per station (/s)", 0.2, 6, 0.1,
+        "Energy each owned station feeds its faction's pool per second — sets the pace of the upgrade tiers."),
+      num("commander.captureCount", "Enemy capture pilots", 0, 6, 1,
+        "How many enemy fleet pilots the commander sends to contest stations. 0 = the enemy ignores stations."),
+    ],
+  },
 ];
 
 /** Flat path → entry lookup, for validation/clamping (ConfigOverrides). */

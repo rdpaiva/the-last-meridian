@@ -9,7 +9,7 @@ import type { InputState } from "./types";
  * message protocol or to GameConfig (balance lives in shared, so a tweak is a
  * both-sides deploy) — see docs/MULTIPLAYER.md → Decisions (protocol version).
  */
-export const PROTOCOL_VERSION = 23;
+export const PROTOCOL_VERSION = 25;
 
 /** Room name registered on the server + asked for by the client. */
 export const BATTLE_ROOM = "battle";
@@ -88,6 +88,23 @@ export type NetEvent =
   | { k: "mothershipDied"; faction: Faction }
   | { k: "turretFired"; faction: Faction; rot: number; x: number; y: number; z: number }
   | { k: "turretDestroyed"; x: number; y: number; z: number }
+  /** A carrier subsystem fell. `faction` = the CARRIER's side; `kind` picks
+   *  the depiction (shield arc-down vs hangar burn) + the HUD toast. */
+  | { k: "subsystemDestroyed"; faction: Faction; kind: "shield" | "hangar"; x: number; y: number; z: number }
+  /** The carrier's LAST shield generator fell — its hull is exposed. */
+  | { k: "shieldsDown"; faction: Faction }
+  /** A capture station flipped to `faction` (id = StationSchema map key sans
+   *  prefix; continuous progress rides the schema, events mark the moments). */
+  | { k: "stationCaptured"; id: number; faction: Faction }
+  /** A station was drained to neutral by `faction` (stage one of a flip). */
+  | { k: "stationNeutralized"; id: number; faction: Faction }
+  /** A faction's Energy crossed threshold `tier`, unlocking `effect`. */
+  | {
+      k: "upgradeUnlocked";
+      faction: Faction;
+      tier: number;
+      effect: "fasterRespawn" | "sensorBoost" | "subsystemRepair";
+    }
   | { k: "jumpSpoolStarted"; ship: string }
   | { k: "jumpCancelled"; ship: string }
   | { k: "jumpFired"; ship: string; fromX: number; fromZ: number; toX: number; toZ: number }

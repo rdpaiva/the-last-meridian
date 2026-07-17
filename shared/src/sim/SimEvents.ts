@@ -4,6 +4,8 @@ import type { DamageTarget } from "../types";
 import type { Faction } from "../Faction";
 import type { Ship } from "./Ship";
 import type { Mothership } from "./Mothership";
+import type { MothershipSubsystem } from "./MothershipSubsystem";
+import type { CaptureStation } from "./CaptureStation";
 
 /**
  * The sim→view event channel (docs/MULTIPLAYER.md → Phase 0).
@@ -65,6 +67,25 @@ export interface SimEventMap {
   turretFired: { faction: Faction; origin: Vector3; rotationY: number };
   /** A carrier defense turret was shot off the hull (fires once, latched). */
   turretDestroyed: { position: Vector3 };
+  /** A carrier subsystem (shield generator / hangar) was destroyed (latched). */
+  subsystemDestroyed: {
+    mothership: Mothership;
+    subsystem: MothershipSubsystem;
+  };
+  /** The LAST shield generator on a carrier fell — its hull is now exposed. */
+  shieldsDown: { mothership: Mothership };
+  /** A capture station flipped to `faction` (strategic layer M2). */
+  stationCaptured: { station: CaptureStation; faction: Faction };
+  /** A capture station was drained to NEUTRAL by `faction` (stage one of
+   *  flipping enemy ground; the capture climb follows). */
+  stationNeutralized: { station: CaptureStation; faction: Faction };
+  /** A faction's Energy crossed a threshold: `tier` = thresholds crossed so
+   *  far (1-based), `effect` = what just unlocked. */
+  upgradeUnlocked: {
+    faction: Faction;
+    tier: number;
+    effect: "fasterRespawn" | "sensorBoost" | "subsystemRepair";
+  };
   /** A ship armed its jump drive and began the spool-up countdown. */
   jumpSpoolStarted: { ship: Ship };
   /**

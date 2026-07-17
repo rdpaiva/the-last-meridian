@@ -96,6 +96,15 @@ export class SensorSystem {
    */
   concealmentZones: ReadonlyArray<ConcealmentZone> = [];
 
+  /**
+   * Per-faction RADAR range multiplier (1 = stock). Written declaratively
+   * each tick by the strategic layer's "sensorBoost" upgrade
+   * (sim/StrategicSystem.ts). Scales the carrier sweep + fighter radar;
+   * eyeballs (visualRange) deliberately don't improve — better radar, same
+   * pilots.
+   */
+  readonly rangeScale: Record<Faction, number> = { humans: 1, machines: 1 };
+
   private nextSweepMs = 0;
   /** Sweep scratch: the current opposing roster as a set (reused, throttled). */
   private readonly rosterScratch = new Set<Ship>();
@@ -211,13 +220,17 @@ export class SensorSystem {
     const concealed = this.isConcealed(target.position);
     const tx = target.position.x;
     const tz = target.position.z;
+    // Strategic "sensorBoost" upgrade: this faction's RADAR reaches farther
+    // (carrier sweep + fighter sets); eyeballs are unchanged.
+    const scale = this.rangeScale[faction];
 
     // The carrier's long-range sweep — radar, so blind to concealed ships.
     const home = this.motherships[faction];
     if (!concealed && home.isAlive) {
       const dx = tx - home.position.x;
       const dz = tz - home.position.z;
-      if (dx * dx + dz * dz <= cfg.mothershipRange * cfg.mothershipRange) {
+      const carrierRange = cfg.mothershipRange * scale;
+      if (dx * dx + dz * dz <= carrierRange * carrierRange) {
         return true;
       }
     }
@@ -229,9 +242,10 @@ export class SensorSystem {
       // close enough that the enemy still strafes you with GUNS, but a missile
       // can't LOCK a concealed contact (it's flagged below; see
       // AIController.findMissileShot and Game.computeLockTarget).
-      const radarRange = this.isConcealed(f.position)
-        ? cfg.shipRange * cfg.nebulaSensorFactor
-        : cfg.shipRange;
+      const radarRange =
+        (this.isConcealed(f.position)
+          ? cfg.shipRange * cfg.nebulaSensorFactor
+          : cfg.shipRange) * scale;
       const range = concealed ? cfg.visualRange : radarRange;
       const dx = tx - f.position.x;
       const dz = tz - f.position.z;

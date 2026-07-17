@@ -34,6 +34,7 @@ import {
   BattleState,
   ShipSchema,
   MothershipSchema,
+  StationSchema,
   AsteroidSchema,
   ScoreSchema,
 } from "../schema/BattleState";
@@ -165,6 +166,23 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     // primitives undefined; tick must start at 0 or `tick++` yields NaN).
     this.initMothershipSchema(this.state.humansMothership, "humans");
     this.initMothershipSchema(this.state.machinesMothership, "machines");
+    // Capture stations (empty on station-free maps). Static positions are
+    // written once here; ownership/capture state patches in syncStations.
+    for (const st of this.sim.strategic.stations) {
+      const s = new StationSchema();
+      s.id = st.id;
+      s.x = st.position.x;
+      s.z = st.position.z;
+      s.owner = "";
+      s.capturing = "";
+      s.progress = 0;
+      s.contested = false;
+      this.state.stations.set(String(st.id), s);
+    }
+    this.state.humansEnergy = 0;
+    this.state.machinesEnergy = 0;
+    this.state.humansTier = 0;
+    this.state.machinesTier = 0;
     this.state.phase = "launching";
     this.state.winner = "";
     this.state.tick = 0;
@@ -504,6 +522,28 @@ export class BattleRoom extends Room<{ state: BattleState }> {
         z: position.z,
       }),
     );
+    ev.on("subsystemDestroyed", ({ mothership, subsystem }) =>
+      this.pendingEvents.push({
+        k: "subsystemDestroyed",
+        faction: mothership.faction,
+        kind: subsystem.kind,
+        x: subsystem.position.x,
+        y: subsystem.position.y,
+        z: subsystem.position.z,
+      }),
+    );
+    ev.on("shieldsDown", ({ mothership }) =>
+      this.pendingEvents.push({ k: "shieldsDown", faction: mothership.faction }),
+    );
+    ev.on("stationCaptured", ({ station, faction }) =>
+      this.pendingEvents.push({ k: "stationCaptured", id: station.id, faction }),
+    );
+    ev.on("stationNeutralized", ({ station, faction }) =>
+      this.pendingEvents.push({ k: "stationNeutralized", id: station.id, faction }),
+    );
+    ev.on("upgradeUnlocked", ({ faction, tier, effect }) =>
+      this.pendingEvents.push({ k: "upgradeUnlocked", faction, tier, effect }),
+    );
     ev.on("jumpSpoolStarted", ({ ship }) =>
       this.pendingEvents.push({ k: "jumpSpoolStarted", ship: id(ship) }),
     );
@@ -606,6 +646,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     }
     this.syncMothership(this.state.humansMothership, "humans");
     this.syncMothership(this.state.machinesMothership, "machines");
+    this.syncStations();
 
     this.state.phase = this.sim.state;
     this.state.winner = this.sim.winner ?? "";
@@ -784,11 +825,48 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     schema.maxHp = ms.maxHp;
     schema.hp = ms.hp;
     schema.alive = ms.isAlive;
+    this.syncSubsystems(schema, faction);
   }
 
   private syncMothership(schema: MothershipSchema, faction: Faction): void {
     const ms = this.sim.motherships[faction];
     schema.hp = ms.hp;
     schema.alive = ms.isAlive;
+    this.syncSubsystems(schema, faction);
+  }
+
+  /** Copy station ownership/capture state + the energy/tier root fields
+   *  (strategic layer M2). Colyseus diffs unchanged writes, so writing every
+   *  patch is fine. */
+  private syncStations(): void {
+    const strategic = this.sim.strategic;
+    for (const st of strategic.stations) {
+      const s = this.state.stations.get(String(st.id));
+      if (!s) continue;
+      s.owner = st.owner ?? "";
+      s.capturing = st.capturingFaction ?? "";
+      s.progress = st.progress;
+      s.contested = st.contested;
+    }
+    this.state.humansEnergy = strategic.energy.humans;
+    this.state.machinesEnergy = strategic.energy.machines;
+    this.state.humansTier = strategic.tier.humans;
+    this.state.machinesTier = strategic.tier.machines;
+  }
+
+  /** Copy subsystem HP into the fixed schema slots (build order: shield,
+   *  shield, hangar — see Mothership.buildSubsystems). No allocation. */
+  private syncSubsystems(schema: MothershipSchema, faction: Faction): void {
+    const ms = this.sim.motherships[faction];
+    let shieldIdx = 0;
+    for (const sub of ms.subsystems) {
+      if (sub.kind === "shield") {
+        if (shieldIdx === 0) schema.shield0Hp = sub.hp;
+        else if (shieldIdx === 1) schema.shield1Hp = sub.hp;
+        shieldIdx++;
+      } else if (sub.kind === "hangar") {
+        schema.hangarHp = sub.hp;
+      }
+    }
   }
 }

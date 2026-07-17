@@ -22,6 +22,7 @@ import { SimEventBus } from "./SimEvents";
 import { LaunchSequence } from "../LaunchSequence";
 import { computeConcealmentZones } from "./CombatNebulaZones";
 import { StormSystem } from "./StormSystem";
+import { StrategicSystem } from "./StrategicSystem";
 import { seedSimRng } from "./SimRng";
 
 /**
@@ -84,6 +85,8 @@ export class BattleSim {
   readonly factionMissiles: Record<Faction, MissileSystem>;
   readonly sensors: SensorSystem;
   readonly storms: StormSystem;
+  /** Capture stations + Energy + upgrade effects (strategic layer M2). */
+  readonly strategic: StrategicSystem;
   readonly worldByFaction: Record<Faction, ControllerWorld>;
 
   readonly combatants: SimCombatant[] = [];
@@ -206,6 +209,15 @@ export class BattleSim {
       GameConfig.arena.halfDepth,
     );
 
+    // --- Strategic layer: capture stations + Energy + upgrade effects
+    // (map-placed like storms; zero placements under stock config = the
+    // capture/energy half never runs, only the declarative effect recompute).
+    this.strategic = new StrategicSystem(
+      this.events,
+      GameConfig.arena.halfWidth,
+      GameConfig.arena.halfDepth,
+    );
+
     // --- Sensors + concealment (shared scene-free footprint math). Storm
     // zones conceal exactly like nebulas — hide in the storm, pay in HP. ---
     this.sensors = new SensorSystem(this.motherships);
@@ -225,6 +237,7 @@ export class BattleSim {
         homeMothership: this.motherships.humans,
         leader: null,
         obstacles: this.aiObstacles,
+        stations: this.strategic.stations,
         arenaHalfX: GameConfig.arena.halfWidth,
         arenaHalfZ: GameConfig.arena.halfDepth,
       },
@@ -234,6 +247,7 @@ export class BattleSim {
         homeMothership: this.motherships.machines,
         leader: null,
         obstacles: this.aiObstacles,
+        stations: this.strategic.stations,
         arenaHalfX: GameConfig.arena.halfWidth,
         arenaHalfZ: GameConfig.arena.halfDepth,
       },
@@ -301,8 +315,9 @@ export class BattleSim {
   /**
    * Finalize wiring + stage the launch. Wires weapon targets in the order the
    * baseline expects — every combatant's ship (combatant order), then turrets
-   * (humans, machines), then hull sections (humans, machines) — then catapults
-   * each faction's fleet out of its carrier's bays.
+   * (humans, machines), then subsystems (humans, machines), then hull sections
+   * (humans, machines) — then catapults each faction's fleet out of its
+   * carrier's bays.
    */
   start(): void {
     for (const c of this.combatants) {
@@ -314,6 +329,13 @@ export class BattleSim {
       for (const turret of this.motherships[f].turrets) {
         this.factionLasers[opposing(f)].addTarget(turret);
         this.factionMissiles[opposing(f)].addTarget(turret);
+      }
+    }
+    // Subsystems likewise before sections (same shoot-it-off-the-hull rule).
+    for (const f of ["humans", "machines"] as Faction[]) {
+      for (const sub of this.motherships[f].subsystems) {
+        this.factionLasers[opposing(f)].addTarget(sub);
+        this.factionMissiles[opposing(f)].addTarget(sub);
       }
     }
     for (const f of ["humans", "machines"] as Faction[]) {
@@ -502,12 +524,36 @@ export class BattleSim {
           this.events.emit("turretDestroyed", { position: turret.position });
         }
       }
+      // Subsystem death latch: announce once, on the subsystem's OWN
+      // explosionFired flag (not a Set) so the strategic "subsystemRepair"
+      // upgrade can re-arm it — a revived-then-redestroyed subsystem
+      // announces again. Destruction EFFECTS (hangar respawn penalty) are
+      // applied declaratively by StrategicSystem.update, not here.
+      for (const sub of this.motherships[f].subsystems) {
+        if (!sub.isAlive && !sub.explosionFired) {
+          sub.explosionFired = true;
+          this.events.emit("subsystemDestroyed", {
+            mothership: this.motherships[f],
+            subsystem: sub,
+          });
+          if (sub.kind === "shield" && !this.motherships[f].shieldsUp) {
+            // The LAST generator just fell — the core is exposed.
+            this.events.emit("shieldsDown", { mothership: this.motherships[f] });
+          }
+        }
+      }
     }
 
     this.resolveAsteroidCollisions(nowMs);
     this.resolveMothershipCollisions();
     this.resolveHulkCollisions(nowMs);
     this.resolveStormZaps(nowMs);
+
+    // Strategic layer: capture/energy (station maps only) + declarative
+    // effect application (always — carries the hangar respawn penalty).
+    // Fixed tick position: after storm zaps, before death/respawn, so a
+    // respawn-delay change lands before this tick's shouldRespawn checks.
+    this.strategic.update(dtSeconds, this.combatants, this.sensors, this.motherships);
 
     // Death bookkeeping + respawns.
     for (const c of this.combatants) {

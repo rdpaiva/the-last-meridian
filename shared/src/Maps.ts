@@ -90,6 +90,12 @@ export interface MapConfig {
   /** Placed hazards — e.g. a derelict hulk (indestructible cover). Omitted =
    *  none. See HazardSpec in GameConfig. */
   hazards?: ReadonlyArray<HazardSpec>;
+
+  /** Capture stations (strategic layer M2 — GameConfig.stations.placements,
+   *  fractional like the zone shapes). Dock at one to convert it; owned
+   *  stations feed the faction Energy pool. Omitted = no stations and the
+   *  whole capture/energy layer stays inert on this map. */
+  stations?: ReadonlyArray<{ xFrac: number; zFrac: number }>;
 }
 
 const FACTIONS: readonly Faction[] = ["humans", "machines"];
@@ -104,10 +110,17 @@ export const MAPS: Record<ConcreteMapId, MapConfig> = {
   openVoid: {
     id: "openVoid",
     name: "The Void",
-    blurb: "Open space. Nowhere to hide — jump drives win or lose it.",
+    blurb: "Open space. Nowhere to hide — hold the relay line or lose it.",
     carrierZ: { player: -850, enemy: 850 },
     asteroids: { count: 0 },
     nebulaZones: [],
+    // A midline relay row: with no terrain, the stations ARE the map — the
+    // long carrier gap makes holding the line a real commitment.
+    stations: [
+      { xFrac: -0.55, zFrac: 0 },
+      { xFrac: 0, zFrac: 0 },
+      { xFrac: 0.55, zFrac: 0 },
+    ],
   },
   asteroidBelt: {
     id: "asteroidBelt",
@@ -131,6 +144,13 @@ export const MAPS: Record<ConcreteMapId, MapConfig> = {
       driftSpeedMax: 1.2,
     },
     nebulaZones: [{ xFrac: 0.0, zFrac: 0.0, radius: 45 }],
+    // Flank stations outside the rocks + one dead-center INSIDE the belt's
+    // stealth pocket: capturing the middle means docking blind in the murk.
+    stations: [
+      { xFrac: -0.85, zFrac: 0 },
+      { xFrac: 0, zFrac: 0 },
+      { xFrac: 0.85, zFrac: 0 },
+    ],
   },
   nebulaVeil: {
     id: "nebulaVeil",
@@ -194,6 +214,14 @@ export const MAPS: Record<ConcreteMapId, MapConfig> = {
       { xFrac: 0.78, zFrac: 0.0, radius: 95 },
       { xFrac: -0.6, zFrac: 0.55, radius: 70 },
       { xFrac: 0.6, zFrac: -0.55, radius: 70 },
+    ],
+    // One station per lane mouth: center sits in the stealth pocket between
+    // the main banks; the flank pair sit beyond the outer storms, past the
+    // picket pinch — the wide route pays off in Energy.
+    stations: [
+      { xFrac: 0, zFrac: 0 },
+      { xFrac: -0.92, zFrac: 0 },
+      { xFrac: 0.92, zFrac: 0 },
     ],
   },
 };
@@ -304,6 +332,10 @@ export function applyMapConfig(
 
   // Placed hazards (wrecks). No schema knob; always set (empty = none).
   GameConfig.hazards = map.hazards ?? [];
+
+  // Capture stations — same contract as storms.zones (empty = the strategic
+  // capture/energy layer is inert on this map).
+  GameConfig.stations.placements = map.stations ?? [];
 
   // Fleet composition — every pick count + strikeCount IS a settings knob, so
   // only replace a faction's fleet when the player hasn't hand-tuned it.

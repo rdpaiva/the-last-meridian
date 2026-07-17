@@ -318,6 +318,73 @@ u/s) before `killNearestBolt` — fainter artifact, watch for owner reports;
 missiles into CARRIER hulls/turrets/rocks still boom event-late (fuse only
 covers ship shadows).
 
+**Built 2026-07-17 — strategic layer M1: mothership subsystems**
+(owner-approved plan, trimmed core of
+`docs/the-last-meridian-strategic-persistence-design.md`; M2/M3 queued
+below as item 5). Each carrier now mounts 2 destructible SHIELD GENERATORS
++ 1 HANGAR (the Turret pattern minus the gun —
+`shared/src/sim/MothershipSubsystem.ts`, config
+`GameConfig.mothership.subsystems`): while any generator lives, hull
+damage is ×`shieldedHullDamageFactor` (0.2, nonzero = anti-stall;
+gate lives in `Mothership.takeDamage`); hangar death multiplies the
+faction's respawn delay (`Ship.respawnDelayScale`, applied by the
+death-latch scans in `BattleSim.advance` + solo `Game.advanceSim` —
+BOTH loops, as ever). Strike AI + carrier missile doctrine prefer the
+nearest live generator while shields are up
+(`AIController.nearestLiveShieldGenerator`); FleetCommander's carrier
+alert now sums subsystem HP. New SimEvents `subsystemDestroyed`/
+`shieldsDown` → NetEvents + relay (`BattleRoom.wireEventRelay`) + schema
+slots `shield0Hp/shield1Hp/hangarHp` on `MothershipSchema` (mid-match
+joiners correct; netsim clone untouched on purpose — mothership state
+rides the live-root path like HP). Client: `SubsystemView` (procedural
+dome/bay-strip, dies to a stump; GLB empties can re-seat later),
+`MothershipView.syncSubsystems`, HUD pips under the carrier bars +
+strategic toasts (`Hud.setSubsystems`/`showStrategicToast`).
+PROTOCOL_VERSION **24**. Baseline RECAPTURED (intended gameplay change:
+24147→28095 ticks, 55→69 deaths — shields lengthen the carrier kill);
+`tests/sim/subsystems.test.ts` covers gating/latch/respawn-scale. NOT
+owner-verified in-game yet (see work item 0d); shield/hangar MOUNT
+POSITIONS are config-eyeballed, not GLB-fitted — expect to nudge them.
+
+**Built 2026-07-17 — strategic layer M2: capture stations + Energy +
+upgrade thresholds** (same session as M1; full design in
+`docs/strategic-layer-plan.md`). Neutral stations a faction flips by
+DOCKING (inside `stations.captureRadius` below `stations.dockMaxSpeed` —
+the service-bubble loiter gate; contested = frozen; enemy flips are
+two-stage drain→neutral→capture): `shared/src/sim/CaptureStation.ts` +
+`StrategicSystem.ts` (stations, per-faction Energy, auto thresholds
+100/250/500 → fasterRespawn / sensorBoost / subsystemRepair, and the
+DECLARATIVE per-tick effect application — Ship.respawnDelayScale is now
+recomputed every tick as hangarPenalty × upgrade, the M1 latch write is
+gone, and subsystem death latches moved to `explosionFired` so repair
+re-arms them). Map opt-in like storms: `GameConfig.stations.placements`
+empty on stock config (baseline UNTOUCHED — the M2 acceptance gate),
+`MapConfig.stations` via applyMapConfig; layouts added to The Void, The
+Belt, The Tempest. AI: new `"capture"` AIOrder + `setCaptureTarget`
+(guard bubble = `ai.captureEngageRange`), FleetCommander tasks
+`commander.captureCount` pool ships (priority: defend > capture > hunt),
+`ControllerWorld.stations`. Sensors: `SensorSystem.rangeScale` per
+faction. Wire: `StationSchema` map + energy/tier root fields,
+NetEvents stationCaptured/stationNeutralized/upgradeUnlocked,
+PROTOCOL_VERSION **25**. Client: `StationView` (procedural pylon/beacon +
+dock-radius ring; GLB seam ready via `stations.model.file`, null today —
+owner authors the model later), radar station squares w/ capture arcs
+(`Radar.plotStation`), HUD Energy lines + tier pips (`Hud.setEnergy`) +
+toasts, SubsystemView revival, "Subsystems & Stations" match-settings
+group (TuningSchema). Tests: `tests/sim/stations.test.ts` (9). M3 (Loom
+event) still queued in item 5. Post-M2 refinements from owner feedback
+same session: (a) **capture-status HUD line** — bottom-center above the
+jump ring while docked ("CAPTURING STATION 43%" / "NEUTRALIZING…" /
+"DRAINING ENEMY PROGRESS…" / "CAPTURE CONTESTED" / "REDUCE SPEED TO
+DOCK"), shared composer `captureStatusFor` in `client/src/game/Hud.ts`
+(+ `setCaptureStatus`), computed per frame in `Game.updateViews` and
+NetworkGame's predicted-ship block; (b) **faction identity colors** —
+StationView + SubsystemView ownership tint now uses
+`FACTION_THEME.engineHot` (Commonwealth blue / Novari red, matching
+radar + HUD), NOT `laserEmissive` (humans' pink lasers made a
+human-owned station read RED — owner caught it). Owner has flown
+stations at least once (color bug report); full check still item 0e.
+
 **Owner goal**: a friends playtest — HOSTING IS LIVE (provisioned
 2026-07-06, CI-path verified same day). Topology in `docs/DEPLOY.md`
 ("Provisioned state" section has every detail): ONE DigitalOcean droplet
@@ -369,6 +436,39 @@ playtest results: what broke, what felt off, overlay numbers if netcode>
    (slit gates + center-lane pinchers + corner drifters — predates the
    map-editor session, deliberately left unstaged); keep or discard after
    the storm feel check in item 0.
+0d. **Owner check of mothership subsystems** (built 2026-07-17, see the
+   state paragraph): solo or two-tab — verify the shield generator domes +
+   hangar sit sensibly ON the carrier GLBs (mounts are config-eyeballed:
+   `GameConfig.mothership.subsystems.*.mounts`, nudge x/z there), strikers
+   visibly work the generators before the hull, the HUD pips + SHIELDS
+   DOWN toast read, and the shielded-hull pace feels right
+   (`shieldedHullDamageFactor` / shield `hp` are the knobs). Deploy note:
+   v24 — both halves together, as always.
+0f. **The production freeze bug** (reported + DIAGNOSED 2026-07-17;
+   FIXES CODED 2026-07-17, not yet deployed/verified): the live site
+   freezes for a few seconds every ~20–30s. Investigation record + the
+   in-game disambiguating test ("does your own ship still fly during a
+   freeze?") in **`docs/perf-freeze-investigation.md`**. What landed:
+   the server heap cap (`deploy/space-duel.service` —
+   `NODE_OPTIONS=--max-old-space-size=512`; likely THE fix, hyp. 1),
+   the GlowLayer include-list leak (new `client/src/game/GlowInclude.ts`
+   `includeInGlow` helper, all 20 former `addIncludedOnlyMesh` sites
+   converted — verified vs Babylon 7.54 source: it never prunes
+   disposed ids), the per-frame `scoreRows()` allocation (now 500ms
+   cadence, `NetworkGame.SCOREBOARD_INTERVAL_MS`), and the burst-on-
+   resume fxQueue drain cap (`NetworkGame.MAX_FX_EVENTS_PER_FRAME`).
+   REMAINING, owner-side: (1) the unit file must be reinstalled on the
+   droplet BY HAND (deploy workflow doesn't ship it — one-liner in the
+   unit's header comment), (2) "Deploy game" for the client half,
+   (3) confirm live: freezes gone; optionally `--trace-gc` per the doc.
+0e. **Owner check of capture stations + Energy** (built 2026-07-17, see
+   the state paragraph): launch The Void solo — three station beacons on
+   the midline; slow down inside a dock ring to flip one (toast + radar
+   arc + Energy line under your carrier bar); watch enemy pilots contest
+   (commander sends `commander.captureCount` = 2); let Energy cross
+   100/250/500 and feel each upgrade. Pace knobs live in the new
+   "Subsystems & Stations" match-settings group. Deploy note: v25 — both
+   halves together.
 1. **The friends playtest** — everything before it is DONE and
    owner-verified working (2026-07-06): apex DNS + cert live, Pages
    unpublished (old URL 404s), unified "Deploy game" workflow proven
@@ -410,6 +510,29 @@ playtest results: what broke, what felt off, overlay numbers if netcode>
    `enabled: false`).
 4. **Post-deploy niceties, only if asked**: player count / room browser,
    spectate, persistent stats — none are scoped; propose before building.
+5. **Strategic layer M3 (queued; M2 SHIPPED 2026-07-17 — see the state
+   paragraph)**: the one remaining milestone from
+   `docs/strategic-layer-plan.md` — a mid-match Loom Fragment event
+   (deterministic sim-clock spawn, fast capture, temporary
+   sensor-omniscience "Loom Resonance" buff, bump → 26) + polish (Field
+   Manual card for the strategic layer, subsystem damage smoke,
+   docs/SUBSYSTEMS.md entries). The M2 plan summary below is now the
+   RECORD of what shipped: new
+   `shared/src/sim/CaptureStation.ts` + `StrategicSystem.ts` (storms-style
+   map opt-in: `GameConfig.stations.placements` `[]` by default so the
+   baseline stays untouched; `MapConfig.stations` via `applyMapConfig`);
+   DOCKING-style capture (presence = inside radius AND below
+   `stations.dockMaxSpeed`, the service-bubble loiter gate — owner
+   requirement); new `AIOrder` `"capture"` + `setCaptureTarget` (defend
+   anchored on the station, throttled down inside the radius) +
+   FleetCommander `captureCount` tasking; effects = respawnDelayScale /
+   `SensorSystem.rangeScale` / subsystem repair; `StationSchema` map +
+   per-faction energy/tier root fields (bump → 25); `StationView` = GLB
+   via AssetLoader w/ procedural ring fallback (owner authors the Blender
+   model later). M3 after: one Loom Fragment event (sensor-omniscience
+   buff, bump → 26). Both milestones wire BOTH loops (BattleSim + solo
+   Game.advanceSim), no Game→BattleSim convergence (decided 2026-07-17:
+   new systems are self-contained shared classes; revisit post-playtest).
 
 **Rules of the road** (already true in code — don't relearn them):
 

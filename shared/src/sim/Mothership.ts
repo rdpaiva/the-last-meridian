@@ -2,6 +2,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 
 import { GameConfig } from "../GameConfig";
 import { MothershipSection } from "./MothershipSection";
+import { MothershipSubsystem, type SubsystemKind } from "./MothershipSubsystem";
 import { Turret, type TurretFireCommand } from "./Turret";
 import { hullColliderBoxes } from "./Hulk";
 import type { DamageTarget } from "../types";
@@ -71,6 +72,15 @@ export class Mothership implements DamageTarget {
    * the sim stays free of a construction-order coupling. See sim/Turret.ts.
    */
   readonly turrets: ReadonlyArray<Turret>;
+  /**
+   * Destructible named subsystems (shield generators + hangar) — like turrets,
+   * individually shootable DamageTargets with their OWN hp, built from
+   * GameConfig.mothership.subsystems.*.mounts[faction]. While any SHIELD
+   * generator lives, this carrier's hull pool takes only a fraction of
+   * incoming damage (see takeDamage); the HANGAR's destruction effect
+   * (slower faction respawns) is applied by the sim loop's death-latch scan.
+   */
+  readonly subsystems: ReadonlyArray<MothershipSubsystem>;
 
   // Shared geometry constants — used by the view's procedural build and by the
   // launch-geometry helpers below.
@@ -124,6 +134,7 @@ export class Mothership implements DamageTarget {
     });
     this.avoidanceCircles = this.buildAvoidanceCircles();
     this.turrets = this.buildTurrets(worldPosition, sin, cos);
+    this.subsystems = this.buildSubsystems(worldPosition, sin, cos);
 
     // Seed the launch geometry with the values MEASURED off this faction's
     // carrier GLB (scripts/measure-carrier-footprint.mjs), so a HEADLESS sim
@@ -166,6 +177,51 @@ export class Mothership implements DamageTarget {
         mounts.length,
       );
     });
+  }
+
+  /**
+   * Builds the named subsystems (shield generators + hangar) from
+   * GameConfig.mothership.subsystems.*.mounts[faction], rotating each
+   * carrier-LOCAL mount into world space exactly like buildTurrets. The
+   * carrier is static, so the mounts are too.
+   */
+  private buildSubsystems(
+    worldPosition: Vector3,
+    sin: number,
+    cos: number,
+  ): MothershipSubsystem[] {
+    const cfg = GameConfig.mothership.subsystems;
+    const built: MothershipSubsystem[] = [];
+    for (const kind of ["shield", "hangar"] as const satisfies readonly SubsystemKind[]) {
+      const mounts = cfg[kind].mounts[this.faction] ?? [];
+      for (const m of mounts) {
+        built.push(
+          new MothershipSubsystem(
+            kind,
+            worldPosition.x + cos * m.x + sin * m.z,
+            worldPosition.y + (m.y ?? cfg.mountY),
+            worldPosition.z - sin * m.x + cos * m.z,
+          ),
+        );
+      }
+    }
+    return built;
+  }
+
+  /** True while ANY shield generator is alive — the hull damage gate. */
+  get shieldsUp(): boolean {
+    for (const s of this.subsystems) {
+      if (s.kind === "shield" && s.isAlive) return true;
+    }
+    return false;
+  }
+
+  /** True while the hangar subsystem is alive (no hangar mounted = true). */
+  get hangarAlive(): boolean {
+    for (const s of this.subsystems) {
+      if (s.kind === "hangar" && !s.isAlive) return false;
+    }
+    return true;
   }
 
   /**
@@ -231,6 +287,13 @@ export class Mothership implements DamageTarget {
 
   takeDamage(amount: number, _nowMs: number): void {
     if (this.hp <= 0) return;
+    // Shield gate: while any generator lives, the hull pool only takes a
+    // fraction of incoming damage — kill the generators to expose the core.
+    // The factor is nonzero by design (anti-stall: a battle must still end
+    // even if no pilot ever targets the generators).
+    if (this.shieldsUp) {
+      amount *= GameConfig.mothership.subsystems.shield.shieldedHullDamageFactor;
+    }
     this.hp = Math.max(0, this.hp - amount);
   }
 
