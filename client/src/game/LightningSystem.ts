@@ -8,6 +8,7 @@ import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import "@babylonjs/core/Meshes/Builders/ribbonBuilder";
 
 import { GameConfig } from "@space-duel/shared";
+import { includeInGlow } from "./GlowInclude";
 import { LightningBolt } from "./LightningBolt";
 import type { StormClouds } from "./StormClouds";
 
@@ -160,7 +161,7 @@ export class LightningSystem {
     mat.disableLighting = true;
     mat.backFaceCulling = false;
     mesh.material = mat;
-    this.glowLayer.addIncludedOnlyMesh(mesh);
+    includeInGlow(this.glowLayer, mesh);
 
     this.active.push(new LightningBolt(mesh, cfg.durationMs));
   }

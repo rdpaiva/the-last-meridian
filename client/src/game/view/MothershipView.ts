@@ -17,6 +17,7 @@ import "@babylonjs/loaders/glTF";
 import { GameConfig } from "@space-duel/shared";
 import { Mothership } from "@space-duel/shared";
 import { TurretView } from "./TurretView";
+import { includeInGlow } from "../GlowInclude";
 
 /**
  * Procedural BSG-style carrier/battleship (Galactica silhouette) — the VIEW
@@ -356,7 +357,7 @@ export class MothershipView {
     for (const m of meshes) {
       const nm = m.name.toLowerCase();
       if (nm.includes("bay")) continue; // recessed → emissive only, never glow
-      if (GLOW.some((g) => nm.includes(g))) this.glowLayer.addIncludedOnlyMesh(m as Mesh);
+      if (GLOW.some((g) => nm.includes(g))) includeInGlow(this.glowLayer, m as Mesh);
     }
   }
 
@@ -404,7 +405,7 @@ export class MothershipView {
       ex.parent = r;
       ex.material = engineMat;
       ex.isPickable = false;
-      glowLayer.addIncludedOnlyMesh(ex);
+      includeInGlow(glowLayer, ex);
     }
 
     // Portholes down both flanks of the hull (mid-height), bow-to-stern.
@@ -489,7 +490,7 @@ export class MothershipView {
     viewport.parent = r;
     viewport.material = viewportMat;
     viewport.isPickable = false;
-    glowLayer.addIncludedOnlyMesh(viewport);
+    includeInGlow(glowLayer, viewport);
 
     // Small cap + a pair of sensor masts on top.
     const cap = MeshBuilder.CreateBox("ms_bridge_cap", { width: 8, height: 2.5, depth: 10 }, scene);
@@ -596,7 +597,7 @@ export class MothershipView {
       light.parent = r;
       light.material = lightMat;
       light.isPickable = false;
-      glowLayer.addIncludedOnlyMesh(light);
+      includeInGlow(glowLayer, light);
     }
 
     // Warm portholes along the pod's OUTER flank (the inner edge carries the

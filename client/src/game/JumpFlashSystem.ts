@@ -8,6 +8,7 @@ import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import "@babylonjs/core/Meshes/Builders/sphereBuilder";
 
 import { GameConfig } from "@space-duel/shared";
+import { includeInGlow } from "./GlowInclude";
 import { JumpFlash } from "./JumpFlash";
 
 /**
@@ -17,8 +18,8 @@ import { JumpFlash } from "./JumpFlash";
  * only the bright core. One spawn() per END of a jump (departure + arrival).
  *
  * Each flash gets a fresh mesh + material (jumps are rare). Meshes opt into the
- * GlowLayer so the core blooms, and are disposed on expiry — Babylon's
- * GlowLayer handles disposed meshes safely (same pattern as ExplosionSystem).
+ * GlowLayer via includeInGlow so the core blooms and the include-list entry is
+ * pruned again on dispose (same pattern as ExplosionSystem).
  */
 export class JumpFlashSystem {
   private readonly active: JumpFlash[] = [];
@@ -51,7 +52,7 @@ export class JumpFlashSystem {
     flash.material = mat;
     flash.isPickable = false;
     flash.scaling.setAll(0);
-    this.glowLayer.addIncludedOnlyMesh(flash);
+    includeInGlow(this.glowLayer, flash);
 
     this.active.push(new JumpFlash(flash, fx.durationMs));
   }

@@ -9,6 +9,7 @@ import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import "@babylonjs/core/Meshes/Builders/sphereBuilder";
 
 import { GameConfig } from "@space-duel/shared";
+import { includeInGlow } from "./GlowInclude";
 
 /**
  * Subtle RCS / maneuvering-thruster vapour effect for reverse and strafe inputs.
@@ -138,7 +139,7 @@ function makeUnit(
   coreMat.alpha = 0; // start invisible; updateUnit fades it in with intensity
   core.material = coreMat;
   // GlowLayer is in included-only mode; explicit registration is required.
-  glowLayer.addIncludedOnlyMesh(core);
+  includeInGlow(glowLayer, core);
 
   // Elongated plume ellipsoid in LOCAL anchor space — always aligned with the
   // ejection axis, never affected by ship velocity.
@@ -159,7 +160,7 @@ function makeUnit(
   plumeMat.disableLighting = true;
   plumeMat.alpha = 0;
   plume.material = plumeMat;
-  glowLayer.addIncludedOnlyMesh(plume);
+  includeInGlow(glowLayer, plume);
 
   return { coreMat, plumeMat, intensity: 0 };
 }

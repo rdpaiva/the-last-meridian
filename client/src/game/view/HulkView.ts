@@ -14,6 +14,7 @@ import "@babylonjs/loaders/glTF";
 
 import { GameConfig } from "@space-duel/shared";
 import { hullColliderBoxes, type Hulk } from "@space-duel/shared";
+import { includeInGlow } from "../GlowInclude";
 
 /**
  * Hulk VIEW — the depiction of a derelict wreck (sim half: `Hulk`). A dark,
@@ -137,7 +138,7 @@ export class HulkView {
     for (const m of meshes) {
       const nm = m.name.toLowerCase();
       if (tags.some((t) => nm.includes(t))) {
-        this.glowLayer.addIncludedOnlyMesh(m as Mesh);
+        includeInGlow(this.glowLayer, m as Mesh);
       }
     }
   }

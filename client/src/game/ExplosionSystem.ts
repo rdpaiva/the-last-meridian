@@ -9,14 +9,16 @@ import "@babylonjs/core/Meshes/Builders/sphereBuilder";
 
 import { GameConfig } from "@space-duel/shared";
 import { Explosion, type Debris } from "./Explosion";
+import { includeInGlow } from "./GlowInclude";
 
 /**
  * Spawns and ticks short-lived explosion effects. Two shared emissive
  * materials (flash + debris) are reused across every explosion.
  *
- * GlowLayer is opt-in per mesh: we add each new flash and debris piece to
- * it on spawn so the explosion blooms hot. They're disposed when the
- * explosion expires — Babylon's GlowLayer handles disposed meshes safely.
+ * GlowLayer is opt-in per mesh: each new flash and debris piece joins it on
+ * spawn (via includeInGlow, which also removes the mesh from the include
+ * list on dispose — Babylon does NOT prune disposed ids itself, and sparks
+ * spawn on every laser hit, so direct adds leak the list unboundedly).
  */
 export class ExplosionSystem {
   private readonly active: Explosion[] = [];
@@ -91,7 +93,7 @@ export class ExplosionSystem {
     flash.position.copyFrom(position);
     flash.material = this.sparkMat;
     flash.isPickable = false;
-    this.glowLayer.addIncludedOnlyMesh(flash);
+    includeInGlow(this.glowLayer, flash);
 
     // Give the slivers a random base bearing so the spray isn't anchored to a
     // fixed axis, then scatter each one freely around the disc from there.
@@ -110,7 +112,7 @@ export class ExplosionSystem {
       mesh.position.copyFrom(position);
       mesh.material = this.sparkMat;
       mesh.isPickable = false;
-      this.glowLayer.addIncludedOnlyMesh(mesh);
+      includeInGlow(this.glowLayer, mesh);
 
       // Slivers spray outward in the X/Z plane with a small vertical kick.
       const angle = baseAngle + Math.random() * Math.PI * 2;
@@ -147,7 +149,7 @@ export class ExplosionSystem {
     flash.position.copyFrom(position);
     flash.material = this.muzzleFlashMat;
     flash.isPickable = false;
-    this.glowLayer.addIncludedOnlyMesh(flash);
+    includeInGlow(this.glowLayer, flash);
     this.active.push(new Explosion(flash, [], cfg.durationMs, cfg.peakScale));
   }
 
@@ -162,7 +164,7 @@ export class ExplosionSystem {
     flash.position.copyFrom(position);
     flash.material = this.flashMat;
     flash.isPickable = false;
-    this.glowLayer.addIncludedOnlyMesh(flash);
+    includeInGlow(this.glowLayer, flash);
 
     const debris: Debris[] = [];
     for (let i = 0; i < cfg.debrisCount; i++) {
@@ -174,7 +176,7 @@ export class ExplosionSystem {
       mesh.position.copyFrom(position);
       mesh.material = this.debrisMat;
       mesh.isPickable = false;
-      this.glowLayer.addIncludedOnlyMesh(mesh);
+      includeInGlow(this.glowLayer, mesh);
 
       // Spread outward in a roughly disc-shaped pattern on the X/Z plane,
       // with a small vertical kick for visual depth.

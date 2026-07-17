@@ -11,6 +11,7 @@ import "@babylonjs/core/Meshes/Builders/cylinderBuilder";
 import "@babylonjs/core/Meshes/Builders/sphereBuilder";
 
 import { FACTION_THEME, type Faction } from "@space-duel/shared";
+import { includeInGlow } from "./GlowInclude";
 
 /**
  * Builds a procedural AI fighter mesh, themed by faction (this is the old
@@ -76,7 +77,7 @@ export function buildFighterMesh(
   engineMat.emissiveColor = theme.engineEmissive;
   engineMat.disableLighting = true;
   engine.material = engineMat;
-  glowLayer.addIncludedOnlyMesh(engine);
+  includeInGlow(glowLayer, engine);
 
   // "Eye" — small emissive sphere at the nose. Pure visual menace.
   const eye = MeshBuilder.CreateSphere(
@@ -92,7 +93,7 @@ export function buildFighterMesh(
   eyeMat.emissiveColor = theme.eyeEmissive;
   eyeMat.disableLighting = true;
   eye.material = eyeMat;
-  glowLayer.addIncludedOnlyMesh(eye);
+  includeInGlow(glowLayer, eye);
 
   return root;
 }

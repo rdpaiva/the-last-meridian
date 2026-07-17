@@ -8,6 +8,7 @@ import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import "@babylonjs/core/Meshes/Builders/boxBuilder";
 
 import { GameConfig } from "@space-duel/shared";
+import { includeInGlow } from "./GlowInclude";
 
 /**
  * Procedural background capital ships built entirely from box primitives.
@@ -171,7 +172,7 @@ export class CapitalShips {
     engine.material = this.engineMat;
     engine.parent = root;
     engine.isPickable = false;
-    glowLayer.addIncludedOnlyMesh(engine);
+    includeInGlow(glowLayer, engine);
 
     // Running lights — 6 small emissive boxes spaced along the spine top.
     // Type-widen to `number` so a future change to `1` doesn't trigger the
@@ -190,7 +191,7 @@ export class CapitalShips {
       light.material = this.lightMat;
       light.parent = root;
       light.isPickable = false;
-      glowLayer.addIncludedOnlyMesh(light);
+      includeInGlow(glowLayer, light);
     }
   }
 }

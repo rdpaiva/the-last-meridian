@@ -24,6 +24,17 @@ Group=spaceduel
 WorkingDirectory=/opt/space-duel
 Environment=NODE_ENV=production
 Environment=PORT=2567
+# Cap V8's old space well under the droplet's 1GB (shared with Caddy + OS) so
+# major GC runs while the heap is still resident in RAM. Uncapped, the heap
+# grows until the OS swaps part of it out, and a major GC touching swapped
+# pages stalls the single-threaded sim loop for SECONDS — the periodic
+# freeze-then-snap every client sees (docs/perf-freeze-investigation.md,
+# hypothesis 1). To verify after a deploy: add --trace-gc here temporarily and
+# confirm Mark-sweep pauses stay under ~150ms in `journalctl -u space-duel`.
+# NOTE: editing this file does NOT touch the droplet — reinstall the unit:
+#   sudo cp deploy/space-duel.service /etc/systemd/system/ &&
+#   sudo systemctl daemon-reload && sudo systemctl restart space-duel
+Environment=NODE_OPTIONS=--max-old-space-size=512
 ExecStart=/usr/bin/env node /opt/space-duel/server.mjs
 Restart=always
 RestartSec=3

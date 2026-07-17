@@ -11,6 +11,7 @@ import "@babylonjs/core/Meshes/Builders/sphereBuilder";
 const DEFAULT_EMISSIVE = new Color3(2.5, 0.2, 0.2);
 
 import { GameConfig } from "@space-duel/shared";
+import { includeInGlow } from "./GlowInclude";
 
 /**
  * Red emissive sphere that surrounds the player ship and pulses briefly
@@ -50,7 +51,7 @@ export class DamageFlash {
     this.material.disableDepthWrite = true;
     this.mesh.material = this.material;
 
-    glowLayer.addIncludedOnlyMesh(this.mesh);
+    includeInGlow(glowLayer, this.mesh);
   }
 
   /** Start a flash from full alpha. Idempotent — re-triggering restarts. */

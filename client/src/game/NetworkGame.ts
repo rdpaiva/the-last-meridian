@@ -401,6 +401,21 @@ export class NetworkGame {
   /** Server FX facts awaiting their sim time on the render clock. */
   private readonly fxQueue: Array<{ t: number; e: NetEvent }> = [];
   /**
+   * After a stall (tab background, server hiccup) the render clock can leap
+   * far forward in one frame, making EVERY queued FX fact due at once —
+   * spawning all those meshes/sounds on the resync frame lengthens the very
+   * hitch the player just felt. Cap the drain per frame; a normal frame has
+   * 0–3 due events, so the cap only bites (and smears the burst over a few
+   * frames) after a freeze. (docs/perf-freeze-investigation.md, hyp. 3.)
+   */
+  private static readonly MAX_FX_EVENTS_PER_FRAME = 24;
+  /** Wall-clock time the scoreboard rows were last rebuilt (throttle). */
+  private lastScoreboardMs = 0;
+  /** Scoreboard rebuild cadence — kills/scores don't change 60×/sec, and
+   *  rebuilding the row array every frame was measurable GC churn
+   *  (docs/perf-freeze-investigation.md, hyp. 2). */
+  private static readonly SCOREBOARD_INTERVAL_MS = 500;
+  /**
    * Recent PREDICTIVE missile detonations (fuseFriendlyMissiles): our own
    * depicted rounds fly on the predicted timeline, so they visibly reach the
    * enemy hull ~a round trip + interp delay BEFORE the server's missileHit
@@ -1231,8 +1246,14 @@ export class NetworkGame {
     // 3.5 Transient FX: play each queued server fact once the render clock
     // reaches its sim time (aligning FX with the interpolated poses), then
     // advance the cosmetic projectile pools + one-shot FX systems.
-    while (this.fxQueue.length > 0 && this.fxQueue[0].t <= renderT) {
+    let fxApplied = 0;
+    while (
+      this.fxQueue.length > 0 &&
+      this.fxQueue[0].t <= renderT &&
+      fxApplied < NetworkGame.MAX_FX_EVENTS_PER_FRAME
+    ) {
       this.applyFxEvent(this.fxQueue.shift()!.e);
+      fxApplied++;
     }
     const dtMs = dt * 1000;
     for (const f of ["humans", "machines"] as Faction[]) {
@@ -1273,9 +1294,13 @@ export class NetworkGame {
     }
     // Running scoreboard — same live-root-state path as the pilot counts
     // (bypasses the netsim delay queue; UI-only, ~one RTT "early" under
-    // artificial latency is acceptable). setScoreboard is write-on-change.
-    const scoreRows = this.scoreRows();
-    if (scoreRows.length > 0) this.hud.setScoreboard(scoreRows);
+    // artificial latency is acceptable). setScoreboard is write-on-change,
+    // but building the rows allocates, so rebuild on a cadence, not per frame.
+    if (nowMs - this.lastScoreboardMs >= NetworkGame.SCOREBOARD_INTERVAL_MS) {
+      this.lastScoreboardMs = nowMs;
+      const scoreRows = this.scoreRows();
+      if (scoreRows.length > 0) this.hud.setScoreboard(scoreRows);
+    }
     if (state?.humansMothership && state.machinesMothership) {
       // Carrier sims mirror the replicated HP: the radar diamond drops and the
       // sensors lose their AWACS sweep when a carrier dies, like offline.

@@ -9,6 +9,7 @@ import { TrailMesh } from "@babylonjs/core/Meshes/trailMesh";
 import "@babylonjs/core/Meshes/Builders/sphereBuilder";
 
 import { GameConfig } from "@space-duel/shared";
+import { includeInGlow } from "./GlowInclude";
 
 /**
  * Engine glow effect: a small steady emissive sphere parented at the rear
@@ -135,7 +136,7 @@ export class EngineGlow {
       // because emissive materials are picked up by GlowLayer by default;
       // adding the core here keeps it consistent if we ever flip GlowLayer
       // into includedOnly mode.
-      glowLayer.addIncludedOnlyMesh(core);
+      includeInGlow(glowLayer, core);
     });
   }
 
