@@ -1,7 +1,43 @@
 # Periodic multi-second freeze on production — investigation record
 
-**Status: FIXES CODED (2026-07-17) — see "What was applied" at the bottom.
-NOT yet deployed, NOT yet confirmed live.** The droplet unit reinstall +
+**Status: OPEN — the coded fixes did NOT resolve it (see the 2026-07-17
+update below). They live on branch `fix/prod-freeze` (`56837f2`) as
+hygiene + rollback-able mitigation.**
+
+## 2026-07-17 UPDATE — owner repro: the freeze happens LOCALLY, in SOLO mode
+
+The owner reproduced the periodic freeze on a local dev run in solo play.
+This re-ranks everything below (kept for the record):
+
+- Solo has no server and no NetworkGame → **hypothesis 1 (server GC +
+  swap) cannot explain the solo repro** and is no longer the best guess.
+  The heap cap stays (free, still sane on a 1GB box) but is not THE fix.
+- The local test ran the working tree WITH the client fixes → the
+  GlowLayer leak + scoreboard cadence aren't the root cause either (the
+  leak fix stays — it's real, just not this bug).
+- The cause therefore lives in code shared by solo and online — the
+  Babylon view stack, FX systems, sim/AI — or in the environment (GPU /
+  driver / machine memory pressure), and the prod report may be the SAME
+  client-side bug, not a server one.
+- **Next evidence step (owner, ~60s):** DevTools → Performance tab →
+  record across two freezes in a solo match. Read the gap:
+  - Long **Major GC** bars filling it → allocation churn still, somewhere
+    unfixed; follow with two heap snapshots 30s apart.
+  - One long yellow **scripting** block → expand it; the function name at
+    the bottom of the flame IS the bug. (A ~20–30s period could also be a
+    periodic game event — e.g. AI jump-drive cycles — hitting a slow path.)
+  - **Nothing at all** in the trace during the gap → compositor/GPU
+    stall: check chrome://gpu, and try a run with the glow/bloom knobs
+    zeroed in match settings to isolate the post pipeline.
+- Worth one control run: does committed `main` (or `fix/prod-freeze`,
+  without the strategic-layer WIP) freeze too? The prod report pre-dates
+  M1/M2, but the local repro ran WITH the WIP in the tree — a clean-tree
+  run rules the WIP in or out cheaply.
+
+---
+
+Original record below (pre-solo-repro ranking).
+The droplet unit reinstall +
 "Deploy game" + a live retest remain (owner steps).
 Owner report (2026-07-17): on the production site
 (the-last-meridian.com, online multiplayer), the game freezes for a few
