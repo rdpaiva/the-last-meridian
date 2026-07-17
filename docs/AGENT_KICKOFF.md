@@ -444,23 +444,22 @@ playtest results: what broke, what felt off, overlay numbers if netcode>
    DOWN toast read, and the shielded-hull pace feels right
    (`shieldedHullDamageFactor` / shield `hp` are the knobs). Deploy note:
    v24 — both halves together, as always.
-0f. **The production freeze bug** (reported + DIAGNOSED 2026-07-17;
-   FIXES CODED 2026-07-17, not yet deployed/verified): the live site
-   freezes for a few seconds every ~20–30s. Investigation record + the
-   in-game disambiguating test ("does your own ship still fly during a
-   freeze?") in **`docs/perf-freeze-investigation.md`**. What landed:
-   the server heap cap (`deploy/space-duel.service` —
-   `NODE_OPTIONS=--max-old-space-size=512`; likely THE fix, hyp. 1),
-   the GlowLayer include-list leak (new `client/src/game/GlowInclude.ts`
-   `includeInGlow` helper, all 20 former `addIncludedOnlyMesh` sites
-   converted — verified vs Babylon 7.54 source: it never prunes
-   disposed ids), the per-frame `scoreRows()` allocation (now 500ms
-   cadence, `NetworkGame.SCOREBOARD_INTERVAL_MS`), and the burst-on-
-   resume fxQueue drain cap (`NetworkGame.MAX_FX_EVENTS_PER_FRAME`).
-   REMAINING, owner-side: (1) the unit file must be reinstalled on the
-   droplet BY HAND (deploy workflow doesn't ship it — one-liner in the
-   unit's header comment), (2) "Deploy game" for the client half,
-   (3) confirm live: freezes gone; optionally `--trace-gc` per the doc.
+0f. **The freeze bug — STILL OPEN** (2026-07-17): multi-second freeze
+   every ~20–30s. CRITICAL re-rank: the owner reproduced it LOCALLY in
+   SOLO mode, which rules out the server-GC hypothesis and clears the
+   already-landed client fixes as the root cause (his dev run included
+   them) — the cause lives in solo+online shared code (view stack / FX /
+   sim) or the environment. Full record + the next evidence step (a
+   DevTools Performance recording across two freezes, and a clean-tree
+   control run) at the TOP of **`docs/perf-freeze-investigation.md`**.
+   What landed anyway as hygiene (commit `56837f2`, this branch): the
+   droplet heap cap (`deploy/space-duel.service`; reinstall BY HAND —
+   one-liner in the unit header, the deploy workflow doesn't ship unit
+   files), the GlowLayer include-list leak fix
+   (`client/src/game/GlowInclude.ts` `includeInGlow`, all former
+   `addIncludedOnlyMesh` sites converted — a grep for the raw call
+   should stay empty), the scoreboard-cadence + fxQueue-drain-cap fixes
+   in `NetworkGame.ts`. Rollback if ever needed: `git revert 56837f2`.
 0e. **Owner check of capture stations + Energy** (built 2026-07-17, see
    the state paragraph): launch The Void solo — three station beacons on
    the midline; slow down inside a dock ring to flip one (toast + radar
@@ -469,6 +468,18 @@ playtest results: what broke, what felt off, overlay numbers if netcode>
    100/250/500 and feel each upgrade. Pace knobs live in the new
    "Subsystems & Stations" match-settings group. Deploy note: v25 — both
    halves together.
+0g. **M3 — Loom Fragment event + strategic polish** (optional, queued;
+   spec is READY): the full plan — config shape (`GameConfig.loom`),
+   the Loom Resonance buff (`SensorSystem.omniscient[faction]`),
+   events + `BattleState` fields (protocol bump → 26), the new
+   `LoomFragmentView`, commander diversion, Field Manual card, and the
+   verify gate — lives in **`docs/strategic-layer-plan.md` § M3**.
+   Build on the M1/M2 seams from the same doc: the sim-clock timer +
+   faction effects go in `shared/src/sim/StrategicSystem.ts`, map
+   arming via `MapConfig` in `shared/src/Maps.ts` (M2's `stations`
+   pattern), view per the JumpFlash recipe. M2's acceptance gate
+   applies: `tests/sim/baseline.json` must stay untouched (loom only
+   arms when map-enabled).
 1. **The friends playtest** — everything before it is DONE and
    owner-verified working (2026-07-06): apex DNS + cert live, Pages
    unpublished (old URL 404s), unified "Deploy game" workflow proven
