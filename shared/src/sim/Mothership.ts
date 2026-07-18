@@ -73,12 +73,12 @@ export class Mothership implements DamageTarget {
    */
   readonly turrets: ReadonlyArray<Turret>;
   /**
-   * Destructible named subsystems (shield generators + hangar) — like turrets,
-   * individually shootable DamageTargets with their OWN hp, built from
-   * GameConfig.mothership.subsystems.*.mounts[faction]. While any SHIELD
-   * generator lives, this carrier's hull pool takes only a fraction of
-   * incoming damage (see takeDamage); the HANGAR's destruction effect
-   * (slower faction respawns) is applied by the sim loop's death-latch scan.
+   * Destructible named subsystems (the hangar) — like turrets, individually
+   * shootable DamageTargets with their OWN hp, built from
+   * GameConfig.mothership.subsystems.*.mounts[faction]. The HANGAR's
+   * destruction effect (slower faction respawns) is applied by the sim
+   * loop's death-latch scan. Carrier shields are NOT a subsystem — they're
+   * station-powered (see stationShieldFactor).
    */
   readonly subsystems: ReadonlyArray<MothershipSubsystem>;
 
@@ -180,7 +180,7 @@ export class Mothership implements DamageTarget {
   }
 
   /**
-   * Builds the named subsystems (shield generators + hangar) from
+   * Builds the named subsystems (the hangar) from
    * GameConfig.mothership.subsystems.*.mounts[faction], rotating each
    * carrier-LOCAL mount into world space exactly like buildTurrets. The
    * carrier is static, so the mounts are too.
@@ -192,7 +192,7 @@ export class Mothership implements DamageTarget {
   ): MothershipSubsystem[] {
     const cfg = GameConfig.mothership.subsystems;
     const built: MothershipSubsystem[] = [];
-    for (const kind of ["shield", "hangar"] as const satisfies readonly SubsystemKind[]) {
+    for (const kind of ["hangar"] as const satisfies readonly SubsystemKind[]) {
       const mounts = cfg[kind].mounts[this.faction] ?? [];
       for (const m of mounts) {
         built.push(
@@ -208,12 +208,18 @@ export class Mothership implements DamageTarget {
     return built;
   }
 
-  /** True while ANY shield generator is alive — the hull damage gate. */
+  /**
+   * Hull damage multiplier from STATION POWER (GameConfig.stations.shield):
+   * 1 = unshielded, down to minFactor with every station held. Written
+   * DECLARATIVELY each tick by StrategicSystem.applyEffects (both loops) and
+   * by NetworkGame's client mirror (derived from replicated station owners).
+   * Default 1 is correct pre-first-tick and on station-free maps.
+   */
+  stationShieldFactor = 1;
+
+  /** True while station power shields the hull at all (any station held). */
   get shieldsUp(): boolean {
-    for (const s of this.subsystems) {
-      if (s.kind === "shield" && s.isAlive) return true;
-    }
-    return false;
+    return this.stationShieldFactor < 1;
   }
 
   /** True while the hangar subsystem is alive (no hangar mounted = true). */
@@ -287,13 +293,12 @@ export class Mothership implements DamageTarget {
 
   takeDamage(amount: number, _nowMs: number): void {
     if (this.hp <= 0) return;
-    // Shield gate: while any generator lives, the hull pool only takes a
-    // fraction of incoming damage — kill the generators to expose the core.
-    // The factor is nonzero by design (anti-stall: a battle must still end
-    // even if no pilot ever targets the generators).
-    if (this.shieldsUp) {
-      amount *= GameConfig.mothership.subsystems.shield.shieldedHullDamageFactor;
-    }
+    // Station-powered shields: hull damage scales by the graduated factor
+    // StrategicSystem writes each tick (1 with no stations held, down to
+    // stations.shield.minFactor with all of them). The floor is nonzero by
+    // design (anti-stall: a battle must still end even against a faction
+    // that holds every station).
+    amount *= this.stationShieldFactor;
     this.hp = Math.max(0, this.hp - amount);
   }
 
@@ -366,6 +371,36 @@ export class Mothership implements DamageTarget {
     for (let i = 0; i < n; i++) {
       const m = mounts[i];
       this.turrets[i].setMountPosition(
+        this.position.x + cos * m.x + sin * m.z,
+        this.position.y + m.y,
+        this.position.z - sin * m.x + cos * m.z,
+      );
+    }
+  }
+
+  /**
+   * Re-seats the subsystems of one kind on the mount points the view read off
+   * the loaded carrier GLB's empties (a future `hangar.*` seam —
+   * carrier-LOCAL x/y/z, the setModelTurretMounts recipe exactly). Repositions
+   * the EXISTING MothershipSubsystem objects in place (they're registered by
+   * reference as DamageTargets on the opposing weapons); extra empties beyond
+   * the config mount count are ignored — the subsystem COUNT is a balance
+   * knob that must match headless (the server has no GLB, it collides at
+   * GameConfig.mothership.subsystems mounts). When empties are authored,
+   * re-fit the config mounts to match so server and client agree.
+   */
+  setModelSubsystemMounts(
+    kind: SubsystemKind,
+    mounts: ReadonlyArray<{ x: number; y: number; z: number }> | null,
+  ): void {
+    if (!mounts || mounts.length === 0) return;
+    const sin = Math.sin(this.rotationY);
+    const cos = Math.cos(this.rotationY);
+    const ofKind = this.subsystems.filter((s) => s.kind === kind);
+    const n = Math.min(mounts.length, ofKind.length);
+    for (let i = 0; i < n; i++) {
+      const m = mounts[i];
+      ofKind[i].setMountPosition(
         this.position.x + cos * m.x + sin * m.z,
         this.position.y + m.y,
         this.position.z - sin * m.x + cos * m.z,

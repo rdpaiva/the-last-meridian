@@ -121,6 +121,8 @@ export class Hud {
   private lastCaptureSig = "";
   /** Last pip signature written (write-on-change; called per frame). */
   private lastSubsSig = "";
+  /** Last shield-power signature written (write-on-change; per frame). */
+  private lastShieldSig = "";
   private readonly endBannerEl: HTMLElement | null;
   private readonly scoreboardEl: HTMLElement | null;
 
@@ -230,7 +232,7 @@ export class Hud {
     this.machinesEnergyEl = msBars.querySelector<HTMLElement>("#ms-energy-machines");
 
     // Strategic toast — transient top-center line under the objective bars
-    // ("SHIELD GENERATOR DESTROYED" / "SHIELDS DOWN"). One at a time; a new
+    // ("HANGAR DESTROYED" / "SHIELDS OFFLINE"). One at a time; a new
     // toast replaces the current one and restarts the fade timer.
     const toast = document.createElement("div");
     toast.id = "strategic-toast";
@@ -351,14 +353,14 @@ export class Hud {
   }
 
   /**
-   * Update the subsystem pips under each carrier bar (shield generators +
-   * hangar, lit while alive). Accepts each carrier's live `subsystems` array
-   * (structural type — both Game's motherships and NetworkGame's carrierSims
-   * qualify). Write-on-change: cheap to call every frame.
+   * Update the subsystem pips under each carrier bar (the hangar, lit while
+   * alive). Accepts each carrier's live `subsystems` array (structural type —
+   * both Game's motherships and NetworkGame's carrierSims qualify).
+   * Write-on-change: cheap to call every frame.
    */
   setSubsystems(
-    humans: ReadonlyArray<{ kind: "shield" | "hangar"; isAlive: boolean }>,
-    machines: ReadonlyArray<{ kind: "shield" | "hangar"; isAlive: boolean }>,
+    humans: ReadonlyArray<{ kind: "hangar"; isAlive: boolean }>,
+    machines: ReadonlyArray<{ kind: "hangar"; isAlive: boolean }>,
   ): void {
     const sig =
       humans.map((s) => `${s.kind}:${s.isAlive ? 1 : 0}`).join(",") +
@@ -368,19 +370,61 @@ export class Hud {
     this.lastSubsSig = sig;
     const render = (
       el: HTMLElement | null,
-      subs: ReadonlyArray<{ kind: "shield" | "hangar"; isAlive: boolean }>,
+      subs: ReadonlyArray<{ kind: "hangar"; isAlive: boolean }>,
     ) => {
       if (!el) return;
-      el.textContent = "";
+      // Preserve the shield-power segment container (setShieldPower owns it);
+      // only the pips get rebuilt.
+      for (const pip of Array.from(el.querySelectorAll(".ms-pip"))) pip.remove();
       for (const s of subs) {
         const pip = document.createElement("span");
         pip.className = `ms-pip ${s.kind}${s.isAlive ? "" : " dead"}`;
-        pip.title = s.kind === "shield" ? "Shield generator" : "Hangar";
+        pip.title = "Hangar";
         el.appendChild(pip);
       }
     };
     render(this.humansSubsEl, humans);
     render(this.machinesSubsEl, machines);
+  }
+
+  /**
+   * Update the STATION-POWER shield segments under each carrier bar: `total`
+   * segments per carrier (one per station on the map), the first `owned` lit
+   * — the at-a-glance "how shielded is each carrier" read (the graduated
+   * damage factor scales with owned/total; see GameConfig.stations.shield).
+   * `total` 0 (station-free maps) renders nothing. Write-on-change; cheap to
+   * call every frame.
+   */
+  setShieldPower(
+    humansOwned: number,
+    machinesOwned: number,
+    total: number,
+  ): void {
+    const sig = `${humansOwned}/${machinesOwned}/${total}`;
+    if (sig === this.lastShieldSig) return;
+    this.lastShieldSig = sig;
+    const render = (el: HTMLElement | null, owned: number) => {
+      if (!el) return;
+      let wrap = el.querySelector<HTMLElement>(".ms-shield-segs");
+      if (total === 0) {
+        wrap?.remove();
+        return;
+      }
+      if (!wrap) {
+        wrap = document.createElement("span");
+        wrap.className = "ms-shield-segs";
+        el.insertBefore(wrap, el.firstChild);
+      }
+      wrap.title = `Shield power: ${owned}/${total} stations`;
+      wrap.textContent = "";
+      for (let i = 0; i < total; i++) {
+        const seg = document.createElement("span");
+        seg.className = `ms-seg${i < owned ? " lit" : ""}`;
+        wrap.appendChild(seg);
+      }
+    };
+    render(this.humansSubsEl, humansOwned);
+    render(this.machinesSubsEl, machinesOwned);
   }
 
   /**
@@ -447,7 +491,7 @@ export class Hud {
 
   /**
    * Flash a transient strategic notification under the objective bars
-   * ("SHIELD GENERATOR DESTROYED", "SHIELDS DOWN — HULL EXPOSED"). `tone`
+   * ("HANGAR DESTROYED", "SHIELDS OFFLINE — NO STATION POWER"). `tone`
    * colors it from the local pilot's perspective: "good" = enemy setback,
    * "bad" = ours. A new toast replaces the current one.
    */

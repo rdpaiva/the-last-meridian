@@ -308,12 +308,10 @@ export const TUNING_SCHEMA: ReadonlyArray<TuningGroup> = [
   {
     title: "Subsystems & Stations",
     note:
-      "The strategic layer: carrier shield generators/hangar, and the capture stations + Energy economy on maps that place stations.",
+      "The strategic layer: the carrier hangar, and the capture stations that feed the Energy economy AND power each carrier's shields (on maps that place stations).",
     entries: [
-      num("mothership.subsystems.shield.hp", "Shield generator HP", 50, 1500, 25,
-        "Health of each carrier shield generator. While any generator lives, the carrier hull only takes a fraction of incoming damage."),
-      num("mothership.subsystems.shield.shieldedHullDamageFactor", "Shielded hull damage", 0, 1, 0.05,
-        "Fraction of damage the hull takes while shields are up. 0.2 = shields soak 80%. Keep above 0 so a match can always end."),
+      num("stations.shield.minFactor", "Full-power shield factor", 0.05, 1, 0.05,
+        "Hull damage fraction a carrier takes when its faction owns EVERY station (shield strength scales linearly with owned/total). Keep above 0 so a match can always end."),
       num("mothership.subsystems.hangar.hp", "Hangar HP", 50, 1500, 25,
         "Health of the carrier hangar. Destroying it slows that faction's respawns."),
       num("mothership.subsystems.hangar.destroyedRespawnDelayScale", "Hangar-down respawn ×", 1, 6, 0.25,

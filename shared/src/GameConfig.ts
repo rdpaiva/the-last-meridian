@@ -618,6 +618,23 @@ export const GameConfig = {
     /** Energy per second one owned station feeds its faction's pool. */
     energyPerSec: 1.2,
     /**
+     * STATION-POWERED CARRIER SHIELDS: each station a faction holds feeds its
+     * carrier's shield. Hull damage is multiplied by a GRADUATED factor
+     * (written per tick by StrategicSystem onto Mothership.stationShieldFactor):
+     *
+     *   factor = 1 - (1 - minFactor) × (ownedStations / totalStations)
+     *
+     * 0 stations held (or a station-free map) = 1 → full hull damage; every
+     * station held = minFactor. On a 3-station map: 1.0 / 0.73 / 0.47 / 0.2.
+     * `minFactor` is NONZERO on purpose: a battle must still end even against
+     * a faction that holds every station (the headless smoke baseline's
+     * anti-stall guarantee) — shields blunt the hull, they don't seal it.
+     */
+    shield: {
+      /** Hull damage fraction when a faction holds EVERY station on the map. */
+      minFactor: 0.2,
+    },
+    /**
      * Station GLB (art/station.blend → the wheel-and-spire orbital;
      * two-tier procedural-fallback pattern every model in the game uses).
      * Null/missing file = the procedural ring-and-pylon StationView build.
@@ -658,7 +675,7 @@ export const GameConfig = {
    *  - "sensorBoost": faction radar ranges × sensorRangeScale
    *    (SensorSystem.rangeScale — ship + carrier radar; eyeballs unchanged).
    *  - "subsystemRepair": one-shot on unlock — revives/refills this faction's
-   *    shield generators + hangar to repairHpFrac of max.
+   *    hangar to repairHpFrac of max.
    */
   energy: {
     /** Cumulative-energy thresholds, unlocked strictly in order. */
@@ -1316,51 +1333,21 @@ export const GameConfig = {
      * cosmetic deck height only, falls back to `mountY`).
      *
      * What destroying one MEANS:
-     *  - `shield`: while ANY shield generator lives, the carrier's hull pool
-     *    takes only `shieldedHullDamageFactor` of incoming damage
-     *    (Mothership.takeDamage). Kill every generator to expose the core.
      *  - `hangar`: once destroyed, every ship of that faction respawns
      *    `destroyedRespawnDelayScale`× slower (Ship.respawnDelayScale,
      *    applied by the death-latch scan in each sim loop).
+     * (Carrier SHIELDS are not a subsystem — they're powered by capture
+     * stations; see `stations.shield`.)
      *
      * `mounts` are PER-FACTION carrier-LOCAL coordinates (same frame as
      * `turrets.mounts`: z along the keel, bow = +z), rotated into world space
      * by the carrier's facing. Config is the HEADLESS truth (counts are a
      * balance knob); a future carrier GLB can refine positions via
-     * `shield.*`/`hangar.*` empties, the turret-mount pattern.
+     * `hangar.*` empties, the turret-mount pattern.
      */
     subsystems: {
-      shield: {
-        /** Per-generator hit points. */
-        hp: 300,
-        /** Collision radius — sized to poke past the hull edge at its mount. */
-        hitRadius: 14,
-        /**
-         * Hull damage multiplier while ANY generator lives. NONZERO on
-         * purpose: a stalled AI-vs-AI battle must still end (the headless
-         * smoke baseline's anti-stall guarantee) — shields blunt the hull,
-         * they don't seal it.
-         */
-        shieldedHullDamageFactor: 0.2,
-        // Two generators per carrier, port + starboard, on the outer flanks
-        // (pod ridge / sponson step — the turret decks) between the turret
-        // mounts so each is individually strafeable.
-        mounts: {
-          humans: [
-            { x: -47, y: 12.2, z: 10 }, // port pod ridge, midship
-            { x: 47, y: 12.2, z: 10 },  // starboard pod ridge, midship
-          ],
-          machines: [
-            { x: -48, y: 11.5, z: -66 }, // port sponson, aft shoulder
-            { x: 48, y: 11.5, z: -66 },  // starboard sponson, aft shoulder
-          ],
-        } as Record<
-          import("./Faction").Faction,
-          ReadonlyArray<{ x: number; z: number; y?: number }>
-        >,
-      },
       hangar: {
-        /** Hangar hit points (tougher than a shield generator — it's buried in hull). */
+        /** Hangar hit points (tough — it's buried in hull). */
         hp: 350,
         /** Collision radius — sized to poke past the hull edge at its mount. */
         hitRadius: 16,
@@ -2272,6 +2259,48 @@ export const GameConfig = {
       peakAlpha: 0.6,
       /** Spectral tint (drives emissive through additive blend + bloom). */
       color: { r: 0.55, g: 0.85, b: 1.35 },
+    },
+  },
+
+  /**
+   * Carrier shield VIEW FX (client-only): the impact flash when a shot lands
+   * on a shielded carrier (ShieldHitFlashSystem) — the ONLY in-field shield
+   * cue, deliberately subtle. Sim truth (the graduated station-powered hull
+   * damage factor) lives in `stations.shield` / Mothership.stationShieldFactor.
+   */
+  shieldFx: {
+    /**
+     * Impact flash on a SHIELDED carrier hull: a faction-tinted translucent
+     * splash at the hit point, layered over the normal spark — the "the
+     * shield ate most of that" read. Gone once station power is lost.
+     */
+    hitFlash: {
+      /**
+       * Splash tint per DEFENDING faction (the same identity palette as
+       * engine exhaust: Commonwealth blue, Novari red). Components >1 give
+       * the translucent splash presence without GlowLayer bloom (the system
+       * is deliberately not glow-registered — it must read softer than the
+       * hot orange sparks).
+       */
+      color: {
+        humans: { r: 0.5, g: 1.0, b: 2.0 },
+        machines: { r: 2.0, g: 0.45, b: 0.3 },
+      } as Record<
+        import("./Faction").Faction,
+        { r: number; g: number; b: number }
+      >,
+      /** Flash sphere radius (world units) at full size. */
+      radius: 7,
+      /** Spawn scale as a fraction of full size (grows to 1 over life). */
+      startScale: 0.55,
+      durationMs: 240,
+      /** Alpha at spawn, fading to 0 over the lifetime. */
+      peakAlpha: 0.45,
+      /** Emissive multiplier on the faction color above. */
+      intensity: 1.4,
+      /** Concurrent-flash cap — a fleet strafing a carrier is many hits/sec;
+       *  extra hits beyond this are dropped, not queued. */
+      maxActive: 16,
     },
   },
 

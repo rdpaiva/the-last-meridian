@@ -40,6 +40,17 @@ The design doc `docs/the-last-meridian-strategic-persistence-design.md` proposes
 
 ## M1 — Mothership subsystems (shields + hangar)
 
+> **SUPERSEDED IN PART (2026-07-18):** the destructible SHIELD-GENERATOR
+> subsystems below were removed after owner review — carrier shields are now
+> **station-powered**: `Mothership.stationShieldFactor` is written per tick
+> by `StrategicSystem.applyEffects` from owned-station counts
+> (`GameConfig.stations.shield.minFactor`, graduated 1 → 0.2 with
+> owned/total; `shieldsOnline`/`shieldsDown` fire on the 0↔≥1 edges; clients
+> derive the factor from replicated station owners — no schema slots).
+> The HANGAR subsystem and everything else in M1 stands. Protocol 25→26.
+> See `docs/AGENT_KICKOFF.md` (state paragraph "STATION-POWERED carrier
+> shields") for the full record; the section below is kept as history.
+
 **New:** `shared/src/sim/MothershipSubsystem.ts` — Turret-minus-gun: `implements DamageTarget`, `kind: "shield" | "hangar"`, own hp/maxHp, `explosionFired` death latch, `setMountPosition()` seam for future GLB empties.
 
 **Modified:**

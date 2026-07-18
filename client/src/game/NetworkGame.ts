@@ -71,6 +71,7 @@ import { LaserSystemView } from "./view/LaserSystemView";
 import { MissileSystemView } from "./view/MissileSystemView";
 import { ExplosionSystem } from "./ExplosionSystem";
 import { JumpFlashSystem } from "./JumpFlashSystem";
+import { ShieldHitFlashSystem } from "./ShieldHitFlashSystem";
 import { JumpGhostSystem } from "./JumpGhostSystem";
 import { JumpRipple } from "./JumpRipple";
 import { SoundSystem } from "./SoundSystem";
@@ -364,6 +365,8 @@ export class NetworkGame {
   private readonly music: MusicSystem;
   private readonly explosions: ExplosionSystem;
   private readonly jumpFlashes: JumpFlashSystem;
+  /** Tinted splashes where shots land on a SHIELDED carrier (shieldFx.hitFlash). */
+  private readonly shieldHitFlashes: ShieldHitFlashSystem;
   /** Spectral hull streaks at both ends of a jump (phase-out / phase-in). */
   private readonly jumpGhosts: JumpGhostSystem;
   private readonly jumpRipple: JumpRipple;
@@ -633,6 +636,7 @@ export class NetworkGame {
     this.music = new MusicSystem(this.scene);
     this.explosions = new ExplosionSystem(this.scene, this.glowLayer);
     this.jumpFlashes = new JumpFlashSystem(this.scene, this.glowLayer);
+    this.shieldHitFlashes = new ShieldHitFlashSystem(this.scene);
     this.jumpGhosts = new JumpGhostSystem(this.scene, this.glowLayer);
     this.jumpRipple = new JumpRipple(this.scene, this.cameraRig.camera);
     // Lit rocky grey (mirrors AsteroidFieldView) — NOT emissive, NOT glowed.
@@ -1270,6 +1274,11 @@ export class NetworkGame {
     this.starfield.update();
     this.backdrop.update(this.cameraRig.camera.getTarget());
 
+    // 3.4 Mirror the replicated stations + derive the station-powered shield
+    // factor BEFORE the FX playback below, so shieldedCarrierAt sees THIS
+    // frame's ownership when deciding whether a hit splashes.
+    this.mirrorStations();
+
     // 3.5 Transient FX: play each queued server fact once the render clock
     // reaches its sim time (aligning FX with the interpolated poses), then
     // advance the cosmetic projectile pools + one-shot FX systems.
@@ -1292,6 +1301,7 @@ export class NetworkGame {
     this.fuseFriendlyMissiles(nowMs);
     this.explosions.update(dt, dtMs);
     this.jumpFlashes.update(dtMs);
+    this.shieldHitFlashes.update(dtMs);
     this.jumpGhosts.update(dtMs);
     this.stormClouds.update(dt);
     this.lightning.update(dt, dtMs);
@@ -1310,34 +1320,17 @@ export class NetworkGame {
       humansMothership?: {
         hp: number;
         maxHp: number;
-        shield0Hp?: number;
-        shield1Hp?: number;
         hangarHp?: number;
       };
       machinesMothership?: {
         hp: number;
         maxHp: number;
-        shield0Hp?: number;
-        shield1Hp?: number;
         hangarHp?: number;
       };
       phase?: string;
       winner?: string;
       pilotHumans?: number;
       pilotBots?: number;
-      stations?: {
-        forEach: (
-          cb: (v: {
-            id: number;
-            x: number;
-            z: number;
-            owner: string;
-            capturing: string;
-            progress: number;
-            contested: boolean;
-          }) => void,
-        ) => void;
-      };
       humansEnergy?: number;
       machinesEnergy?: number;
       humansTier?: number;
@@ -1364,8 +1357,9 @@ export class NetworkGame {
       this.carrierSims.humans.hp = state.humansMothership.hp;
       this.carrierSims.machines.hp = state.machinesMothership.hp;
       // Subsystem HP rides the same path: writing the local Mothership's
-      // subsystem objects makes shieldsUp/hangarAlive, the views, and the
-      // HUD read identically to offline (mid-match joiners included).
+      // subsystem objects makes hangarAlive, the views, and the HUD read
+      // identically to offline (mid-match joiners included). Shield state
+      // is separate — derived from station owners in mirrorStations().
       this.applySubsystemHp(this.carrierSims.humans, state.humansMothership);
       this.applySubsystemHp(this.carrierSims.machines, state.machinesMothership);
       this.carrierViews.humans.syncSubsystems();
@@ -1379,23 +1373,22 @@ export class NetworkGame {
         this.fraction(state.machinesMothership),
       );
     }
-    // Capture stations + Energy (strategic layer): mirror the replicated
-    // state onto client-side CaptureStation copies (created on first sight —
-    // positions are static) so views/radar/HUD read the offline shape.
-    state?.stations?.forEach((s) => {
-      let st = this.netStations.get(s.id);
-      if (!st) {
-        st = new CaptureStation(s.id, s.x, s.z);
-        this.netStations.set(s.id, st);
-        this.netStationList.push(st);
-        this.stationViews.push(new StationView(this.scene, st));
-      }
-      st.owner = (s.owner || null) as Faction | null;
-      st.capturingFaction = (s.capturing || null) as Faction | null;
-      st.progress = s.progress;
-      st.contested = s.contested;
-    });
+    // Stations were mirrored pre-FX (step 3.4); here just animate the views
+    // and feed the strategic HUD.
     for (const sv of this.stationViews) sv.update(nowMs);
+    {
+      let ownedHumans = 0;
+      let ownedMachines = 0;
+      for (const st of this.netStationList) {
+        if (st.owner === "humans") ownedHumans++;
+        else if (st.owner === "machines") ownedMachines++;
+      }
+      this.hud.setShieldPower(
+        ownedHumans,
+        ownedMachines,
+        this.netStationList.length,
+      );
+    }
     this.netTier.humans = state?.humansTier ?? 0;
     this.netTier.machines = state?.machinesTier ?? 0;
     this.hud.setEnergy(
@@ -1598,6 +1591,109 @@ export class NetworkGame {
   }
 
   /**
+   * Mirror the replicated stations onto client-side CaptureStation copies
+   * (created on first sight — positions are static) so views/radar/HUD read
+   * the offline shape, then derive the STATION-POWERED shield factor onto
+   * both local carrier sims (the same graduated formula StrategicSystem
+   * writes server-side; zero new wire data). Runs each tick BEFORE the FX
+   * playback so shieldedCarrierAt reads this frame's ownership. Pre-first-
+   * patch the list is empty → factor 1 (unshielded), matching the sim
+   * default.
+   */
+  private mirrorStations(): void {
+    const state = this.net.room.state as unknown as {
+      stations?: {
+        forEach: (
+          cb: (v: {
+            id: number;
+            x: number;
+            z: number;
+            owner: string;
+            capturing: string;
+            progress: number;
+            contested: boolean;
+          }) => void,
+        ) => void;
+      };
+    };
+    state?.stations?.forEach((s) => {
+      let st = this.netStations.get(s.id);
+      if (!st) {
+        st = new CaptureStation(s.id, s.x, s.z);
+        this.netStations.set(s.id, st);
+        this.netStationList.push(st);
+        this.stationViews.push(new StationView(this.scene, st));
+      }
+      st.owner = (s.owner || null) as Faction | null;
+      st.capturingFaction = (s.capturing || null) as Faction | null;
+      st.progress = s.progress;
+      st.contested = s.contested;
+    });
+    const total = this.netStationList.length;
+    const minFactor = GameConfig.stations.shield.minFactor;
+    let ownedHumans = 0;
+    let ownedMachines = 0;
+    for (const st of this.netStationList) {
+      if (st.owner === "humans") ownedHumans++;
+      else if (st.owner === "machines") ownedMachines++;
+    }
+    this.carrierSims.humans.stationShieldFactor =
+      total === 0 ? 1 : 1 - (1 - minFactor) * (ownedHumans / total);
+    this.carrierSims.machines.stationShieldFactor =
+      total === 0 ? 1 : 1 - (1 - minFactor) * (ownedMachines / total);
+  }
+
+  /**
+   * Was this non-ship hit a SHIELDED carrier hull? The wire flattens every
+   * non-ship target to "" (protocol.ts), so the solo check (`target
+   * instanceof MothershipSection && owner.shieldsUp`) is re-derived here from
+   * the local carrier sims: the hit point must lie inside a hull-section box
+   * (small margin — hit positions land on section edges) of a carrier whose
+   * station-derived factor says shieldsUp, and must NOT be a live turret or
+   * subsystem being chipped (those poke past the silhouette and also arrive
+   * as target:""). Returns the defending faction, or null. Cosmetic-only, so
+   * a one-patch race around the exact shields-down frame is acceptable.
+   */
+  private shieldedCarrierAt(x: number, z: number): Faction | null {
+    const MARGIN = 2;
+    for (const f of ["humans", "machines"] as Faction[]) {
+      const carrier = this.carrierSims[f];
+      if (!carrier.isAlive || !carrier.shieldsUp) continue;
+      let inHull = false;
+      for (const s of carrier.hullSections) {
+        if (
+          x >= s.minX - MARGIN &&
+          x <= s.maxX + MARGIN &&
+          z >= s.minZ - MARGIN &&
+          z <= s.maxZ + MARGIN
+        ) {
+          inHull = true;
+          break;
+        }
+      }
+      if (!inHull) continue;
+      // Exclude turret/subsystem chips: near a LIVE mounted target, the hit
+      // was (almost certainly) that target, not the shielded hull.
+      for (const t of carrier.turrets) {
+        if (!t.isAlive) continue;
+        const dx = x - t.position.x;
+        const dz = z - t.position.z;
+        const r = t.hitRadius + 1;
+        if (dx * dx + dz * dz <= r * r) return null;
+      }
+      for (const s of carrier.subsystems) {
+        if (!s.isAlive) continue;
+        const dx = x - s.position.x;
+        const dz = z - s.position.z;
+        const r = s.hitRadius + 1;
+        if (dx * dx + dz * dz <= r * r) return null;
+      }
+      return f;
+    }
+    return null;
+  }
+
+  /**
    * Depict one replicated sim fact — the MP mirror of Game.wireSimEventFeedback.
    * Deliberate difference from offline: no hitstop (freezing the render clock
    * would desync the interpolation timeline). Kill/score bookkeeping rides
@@ -1653,6 +1749,13 @@ export class NetworkGame {
         this.fxVec.set(e.x, e.y, e.z);
         this.sound.playHit(this.fxVec);
         this.explosions.spawnSpark(this.fxVec);
+        // The wire says target:"" for every non-ship hit (carrier hull,
+        // turret, subsystem alike) — derive "shielded carrier hull" locally
+        // and add the tinted splash, mirroring solo's onLaserHit.
+        if (e.target === "") {
+          const shielded = this.shieldedCarrierAt(e.x, e.z);
+          if (shielded) this.shieldHitFlashes.spawn(this.fxVec, shielded);
+        }
         this.killNearestBolt(e.x, e.z);
         if (this.myKey !== null && e.target === this.myKey) {
           this.cameraRig.addTrauma(shake.traumaPlayerLaserHit);
@@ -1679,6 +1782,12 @@ export class NetworkGame {
         this.fxVec.set(e.x, e.y, e.z);
         this.explosions.spawn(this.fxVec);
         this.sound.playExplosion(this.fxVec);
+        // Missile into a shielded carrier hull: same derivation as laserHit
+        // (intercepted rounds die mid-air, so only real hits splash).
+        if (e.k === "missileHit" && e.target === "") {
+          const shielded = this.shieldedCarrierAt(e.x, e.z);
+          if (shielded) this.shieldHitFlashes.spawn(this.fxVec, shielded);
+        }
         if (e.k === "missileHit" && this.myKey !== null && e.target === this.myKey) {
           this.cameraRig.addTrauma(shake.traumaPlayerMissileHit);
         } else {
@@ -1772,20 +1881,27 @@ export class NetworkGame {
           ),
         );
         const name = FACTION_THEME[e.faction].mothershipName.toUpperCase();
-        const label = e.kind === "shield" ? "SHIELD GENERATOR" : "HANGAR";
         this.hud.showStrategicToast(
-          `${name} ${label} DESTROYED`,
+          `${name} HANGAR DESTROYED`,
           e.faction === this.playerFaction ? "bad" : "good",
         );
         return;
       }
       case "shieldsDown": {
-        // Pips/death-state derive from the replicated subsystem HP; the event
+        // Shield state derives from the replicated station owners; the event
         // marks the moment for the headline toast (mirrors Game.ts).
         const name = FACTION_THEME[e.faction].mothershipName.toUpperCase();
         this.hud.showStrategicToast(
-          `${name} SHIELDS DOWN — HULL EXPOSED`,
+          `${name} SHIELDS OFFLINE — NO STATION POWER`,
           e.faction === this.playerFaction ? "bad" : "good",
+        );
+        return;
+      }
+      case "shieldsOnline": {
+        const name = FACTION_THEME[e.faction].mothershipName.toUpperCase();
+        this.hud.showStrategicToast(
+          `${name} SHIELDS ONLINE — STATION POWER`,
+          e.faction === this.playerFaction ? "good" : "bad",
         );
         return;
       }
@@ -2509,22 +2625,17 @@ export class NetworkGame {
   }
 
   /**
-   * Copy the replicated subsystem HP slots into the local carrier sim's
-   * subsystem objects (fixed slot order = the sim's build order: shield,
-   * shield, hangar — mirrors BattleRoom.syncSubsystems). Undefined fields
-   * (pre-first-patch) leave the local full-HP defaults untouched.
+   * Copy the replicated subsystem HP slot (the hangar) into the local
+   * carrier sim's subsystem objects — mirrors BattleRoom.syncSubsystems.
+   * An undefined field (pre-first-patch) leaves the local full-HP default
+   * untouched.
    */
   private applySubsystemHp(
     carrier: Mothership,
-    ms: { shield0Hp?: number; shield1Hp?: number; hangarHp?: number },
+    ms: { hangarHp?: number },
   ): void {
-    let shieldIdx = 0;
     for (const sub of carrier.subsystems) {
-      if (sub.kind === "shield") {
-        const hp = shieldIdx === 0 ? ms.shield0Hp : ms.shield1Hp;
-        if (hp !== undefined) sub.hp = hp;
-        shieldIdx++;
-      } else if (sub.kind === "hangar" && ms.hangarHp !== undefined) {
+      if (sub.kind === "hangar" && ms.hangarHp !== undefined) {
         sub.hp = ms.hangarHp;
       }
     }

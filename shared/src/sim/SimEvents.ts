@@ -67,13 +67,16 @@ export interface SimEventMap {
   turretFired: { faction: Faction; origin: Vector3; rotationY: number };
   /** A carrier defense turret was shot off the hull (fires once, latched). */
   turretDestroyed: { position: Vector3 };
-  /** A carrier subsystem (shield generator / hangar) was destroyed (latched). */
+  /** A carrier subsystem (the hangar) was destroyed (latched). */
   subsystemDestroyed: {
     mothership: Mothership;
     subsystem: MothershipSubsystem;
   };
-  /** The LAST shield generator on a carrier fell — its hull is now exposed. */
-  shieldsDown: { mothership: Mothership };
+  /** A faction lost its LAST powered station — its carrier shields are
+   *  offline, hull fully exposed (StrategicSystem owned-station edge). */
+  shieldsDown: { faction: Faction };
+  /** A faction captured its FIRST station from zero — carrier shields online. */
+  shieldsOnline: { faction: Faction };
   /** A capture station flipped to `faction` (strategic layer M2). */
   stationCaptured: { station: CaptureStation; faction: Faction };
   /** A capture station was drained to NEUTRAL by `faction` (stage one of

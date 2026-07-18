@@ -8,8 +8,6 @@ import type { InputState } from "./types";
 import type { Ship } from "./sim/Ship";
 import type { ShipController, ControllerWorld, AvoidObstacle } from "./ShipController";
 import type { SensorContact } from "./SensorSystem";
-import type { Mothership } from "./sim/Mothership";
-import type { MothershipSubsystem } from "./sim/MothershipSubsystem";
 import type { CaptureStation } from "./sim/CaptureStation";
 
 /**
@@ -295,37 +293,25 @@ export class AIController implements ShipController {
             steerHeading = this.headingTo(self, close.position.x, close.position.z);
             aim = close;
           } else if (world.opponentMothership) {
-            // While the carrier's shields are up, hull fire is mostly wasted
-            // (Mothership.takeDamage gates it) — press the nearest LIVE
-            // shield generator instead. Once the last generator falls, drop
-            // back to the hull.
-            const shieldTarget = world.opponentMothership.shieldsUp
-              ? this.nearestLiveShieldGenerator(self, world.opponentMothership)
-              : null;
-            if (shieldTarget) {
-              this.carrierAim.position.x = shieldTarget.position.x;
-              this.carrierAim.position.z = shieldTarget.position.z;
-            } else {
-              // Press the NEAREST POINT on the carrier's hull boxes, not its
-              // center — the hull is hundreds of units long, and center-seeking
-              // flew strikers INTO the bow before they were "in range". Aiming
-              // at the clamped surface point makes the fire gate (dist <
-              // carrierFireStandoff) a distance-to-surface test, so a striker
-              // opens up on approach and the avoidance pass (the carrier's
-              // steering circles are obstacles) then peels it into a strafing
-              // run along the hull instead of letting it ram or enter the model.
-              let bestSq = Infinity;
-              for (const s of world.opponentMothership.hullSections) {
-                const px = clamp(self.position.x, s.minX, s.maxX);
-                const pz = clamp(self.position.z, s.minZ, s.maxZ);
-                const dx = px - self.position.x;
-                const dz = pz - self.position.z;
-                const dSq = dx * dx + dz * dz;
-                if (dSq < bestSq) {
-                  bestSq = dSq;
-                  this.carrierAim.position.x = px;
-                  this.carrierAim.position.z = pz;
-                }
+            // Press the NEAREST POINT on the carrier's hull boxes, not its
+            // center — the hull is hundreds of units long, and center-seeking
+            // flew strikers INTO the bow before they were "in range". Aiming
+            // at the clamped surface point makes the fire gate (dist <
+            // carrierFireStandoff) a distance-to-surface test, so a striker
+            // opens up on approach and the avoidance pass (the carrier's
+            // steering circles are obstacles) then peels it into a strafing
+            // run along the hull instead of letting it ram or enter the model.
+            let bestSq = Infinity;
+            for (const s of world.opponentMothership.hullSections) {
+              const px = clamp(self.position.x, s.minX, s.maxX);
+              const pz = clamp(self.position.z, s.minZ, s.maxZ);
+              const dx = px - self.position.x;
+              const dz = pz - self.position.z;
+              const dSq = dx * dx + dz * dz;
+              if (dSq < bestSq) {
+                bestSq = dSq;
+                this.carrierAim.position.x = px;
+                this.carrierAim.position.z = pz;
               }
             }
             steerHeading = this.headingTo(
@@ -652,59 +638,22 @@ export class AIController implements ShipController {
     let bestSq = Infinity;
     let aimX = 0;
     let aimZ = 0;
-    // Same shield preference as the strike guns: while shields are up, the
-    // envelope is checked against the nearest live generator, not the hull.
-    const shieldTarget = carrier.shieldsUp
-      ? this.nearestLiveShieldGenerator(self, carrier)
-      : null;
-    if (shieldTarget) {
-      aimX = shieldTarget.position.x;
-      aimZ = shieldTarget.position.z;
-      const dx = aimX - self.position.x;
-      const dz = aimZ - self.position.z;
-      bestSq = dx * dx + dz * dz;
-    } else {
-      for (const s of carrier.hullSections) {
-        const px = clamp(self.position.x, s.minX, s.maxX);
-        const pz = clamp(self.position.z, s.minZ, s.maxZ);
-        const dx = px - self.position.x;
-        const dz = pz - self.position.z;
-        const dSq = dx * dx + dz * dz;
-        if (dSq < bestSq) {
-          bestSq = dSq;
-          aimX = px;
-          aimZ = pz;
-        }
+    for (const s of carrier.hullSections) {
+      const px = clamp(self.position.x, s.minX, s.maxX);
+      const pz = clamp(self.position.z, s.minZ, s.maxZ);
+      const dx = px - self.position.x;
+      const dz = pz - self.position.z;
+      const dSq = dx * dx + dz * dz;
+      if (dSq < bestSq) {
+        bestSq = dSq;
+        aimX = px;
+        aimZ = pz;
       }
     }
     const dist = Math.sqrt(bestSq);
     if (dist < cfg.missileMinRange || dist > cfg.missileMaxRange) return false;
     const angle = Math.atan2(aimX - self.position.x, aimZ - self.position.z);
     return Math.abs(wrapAngle(angle - self.rotationY)) <= cfg.missileLaunchConeAngle;
-  }
-
-  /**
-   * The closest still-alive shield generator on `carrier`, or null when all
-   * are down (or none are mounted). Shared by the strike order's gun aim and
-   * carrierMissileShot — both prefer generators while the hull is gated.
-   */
-  private nearestLiveShieldGenerator(
-    self: Ship,
-    carrier: Mothership,
-  ): MothershipSubsystem | null {
-    let best: MothershipSubsystem | null = null;
-    let bestSq = Infinity;
-    for (const sub of carrier.subsystems) {
-      if (sub.kind !== "shield" || !sub.isAlive) continue;
-      const dx = sub.position.x - self.position.x;
-      const dz = sub.position.z - self.position.z;
-      const dSq = dx * dx + dz * dz;
-      if (dSq < bestSq) {
-        bestSq = dSq;
-        best = sub;
-      }
-    }
-    return best;
   }
 
   /**

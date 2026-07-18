@@ -43,8 +43,8 @@ export class FleetCommander {
 
   private nextThinkMs = 0;
   /** Home-carrier hull + subsystem HP at the last think — a drop means it's
-   *  under fire. Summing the subsystems in means a shield-generator strike
-   *  scrambles defenders even while the gated hull pool barely moves. */
+   *  under fire. Summing the subsystems in means a hangar strike scrambles
+   *  defenders even while the hull pool barely moves. */
   private lastHomeHp: number | null = null;
   /** Thinks the defense scramble stays up after the last alert. */
   private defendScrambleRemaining = 0;

@@ -129,15 +129,13 @@ export const MothershipSchema = schema(
     maxHp: "float32",
     alive: "boolean",
     /**
-     * Subsystem HP, fixed slots (counts + maxes come from the shared
-     * GameConfig, which PROTOCOL_VERSION locks to the same value on both
-     * sides): two shield generators + one hangar per carrier, in the sim's
-     * subsystem build order. Replicated as schema (not events) so a
-     * mid-match joiner sees the correct shield state — shields gate the win
-     * condition. 0 = destroyed.
+     * Subsystem HP, fixed slot (count + max come from the shared GameConfig,
+     * which PROTOCOL_VERSION locks to the same value on both sides): one
+     * hangar per carrier. Replicated as schema (not events) so a mid-match
+     * joiner sees the correct respawn-penalty state. 0 = destroyed. Carrier
+     * SHIELD state needs no slot — clients derive the station-powered factor
+     * from the replicated station owners.
      */
-    shield0Hp: "float32",
-    shield1Hp: "float32",
     hangarHp: "float32",
   },
   "MothershipSchema",

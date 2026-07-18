@@ -43,6 +43,7 @@ import { StationView } from "./view/StationView";
 import { Backdrop } from "./Backdrop";
 import { ExplosionSystem } from "./ExplosionSystem";
 import { JumpFlashSystem } from "./JumpFlashSystem";
+import { ShieldHitFlashSystem } from "./ShieldHitFlashSystem";
 import { JumpGhostSystem } from "./JumpGhostSystem";
 import { JumpRipple } from "./JumpRipple";
 import { SoundSystem } from "./SoundSystem";
@@ -155,6 +156,8 @@ export class Game {
   private readonly weaponObstacles: DamageTarget[] = [];
   private readonly explosions: ExplosionSystem;
   private readonly jumpFlashes: JumpFlashSystem;
+  /** Tinted splashes where shots land on a SHIELDED carrier (shieldFx.hitFlash). */
+  private readonly shieldHitFlashes: ShieldHitFlashSystem;
   /** Spectral hull streaks at both ends of a jump (phase-out / phase-in). */
   private readonly jumpGhosts: JumpGhostSystem;
   private readonly jumpRipple: JumpRipple;
@@ -568,6 +571,7 @@ export class Game {
 
     this.explosions = new ExplosionSystem(this.scene, this.glowLayer);
     this.jumpFlashes = new JumpFlashSystem(this.scene, this.glowLayer);
+    this.shieldHitFlashes = new ShieldHitFlashSystem(this.scene);
     this.jumpGhosts = new JumpGhostSystem(this.scene, this.glowLayer);
     this.lightning = new LightningSystem(this.scene, this.glowLayer, this.stormClouds);
 
@@ -928,8 +932,8 @@ export class Game {
         this.factionMissiles[opposing(f)].addTarget(turret);
       }
     }
-    // Named subsystems (shield generators + hangar) register like turrets —
-    // shootable, ahead of the hull sections (they sit proud of the hull).
+    // Named subsystems (the hangar) register like turrets — shootable,
+    // ahead of the hull sections (they sit proud of the hull).
     for (const f of ["humans", "machines"] as Faction[]) {
       for (const sub of this.motherships[f].subsystems) {
         this.factionLasers[opposing(f)].addTarget(sub);
@@ -1122,9 +1126,9 @@ export class Game {
         this.traumaAtDistance(GameConfig.mothership.turrets.destroyTrauma, position),
       );
     });
-    // A carrier subsystem (shield generator / hangar) fell: a slightly bigger
-    // cue than a turret — it moves the strategic picture — plus a HUD toast
-    // colored by whose carrier lost it.
+    // A carrier subsystem (the hangar) fell: a slightly bigger cue than a
+    // turret — it moves the strategic picture — plus a HUD toast colored by
+    // whose carrier lost it.
     this.events.on("subsystemDestroyed", ({ mothership, subsystem }) => {
       this.explosions.spawn(subsystem.position);
       this.sound.playExplosion(subsystem.position);
@@ -1135,19 +1139,25 @@ export class Game {
         ),
       );
       const name = FACTION_THEME[mothership.faction].mothershipName.toUpperCase();
-      const label =
-        subsystem.kind === "shield" ? "SHIELD GENERATOR" : "HANGAR";
       this.hud.showStrategicToast(
-        `${name} ${label} DESTROYED`,
+        `${name} HANGAR DESTROYED`,
         mothership.faction === this.playerFaction ? "bad" : "good",
       );
     });
-    // The last generator fell — the headline strategic beat of the match.
-    this.events.on("shieldsDown", ({ mothership }) => {
-      const name = FACTION_THEME[mothership.faction].mothershipName.toUpperCase();
+    // Station-power shield edges (StrategicSystem): losing the last powered
+    // station exposes the carrier hull; the first capture shields it again.
+    this.events.on("shieldsDown", ({ faction }) => {
+      const name = FACTION_THEME[faction].mothershipName.toUpperCase();
       this.hud.showStrategicToast(
-        `${name} SHIELDS DOWN — HULL EXPOSED`,
-        mothership.faction === this.playerFaction ? "bad" : "good",
+        `${name} SHIELDS OFFLINE — NO STATION POWER`,
+        faction === this.playerFaction ? "bad" : "good",
+      );
+    });
+    this.events.on("shieldsOnline", ({ faction }) => {
+      const name = FACTION_THEME[faction].mothershipName.toUpperCase();
+      this.hud.showStrategicToast(
+        `${name} SHIELDS ONLINE — STATION POWER`,
+        faction === this.playerFaction ? "good" : "bad",
       );
     });
     // Capture-station beats (station maps only — the events never fire
@@ -1254,8 +1264,13 @@ export class Game {
     // just through the victim's damage flash.
     this.explosions.spawnSpark(position);
     // Chipping a mothership: light cue only (avoid hitstop spam on the
-    // objective). Carriers are hit through their hull-section proxies.
+    // objective). Carriers are hit through their hull-section proxies. While
+    // the carrier's shields are up, add the tinted splash — "the shield ate
+    // most of that" (the sim's hull-damage gate, made visible).
     if (target instanceof MothershipSection) {
+      if (target.owner.shieldsUp) {
+        this.shieldHitFlashes.spawn(position, target.owner.faction);
+      }
       return;
     }
     // Chipping a carrier turret: light cue (no hitstop spam). The player gets a
@@ -1307,6 +1322,10 @@ export class Game {
     this.scoreBoard.noteHit(struck, shooter);
     this.explosions.spawn(pos);
     this.sound.playExplosion(pos);
+    // Missile into a shielded carrier hull: the same tinted splash as lasers.
+    if (struck instanceof MothershipSection && struck.owner.shieldsUp) {
+      this.shieldHitFlashes.spawn(pos, struck.owner.faction);
+    }
     if (struck !== null && struck === this.playerShip) {
       this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerMissileHit);
       this.applyHitstop(GameConfig.hitstop.playerMissileHitMs);
@@ -1978,10 +1997,6 @@ export class Game {
             mothership: this.motherships[f],
             subsystem: sub,
           });
-          if (sub.kind === "shield" && !this.motherships[f].shieldsUp) {
-            // The LAST generator just fell — the core is exposed.
-            this.events.emit("shieldsDown", { mothership: this.motherships[f] });
-          }
         }
       }
     }
@@ -2081,6 +2096,7 @@ export class Game {
     if (!inHitstop) this.explosions.update(deltaSeconds, deltaMs);
     // Jump cracks + hull ghosts ride the same hitstop gate as explosions.
     if (!inHitstop) this.jumpFlashes.update(deltaMs);
+    if (!inHitstop) this.shieldHitFlashes.update(deltaMs);
     if (!inHitstop) this.jumpGhosts.update(deltaMs);
     // Storm flicker + lightning ride it too (a freeze-frame mid-strike is fine).
     if (!inHitstop) {
@@ -2187,6 +2203,21 @@ export class Game {
       this.motherships.humans.subsystems,
       this.motherships.machines.subsystems,
     );
+    {
+      // Station-power shield segments under the carrier bars: one per
+      // station, lit while this faction owns it.
+      let ownedHumans = 0;
+      let ownedMachines = 0;
+      for (const st of this.strategic.stations) {
+        if (st.owner === "humans") ownedHumans++;
+        else if (st.owner === "machines") ownedMachines++;
+      }
+      this.hud.setShieldPower(
+        ownedHumans,
+        ownedMachines,
+        this.strategic.stations.length,
+      );
+    }
     this.hud.setEnergy(
       this.strategic.active,
       this.strategic.energy.humans,

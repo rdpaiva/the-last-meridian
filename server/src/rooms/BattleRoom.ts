@@ -532,8 +532,11 @@ export class BattleRoom extends Room<{ state: BattleState }> {
         z: subsystem.position.z,
       }),
     );
-    ev.on("shieldsDown", ({ mothership }) =>
-      this.pendingEvents.push({ k: "shieldsDown", faction: mothership.faction }),
+    ev.on("shieldsDown", ({ faction }) =>
+      this.pendingEvents.push({ k: "shieldsDown", faction }),
+    );
+    ev.on("shieldsOnline", ({ faction }) =>
+      this.pendingEvents.push({ k: "shieldsOnline", faction }),
     );
     ev.on("stationCaptured", ({ station, faction }) =>
       this.pendingEvents.push({ k: "stationCaptured", id: station.id, faction }),
@@ -854,19 +857,11 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     this.state.machinesTier = strategic.tier.machines;
   }
 
-  /** Copy subsystem HP into the fixed schema slots (build order: shield,
-   *  shield, hangar — see Mothership.buildSubsystems). No allocation. */
+  /** Copy subsystem HP into the fixed schema slot (the hangar). No allocation. */
   private syncSubsystems(schema: MothershipSchema, faction: Faction): void {
     const ms = this.sim.motherships[faction];
-    let shieldIdx = 0;
     for (const sub of ms.subsystems) {
-      if (sub.kind === "shield") {
-        if (shieldIdx === 0) schema.shield0Hp = sub.hp;
-        else if (shieldIdx === 1) schema.shield1Hp = sub.hp;
-        shieldIdx++;
-      } else if (sub.kind === "hangar") {
-        schema.hangarHp = sub.hp;
-      }
+      if (sub.kind === "hangar") schema.hangarHp = sub.hp;
     }
   }
 }

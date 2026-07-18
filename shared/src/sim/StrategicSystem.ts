@@ -35,12 +35,16 @@ const FACTIONS: readonly Faction[] = ["humans", "machines"];
  *
  * EFFECTS are applied DECLARATIVELY each tick — recomputed from their source
  * flags rather than written on events — so multiple writers compose and
- * reversals (a repaired hangar) heal automatically:
+ * reversals (a repaired hangar, a lost station) heal automatically:
  *  - Ship.respawnDelayScale = hangarPenalty(faction) × respawnUpgrade(faction)
  *  - SensorSystem.rangeScale[faction] = sensorBoost unlocked ? boost : 1
+ *  - Mothership.stationShieldFactor = the STATION-POWERED carrier shield
+ *    (stations.shield): hull damage × 1 with no stations held, graduated
+ *    down to minFactor with all of them. shieldsOnline/shieldsDown events
+ *    fire on the 0↔≥1 owned-station edges (the toast beats).
  *  - "subsystemRepair" is the one genuine one-shot: on unlock it revives this
- *    faction's shield generators + hangar (resetting their death latches, so
- *    re-destroying them announces again).
+ *    faction's hangar (resetting its death latch, so re-destroying it
+ *    announces again).
  *
  * Deterministic: no RNG, no allocation in update.
  */
@@ -51,6 +55,14 @@ export class StrategicSystem {
   readonly energy: Record<Faction, number> = { humans: 0, machines: 0 };
   /** Thresholds crossed so far per faction (index into energy.thresholds). */
   readonly tier: Record<Faction, number> = { humans: 0, machines: 0 };
+
+  /** Owned-station counts, recomputed each tick (shared by edges + effects). */
+  private readonly owned: Record<Faction, number> = { humans: 0, machines: 0 };
+  /** Last tick's "owns ≥1 station" per faction, for the shield edge events. */
+  private readonly prevShielded: Record<Faction, boolean> = {
+    humans: false,
+    machines: false,
+  };
 
   constructor(
     private readonly events: SimEventBus,
@@ -82,7 +94,32 @@ export class StrategicSystem {
       this.updateStations(dt, seats);
       this.accrueAndUnlock(dt, motherships);
     }
+    this.countOwnersAndEmitShieldEdges();
     this.applyEffects(seats, sensors, motherships);
+  }
+
+  /**
+   * Recount owned stations per faction and fire the shield edge events:
+   * 0 → ≥1 owned = shieldsOnline, ≥1 → 0 = shieldsDown. Recomputed from the
+   * stations array (not from capture events) so any writer — including tests
+   * setting `station.owner` directly — flips the edges. No-op on
+   * station-free maps (counts stay 0, prevShielded stays false).
+   */
+  private countOwnersAndEmitShieldEdges(): void {
+    this.owned.humans = 0;
+    this.owned.machines = 0;
+    for (const station of this.stations) {
+      if (station.owner) this.owned[station.owner]++;
+    }
+    for (const f of FACTIONS) {
+      const shielded = this.owned[f] > 0;
+      if (shielded && !this.prevShielded[f]) {
+        this.events.emit("shieldsOnline", { faction: f });
+      } else if (!shielded && this.prevShielded[f]) {
+        this.events.emit("shieldsDown", { faction: f });
+      }
+      this.prevShielded[f] = shielded;
+    }
   }
 
   /** Docked-presence counts per station → capture meters → events. */
@@ -155,8 +192,8 @@ export class StrategicSystem {
 
   /**
    * The one-shot "subsystemRepair" unlock: revive/refill this faction's
-   * shield generators + hangar and RE-ARM their death latches, so the view
-   * un-stumps them and a re-destruction announces again.
+   * hangar and RE-ARM its death latch, so the view un-stumps it and a
+   * re-destruction announces again.
    */
   private repairSubsystems(carrier: Mothership): void {
     if (!carrier.isAlive) return; // no ghost repairs after the carrier falls
@@ -169,7 +206,8 @@ export class StrategicSystem {
 
   /**
    * Declarative per-tick effect application (runs even with no stations, so
-   * the hangar respawn penalty holds on station-free maps).
+   * the hangar respawn penalty holds on station-free maps and the shield
+   * factor stays pinned at 1 there).
    */
   private applyEffects(
     seats: ReadonlyArray<StrategicSeat>,
@@ -178,10 +216,15 @@ export class StrategicSystem {
   ): void {
     const subsCfg = GameConfig.mothership.subsystems;
     const energyCfg = GameConfig.energy;
+    const total = this.stations.length;
+    const minFactor = GameConfig.stations.shield.minFactor;
     for (const f of FACTIONS) {
       sensors.rangeScale[f] = this.hasEffect(f, "sensorBoost")
         ? energyCfg.sensorRangeScale
         : 1;
+      // Station-powered carrier shield: graduated per owned station, never 0.
+      motherships[f].stationShieldFactor =
+        total === 0 ? 1 : 1 - (1 - minFactor) * (this.owned[f] / total);
     }
     const scaleHumans = this.respawnScale("humans", motherships, subsCfg, energyCfg);
     const scaleMachines = this.respawnScale("machines", motherships, subsCfg, energyCfg);

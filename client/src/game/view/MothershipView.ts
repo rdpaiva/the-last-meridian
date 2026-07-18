@@ -75,10 +75,10 @@ export class MothershipView {
   private readonly turretViews: TurretView[] = [];
 
   /**
-   * One depiction per sim subsystem (shield generators + hangar), parented
-   * under `root` like the turrets. Index-aligned with `sim.subsystems` (both
-   * iterate the config mounts in kind order: shield, then hangar — see
-   * Mothership.buildSubsystems); syncSubsystems() drops each on death.
+   * One depiction per sim subsystem (the hangar), parented under `root` like
+   * the turrets. Index-aligned with `sim.subsystems` (both iterate the same
+   * config mounts — see Mothership.buildSubsystems); syncSubsystems() drops
+   * each on death.
    */
   private readonly subsystemViews: SubsystemView[] = [];
 
@@ -132,9 +132,9 @@ export class MothershipView {
 
     // Subsystem depictions — same recipe as the turrets: after the snapshot,
     // from the SAME config mounts the sim builds from, in the sim's kind
-    // order (shield, then hangar) so indices align with sim.subsystems.
+    // order so indices align with sim.subsystems.
     const scfg = GameConfig.mothership.subsystems;
-    for (const kind of ["shield", "hangar"] as const) {
+    for (const kind of ["hangar"] as const) {
       for (const m of scfg[kind].mounts[faction] ?? []) {
         this.subsystemViews.push(
           new SubsystemView(
@@ -226,6 +226,7 @@ export class MothershipView {
       );
     }
   }
+
 
   /** Tear down the scene nodes (match end). */
   dispose(): void {

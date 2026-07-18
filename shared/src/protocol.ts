@@ -9,7 +9,7 @@ import type { InputState } from "./types";
  * message protocol or to GameConfig (balance lives in shared, so a tweak is a
  * both-sides deploy) — see docs/MULTIPLAYER.md → Decisions (protocol version).
  */
-export const PROTOCOL_VERSION = 25;
+export const PROTOCOL_VERSION = 26;
 
 /** Room name registered on the server + asked for by the client. */
 export const BATTLE_ROOM = "battle";
@@ -88,11 +88,14 @@ export type NetEvent =
   | { k: "mothershipDied"; faction: Faction }
   | { k: "turretFired"; faction: Faction; rot: number; x: number; y: number; z: number }
   | { k: "turretDestroyed"; x: number; y: number; z: number }
-  /** A carrier subsystem fell. `faction` = the CARRIER's side; `kind` picks
-   *  the depiction (shield arc-down vs hangar burn) + the HUD toast. */
-  | { k: "subsystemDestroyed"; faction: Faction; kind: "shield" | "hangar"; x: number; y: number; z: number }
-  /** The carrier's LAST shield generator fell — its hull is exposed. */
+  /** A carrier subsystem fell. `faction` = the CARRIER's side. */
+  | { k: "subsystemDestroyed"; faction: Faction; kind: "hangar"; x: number; y: number; z: number }
+  /** `faction` lost its LAST powered station — carrier shields offline.
+   *  (The graduated shield factor itself is derived client-side from the
+   *  replicated station owners; these events mark the toast beats.) */
   | { k: "shieldsDown"; faction: Faction }
+  /** `faction` captured its first station from zero — shields online. */
+  | { k: "shieldsOnline"; faction: Faction }
   /** A capture station flipped to `faction` (id = StationSchema map key sans
    *  prefix; continuous progress rides the schema, events mark the moments). */
   | { k: "stationCaptured"; id: number; faction: Faction }

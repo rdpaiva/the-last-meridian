@@ -162,12 +162,12 @@ describe("StrategicSystem docking gate + energy + upgrades", () => {
     });
 
     for (let i = 0; i < 1200 && seat.launch; i++) sim.advance(DT);
-    // Pre-wound a shield generator to death so subsystemRepair has work.
+    // Pre-wound the hangar to death so subsystemRepair has work.
     const humansCarrier = sim.motherships.humans;
-    const shield = humansCarrier.subsystems.find((s) => s.kind === "shield")!;
-    shield.takeDamage(shield.maxHp, 0);
+    const hangar = humansCarrier.subsystems.find((s) => s.kind === "hangar")!;
+    hangar.takeDamage(hangar.maxHp, 0);
     sim.advance(DT); // death latch announces
-    expect(shield.explosionFired).toBe(true);
+    expect(hangar.explosionFired).toBe(true);
 
     // Dock until captured, then hold until every threshold has fired.
     for (let t = 0; t < 60 && unlocked.length < 3; t += DT) {
@@ -182,9 +182,9 @@ describe("StrategicSystem docking gate + energy + upgrades", () => {
     expect(ship.respawnDelayScale).toBeCloseTo(GameConfig.energy.fasterRespawnScale, 6);
     expect(sim.sensors.rangeScale.humans).toBeCloseTo(GameConfig.energy.sensorRangeScale, 6);
     expect(sim.sensors.rangeScale.machines).toBe(1);
-    expect(shield.isAlive).toBe(true); // revived…
-    expect(shield.explosionFired).toBe(false); // …and the death latch re-armed
-    expect(humansCarrier.shieldsUp).toBe(true);
+    expect(hangar.isAlive).toBe(true); // revived…
+    expect(hangar.explosionFired).toBe(false); // …and the death latch re-armed
+    expect(humansCarrier.hangarAlive).toBe(true);
   });
 
   it("stock config (no placements) leaves the strategic layer inert", () => {

@@ -1,17 +1,21 @@
 /**
- * Mothership subsystem tests (strategic layer M1 — destructible shield
- * generators + hangar, docs/ROADMAP.md):
+ * Mothership subsystem + station-powered shield tests (strategic layer;
+ * docs/strategic-layer-plan.md, redesigned 2026-07-18):
  *
- *  - shield gate: while ANY generator lives, hull damage is multiplied by
- *    subsystems.shield.shieldedHullDamageFactor (nonzero on purpose — the
- *    anti-stall guarantee); with all generators down the hull takes full
- *    damage;
+ *  - station-powered shields: Mothership.stationShieldFactor is written each
+ *    tick by StrategicSystem from owned-station counts — graduated
+ *    1 → stations.shield.minFactor with owned/total, factor 1 on
+ *    station-free maps (the anti-stall guarantee: never 0);
+ *  - shield edge events: shieldsOnline on a faction's first owned station,
+ *    shieldsDown on losing the last, re-firing across re-flips, silent on
+ *    station-free maps;
  *  - hangar effect: Ship.respawnDelayScale stretches shouldRespawn, and the
- *    BattleSim death-latch applies it faction-wide when a hangar falls;
- *  - events: subsystemDestroyed per subsystem, shieldsDown exactly once when
- *    the LAST generator dies.
+ *    BattleSim death-latch applies it faction-wide when the hangar falls.
+ *
+ * GameConfig is a mutable process-wide singleton — tests that write
+ * stations.placements restore in afterEach.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 
 import {
@@ -20,58 +24,65 @@ import {
   Mothership,
   NetworkController,
   NEUTRAL_INPUT,
+  type Faction,
   type MothershipSubsystem,
 } from "../../shared/src/index";
 
+const savedPlacements = GameConfig.stations.placements;
+
+afterEach(() => {
+  GameConfig.stations.placements = savedPlacements;
+});
+
+const DT = 1 / 60;
+
 function makeCarrier(): Mothership {
   return new Mothership(new Vector3(0, 0, -400), 0, "humans");
-}
-
-function shieldsOf(ms: Mothership): MothershipSubsystem[] {
-  return ms.subsystems.filter((s) => s.kind === "shield");
 }
 
 function killSubsystem(sub: MothershipSubsystem): void {
   sub.takeDamage(sub.maxHp, 0);
 }
 
-describe("mothership subsystems (shield generators + hangar)", () => {
-  it("builds the configured subsystems: 2 shields + 1 hangar, own HP pools", () => {
+/** A BattleSim with `placements` stations and one idle humans ship seated. */
+function makeSim(placements: Array<{ xFrac: number; zFrac: number }>) {
+  GameConfig.stations.placements = placements;
+  const net = new NetworkController();
+  net.setInput(NEUTRAL_INPUT);
+  BattleSim.seedRng(11);
+  const sim = new BattleSim();
+  const ship = sim.spawnShip("humans", GameConfig.shipTypes.spitfire, {
+    respawnDelayMs: 1000,
+  });
+  sim.addCombatant({ ship, controller: net });
+  sim.start();
+  return { sim, ship };
+}
+
+const THREE_STATIONS = [
+  { xFrac: -0.5, zFrac: 0 },
+  { xFrac: 0, zFrac: 0 },
+  { xFrac: 0.5, zFrac: 0 },
+];
+
+describe("mothership subsystems (hangar)", () => {
+  it("builds the configured subsystems: 1 hangar, own HP pool, no shields", () => {
     const ms = makeCarrier();
-    const shields = shieldsOf(ms);
     const hangars = ms.subsystems.filter((s) => s.kind === "hangar");
-    expect(shields.length).toBe(2);
     expect(hangars.length).toBe(1);
-    expect(ms.shieldsUp).toBe(true);
+    expect(ms.subsystems.length).toBe(1);
     expect(ms.hangarAlive).toBe(true);
+    // A fresh carrier is UNSHIELDED (no station power yet).
+    expect(ms.stationShieldFactor).toBe(1);
+    expect(ms.shieldsUp).toBe(false);
     // Subsystem damage is its own pool — the carrier hull must not move.
     const hullBefore = ms.hp;
-    shields[0].takeDamage(50, 0);
-    expect(shields[0].hp).toBe(shields[0].maxHp - 50);
+    hangars[0].takeDamage(50, 0);
+    expect(hangars[0].hp).toBe(hangars[0].maxHp - 50);
     expect(ms.hp).toBe(hullBefore);
-  });
-
-  it("gates hull damage while any generator lives, full damage once all are down", () => {
-    const ms = makeCarrier();
-    const factor = GameConfig.mothership.subsystems.shield.shieldedHullDamageFactor;
-
+    // And with factor 1, hull damage lands in full.
     ms.takeDamage(100, 0);
-    expect(ms.hp).toBeCloseTo(ms.maxHp - 100 * factor, 6);
-
-    // One generator down: still shielded.
-    const shields = shieldsOf(ms);
-    killSubsystem(shields[0]);
-    expect(ms.shieldsUp).toBe(true);
-    const before = ms.hp;
-    ms.takeDamage(100, 0);
-    expect(ms.hp).toBeCloseTo(before - 100 * factor, 6);
-
-    // Both down: the hull is exposed.
-    killSubsystem(shields[1]);
-    expect(ms.shieldsUp).toBe(false);
-    const exposed = ms.hp;
-    ms.takeDamage(100, 0);
-    expect(ms.hp).toBeCloseTo(exposed - 100, 6);
+    expect(ms.hp).toBeCloseTo(hullBefore - 100, 6);
   });
 
   it("stretches a ship's respawn clock by respawnDelayScale", () => {
@@ -93,55 +104,101 @@ describe("mothership subsystems (shield generators + hangar)", () => {
     expect(ship2.shouldRespawn(2500)).toBe(true);
   });
 
-  it("BattleSim latches subsystem deaths: events fire once, hangar slows the faction", () => {
-    const net = new NetworkController();
-    net.setInput(NEUTRAL_INPUT);
-    BattleSim.seedRng(11);
-    const sim = new BattleSim();
-    const ship = sim.spawnShip("machines", GameConfig.shipTypes.wraith, {
-      respawnDelayMs: GameConfig.combat.enemyRespawnDelayMs,
-    });
-    sim.addCombatant({ ship, controller: net });
-
+  it("BattleSim latches the hangar death: event fires once, faction slows", () => {
+    const { sim, ship } = makeSim([]);
     const destroyed: string[] = [];
-    let shieldsDownCount = 0;
     sim.events.on("subsystemDestroyed", ({ mothership, subsystem }) => {
       destroyed.push(`${mothership.faction}:${subsystem.kind}`);
     });
-    sim.events.on("shieldsDown", ({ mothership }) => {
-      expect(mothership.faction).toBe("machines");
-      shieldsDownCount++;
-    });
 
-    sim.start();
-    const machines = sim.motherships.machines;
-
-    // First generator: one destroyed event, shields still up.
-    killSubsystem(shieldsOf(machines)[0]);
-    sim.advance(1 / 60);
-    expect(destroyed).toEqual(["machines:shield"]);
-    expect(shieldsDownCount).toBe(0);
-
-    // Second generator: shieldsDown fires exactly once, and stays latched.
-    killSubsystem(shieldsOf(machines)[1]);
-    sim.advance(1 / 60);
-    expect(destroyed).toEqual(["machines:shield", "machines:shield"]);
-    expect(shieldsDownCount).toBe(1);
-    sim.advance(1 / 60);
-    expect(shieldsDownCount).toBe(1);
-
-    // Hangar: destroyed event + faction-wide respawn slowdown.
-    const hangar = machines.subsystems.find((s) => s.kind === "hangar")!;
+    const humans = sim.motherships.humans;
+    const hangar = humans.subsystems.find((s) => s.kind === "hangar")!;
     killSubsystem(hangar);
-    sim.advance(1 / 60);
-    expect(destroyed).toEqual([
-      "machines:shield",
-      "machines:shield",
-      "machines:hangar",
-    ]);
-    expect(machines.hangarAlive).toBe(false);
+    sim.advance(DT);
+    expect(destroyed).toEqual(["humans:hangar"]);
+    sim.advance(DT);
+    expect(destroyed).toEqual(["humans:hangar"]); // latched
+    expect(humans.hangarAlive).toBe(false);
     expect(ship.respawnDelayScale).toBe(
       GameConfig.mothership.subsystems.hangar.destroyedRespawnDelayScale,
     );
+  });
+});
+
+describe("station-powered carrier shields", () => {
+  it("graduates the hull damage factor with owned/total stations", () => {
+    const { sim } = makeSim(THREE_STATIONS);
+    const stations = sim.strategic.stations;
+    const humans = sim.motherships.humans;
+    const machines = sim.motherships.machines;
+    const minFactor = GameConfig.stations.shield.minFactor;
+
+    const expectFactor = (owned: number) =>
+      owned === 0 ? 1 : 1 - (1 - minFactor) * (owned / 3);
+
+    for (let owned = 0; owned <= 3; owned++) {
+      for (let i = 0; i < stations.length; i++) {
+        stations[i].owner = i < owned ? "humans" : null;
+      }
+      sim.advance(DT);
+      expect(humans.stationShieldFactor).toBeCloseTo(expectFactor(owned), 6);
+      // The other side owns nothing — always fully exposed.
+      expect(machines.stationShieldFactor).toBe(1);
+      // And takeDamage actually scales by the factor.
+      const before = humans.hp;
+      humans.takeDamage(100, 0);
+      expect(humans.hp).toBeCloseTo(before - 100 * expectFactor(owned), 6);
+    }
+    // All stations held = the configured floor exactly (never 0).
+    expect(humans.stationShieldFactor).toBeCloseTo(minFactor, 6);
+    expect(minFactor).toBeGreaterThan(0);
+  });
+
+  it("station-free maps leave both carriers permanently unshielded", () => {
+    const { sim } = makeSim([]);
+    for (let i = 0; i < 120; i++) sim.advance(DT);
+    expect(sim.motherships.humans.stationShieldFactor).toBe(1);
+    expect(sim.motherships.machines.stationShieldFactor).toBe(1);
+    expect(sim.motherships.humans.shieldsUp).toBe(false);
+  });
+
+  it("emits shieldsOnline/shieldsDown on the 0↔≥1 owned-station edges", () => {
+    const { sim } = makeSim(THREE_STATIONS);
+    const stations = sim.strategic.stations;
+    const online: Faction[] = [];
+    const down: Faction[] = [];
+    sim.events.on("shieldsOnline", ({ faction }) => online.push(faction));
+    sim.events.on("shieldsDown", ({ faction }) => down.push(faction));
+
+    // First station: one shieldsOnline, no re-fire while more are gained.
+    stations[0].owner = "humans";
+    sim.advance(DT);
+    expect(online).toEqual(["humans"]);
+    stations[1].owner = "humans";
+    sim.advance(DT);
+    expect(online).toEqual(["humans"]);
+    expect(down).toEqual([]);
+
+    // Losing SOME power is silent; losing the LAST station fires shieldsDown.
+    stations[1].owner = null;
+    sim.advance(DT);
+    expect(down).toEqual([]);
+    stations[0].owner = null;
+    sim.advance(DT);
+    expect(down).toEqual(["humans"]);
+
+    // Re-capturing from zero announces again.
+    stations[2].owner = "humans";
+    sim.advance(DT);
+    expect(online).toEqual(["humans", "humans"]);
+  });
+
+  it("stays silent on station-free maps", () => {
+    const { sim } = makeSim([]);
+    let events = 0;
+    sim.events.on("shieldsOnline", () => events++);
+    sim.events.on("shieldsDown", () => events++);
+    for (let i = 0; i < 120; i++) sim.advance(DT);
+    expect(events).toBe(0);
   });
 });

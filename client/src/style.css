@@ -1754,10 +1754,12 @@ body {
   background: linear-gradient(90deg, #ff4d6d, #f38ba8);
 }
 
-/* Subsystem pips under each carrier bar: shield generators (diamonds) +
-   hangar (square). Lit while alive, hollow/dim once destroyed. */
+/* Subsystem row under each carrier bar: station-power shield segments
+   (thin bars, one per station, lit while that faction owns it) + the
+   hangar pip (square). Lit while alive, hollow/dim otherwise. */
 .ms-subs {
   display: flex;
+  align-items: center;
   gap: 6px;
   min-height: 8px;
 }
@@ -1770,11 +1772,6 @@ body {
   box-shadow: 0 0 5px rgba(140, 170, 255, 0.5);
 }
 
-.ms-pip.shield {
-  transform: rotate(45deg);
-  border-radius: 1px;
-}
-
 .ms-machines .ms-pip {
   border-color: rgba(235, 160, 175, 0.65);
   background: rgba(255, 150, 170, 0.85);
@@ -1785,6 +1782,31 @@ body {
   background: transparent;
   box-shadow: none;
   border-color: rgba(120, 130, 160, 0.4);
+}
+
+/* Station-power shield segments (Hud.setShieldPower). */
+.ms-shield-segs {
+  display: flex;
+  gap: 3px;
+}
+
+.ms-seg {
+  width: 12px;
+  height: 5px;
+  border: 1px solid rgba(120, 130, 160, 0.4);
+  background: transparent;
+}
+
+.ms-seg.lit {
+  border-color: rgba(160, 180, 235, 0.65);
+  background: rgba(160, 190, 255, 0.85);
+  box-shadow: 0 0 5px rgba(140, 170, 255, 0.5);
+}
+
+.ms-machines .ms-seg.lit {
+  border-color: rgba(235, 160, 175, 0.65);
+  background: rgba(255, 150, 170, 0.85);
+  box-shadow: 0 0 5px rgba(255, 130, 155, 0.5);
 }
 
 /* Per-faction Energy line under the carrier bar (strategic layer). */

@@ -346,6 +346,39 @@ PROTOCOL_VERSION **24**. Baseline RECAPTURED (intended gameplay change:
 owner-verified in-game yet (see work item 0d); shield/hangar MOUNT
 POSITIONS are config-eyeballed, not GLB-fitted — expect to nudge them.
 
+**Built 2026-07-18 — STATION-POWERED carrier shields** (owner-decided
+redesign SUPERSEDING M1's destructible shield generators — the owner
+disliked the generator placeholder hardware + a prototyped shield-bubble
+visual, and the fighters-have-no-shields fiction gap; carriers' shields now
+draw power from the strategic layer instead). The two "shield"
+MothershipSubsystems are REMOVED (hangar stays); hull damage is multiplied
+by `Mothership.stationShieldFactor` — graduated by capture-station
+ownership: `1 - (1 - stations.shield.minFactor) × (owned/total)`, so 0
+stations = full damage, all 3 = 0.2 (= the old shielded factor; NONZERO
+floor keeps the anti-stall guarantee). Written declaratively each tick by
+`StrategicSystem.applyEffects` (both loops; solo Game owns its own
+StrategicSystem) and mirrored client-side in online play from the
+replicated station owners (`NetworkGame.mirrorStations`, runs BEFORE FX
+playback) — ZERO new wire data. Station-free maps (The Veil, The Wreck,
+headless smoke) fly unshielded by design. New SimEvents/NetEvents
+`shieldsOnline`/`shieldsDown` fire on the per-faction 0↔≥1 owned-station
+edges (StrategicSystem edge detection; toasts "SHIELDS ONLINE — STATION
+POWER" / "SHIELDS OFFLINE — NO STATION POWER"). HUD: station-power shield
+segments under each carrier bar (`Hud.setShieldPower`, one per station, lit
+while owned) + the hangar pip. In-field FX: ONLY the shield hit-splash
+(`ShieldHitFlash{,System}.ts` — faction-tinted translucent splash where
+shots land on a shielded hull; solo from `Game.onLaserHit/onMissileHit` via
+`MothershipSection.owner.shieldsUp`, online via
+`NetworkGame.shieldedCarrierAt`); the shield bubble, generator hardware, and
+shield GLB seam were all deleted. AI: generator-targeting removed
+(strikers press hull/turrets; the commander's capture rung is now also the
+shield fight). Schema: `shield0Hp/shield1Hp` slots removed (hangarHp
+stays). PROTOCOL_VERSION **26**. Baseline RECAPTURED: 28095→24187 ticks,
+69→55 deaths (unshielded smoke map ≈ pre-M1 pacing; battle still ends).
+Tests: `subsystems.test.ts` rewritten (graduation/edges/hangar),
+`stations.test.ts` repair test now wounds the hangar. NOT owner-verified
+in-game yet — see work item 0d.
+
 **Built 2026-07-17 — strategic layer M2: capture stations + Energy +
 upgrade thresholds** (same session as M1; full design in
 `docs/strategic-layer-plan.md`). Neutral stations a faction flips by
@@ -436,14 +469,21 @@ playtest results: what broke, what felt off, overlay numbers if netcode>
    (slit gates + center-lane pinchers + corner drifters — predates the
    map-editor session, deliberately left unstaged); keep or discard after
    the storm feel check in item 0.
-0d. **Owner check of mothership subsystems** (built 2026-07-17, see the
-   state paragraph): solo or two-tab — verify the shield generator domes +
-   hangar sit sensibly ON the carrier GLBs (mounts are config-eyeballed:
-   `GameConfig.mothership.subsystems.*.mounts`, nudge x/z there), strikers
-   visibly work the generators before the hull, the HUD pips + SHIELDS
-   DOWN toast read, and the shielded-hull pace feels right
-   (`shieldedHullDamageFactor` / shield `hp` are the knobs). Deploy note:
-   v24 — both halves together, as always.
+0d. **Owner check of the hangar subsystem + station-powered shields**
+   (M1 built 2026-07-17, shields redesigned 2026-07-18 — see the state
+   paragraphs): solo on a STATION map (The Void / The Belt / The Tempest) —
+   pre-capture, carriers take full damage and show hollow shield segments
+   under their HUD bars; capture a station → "SHIELDS ONLINE" toast + a lit
+   segment + faction-tinted splashes where shots land on the shielded hull
+   (distinct from bare-hull sparks); segments/damage scale per station
+   (knob: `stations.shield.minFactor`); losing the last station → "SHIELDS
+   OFFLINE — NO STATION POWER" and the splashes stop. Check the enemy AI
+   still contests stations (`commander.captureCount`) and that the hangar
+   box sits sensibly on the carrier GLB (mount:
+   `GameConfig.mothership.subsystems.hangar.mounts`) — its destruction
+   toast/pip/slow-respawn + subsystemRepair revive are unchanged. The Veil /
+   The Wreck: no segments, no shield toasts, unshielded carriers. Deploy
+   note: v26 — both halves together, as always.
 0f. **The freeze bug — STILL OPEN** (2026-07-17): multi-second freeze
    every ~20–30s. CRITICAL re-rank: the owner reproduced it LOCALLY in
    SOLO mode, which rules out the server-GC hypothesis and clears the

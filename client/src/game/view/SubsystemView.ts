@@ -4,26 +4,24 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
-// Box builder registration — base/housing boxes (matches the carrier's boxy
+// Box builder registration — housing boxes (matches the carrier's boxy
 // procedural style, see MothershipView/TurretView).
 import "@babylonjs/core/Meshes/Builders/boxBuilder";
-// Sphere builder registration — the shield generator's emissive dome.
-import "@babylonjs/core/Meshes/Builders/sphereBuilder";
 
 import { FACTION_THEME } from "@space-duel/shared";
 import type { Faction, SubsystemKind } from "@space-duel/shared";
 
 /**
- * Depiction of ONE carrier subsystem (shield generator / hangar) — the VIEW
- * half of the MothershipSubsystem split (the TurretView recipe minus the
- * traverse: subsystems don't aim). Holds no gameplay truth; each frame it
- * reads the sim subsystem's `isAlive` and, on the first dead frame, drops the
- * live structure to a charred base stump (exactly TurretView's dead state).
+ * Depiction of ONE carrier subsystem (the hangar) — the VIEW half of the
+ * MothershipSubsystem split (the TurretView recipe minus the traverse:
+ * subsystems don't aim). Holds no gameplay truth; each frame it reads the
+ * sim subsystem's `isAlive` and, on the first dead frame, drops the live
+ * structure to a charred base stump (exactly TurretView's dead state).
  *
- * Procedural-only for now: an armored base box plus a faction-emissive "live"
- * element (shield = glowing dome, hangar = bay light strip) that dies with
- * the subsystem. A future carrier GLB can author real geometry; this is the
- * fallback tier of that two-tier pattern.
+ * Procedural-only: a deck housing plus a faction-emissive bay light strip
+ * that dies with the subsystem. A future carrier GLB can author real
+ * geometry via `hangar.*` empties (Mothership.setModelSubsystemMounts is the
+ * generic re-seat seam).
  */
 export class SubsystemView {
   private readonly mount: TransformNode;
@@ -65,38 +63,17 @@ export class SubsystemView {
     glowMat.diffuseColor = Color3.Black();
     glowMat.disableLighting = true;
 
-    if (kind === "shield") {
-      this.buildShield(scene, hullMat, glowMat);
-    } else {
-      this.buildHangar(scene, hullMat, glowMat);
-    }
+    this.buildHangar(scene, hullMat, glowMat);
   }
 
-  /** Armored plinth + glowing generator dome. */
-  private buildShield(
-    scene: Scene,
-    hullMat: StandardMaterial,
-    glowMat: StandardMaterial,
-  ): void {
-    const base = MeshBuilder.CreateBox(
-      "subsys_shield_base",
-      { width: 9, height: 2.6, depth: 9 },
-      scene,
-    );
-    base.parent = this.mount;
-    base.material = hullMat;
-    base.isPickable = false;
-
-    const dome = MeshBuilder.CreateSphere(
-      "subsys_shield_dome",
-      { diameter: 7, segments: 12 },
-      scene,
-    );
-    dome.parent = this.live;
-    dome.position.y = 2.2;
-    dome.scaling.y = 0.65; // squashed emitter dome, not a full ball
-    dome.material = glowMat;
-    dome.isPickable = false;
+  /**
+   * Re-seat this subsystem at a new carrier-LOCAL mount (x/y/z under the
+   * carrier root) — the seam for a future carrier GLB authoring `hangar.*`
+   * empties (the sim side re-seats in lockstep via
+   * Mothership.setModelSubsystemMounts).
+   */
+  setMount(x: number, y: number, z: number): void {
+    this.mount.position.set(x, y, z);
   }
 
   /** Deck housing + emissive bay-mouth light strip. */
@@ -126,8 +103,8 @@ export class SubsystemView {
   }
 
   /**
-   * First frame the sim subsystem reads dead: drop the live structure (dome/
-   * lights) and leave the armored base as a stump. The strategic
+   * First frame the sim subsystem reads dead: drop the live structure (bay
+   * lights) and leave the housing as a stump. The strategic
    * "subsystemRepair" upgrade can REVIVE a subsystem — a live read after a
    * dead one un-stumps it. Called each view frame from
    * MothershipView.syncSubsystems().

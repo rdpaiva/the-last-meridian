@@ -536,10 +536,6 @@ export class BattleSim {
             mothership: this.motherships[f],
             subsystem: sub,
           });
-          if (sub.kind === "shield" && !this.motherships[f].shieldsUp) {
-            // The LAST generator just fell — the core is exposed.
-            this.events.emit("shieldsDown", { mothership: this.motherships[f] });
-          }
         }
       }
     }

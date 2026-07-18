@@ -4,7 +4,7 @@ import { GameConfig } from "../GameConfig";
 import type { DamageTarget } from "../types";
 
 /** The named subsystem kinds a carrier can mount (see GameConfig.mothership.subsystems). */
-export type SubsystemKind = "shield" | "hangar";
+export type SubsystemKind = "hangar";
 
 /**
  * A destructible mothership SUBSYSTEM — SIM only (the Turret pattern minus the
@@ -15,11 +15,10 @@ export type SubsystemKind = "shield" | "hangar";
  * Each subsystem is a DamageTarget with its OWN hp pool, separate from the
  * carrier's — it can be shot off the hull without touching the objective.
  * What DESTROYING one means is the owner's business, not this class's:
- *  - "shield": while ANY shield generator lives, the carrier's hull pool takes
- *    only a fraction of incoming damage (Mothership.takeDamage gates on
- *    shieldsUp). Kill both generators to expose the core.
  *  - "hangar": once destroyed, the owning faction's ships respawn slower
  *    (the death-latch scan in each sim loop applies Ship.respawnDelayScale).
+ * (Carrier SHIELDS are not a subsystem: they're powered by capture-station
+ * ownership — Mothership.stationShieldFactor, written by StrategicSystem.)
  *
  * The carrier is static, so the world mount position is computed once by the
  * owning Mothership. HP is the only mutable state — exactly what the server
