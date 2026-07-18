@@ -71,6 +71,7 @@ import { LaserSystemView } from "./view/LaserSystemView";
 import { MissileSystemView } from "./view/MissileSystemView";
 import { ExplosionSystem } from "./ExplosionSystem";
 import { JumpFlashSystem } from "./JumpFlashSystem";
+import { JumpGhostSystem } from "./JumpGhostSystem";
 import { JumpRipple } from "./JumpRipple";
 import { SoundSystem } from "./SoundSystem";
 import { MusicSystem } from "./MusicSystem";
@@ -363,6 +364,8 @@ export class NetworkGame {
   private readonly music: MusicSystem;
   private readonly explosions: ExplosionSystem;
   private readonly jumpFlashes: JumpFlashSystem;
+  /** Spectral hull streaks at both ends of a jump (phase-out / phase-in). */
+  private readonly jumpGhosts: JumpGhostSystem;
   private readonly jumpRipple: JumpRipple;
   /** Cosmetic per-faction projectile pools (no damage/collision — see class doc). */
   private readonly cosmeticLasers: Record<Faction, LaserSystem>;
@@ -630,6 +633,7 @@ export class NetworkGame {
     this.music = new MusicSystem(this.scene);
     this.explosions = new ExplosionSystem(this.scene, this.glowLayer);
     this.jumpFlashes = new JumpFlashSystem(this.scene, this.glowLayer);
+    this.jumpGhosts = new JumpGhostSystem(this.scene, this.glowLayer);
     this.jumpRipple = new JumpRipple(this.scene, this.cameraRig.camera);
     // Lit rocky grey (mirrors AsteroidFieldView) — NOT emissive, NOT glowed.
     this.rockMaterial = new StandardMaterial("asteroid_mat", this.scene);
@@ -1288,6 +1292,7 @@ export class NetworkGame {
     this.fuseFriendlyMissiles(nowMs);
     this.explosions.update(dt, dtMs);
     this.jumpFlashes.update(dtMs);
+    this.jumpGhosts.update(dtMs);
     this.stormClouds.update(dt);
     this.lightning.update(dt, dtMs);
     this.jumpRipple.update(dtMs);
@@ -1891,6 +1896,22 @@ export class NetworkGame {
         this.jumpFlashes.spawn(to);
         this.jumpRipple.spawn(from);
         this.jumpRipple.spawn(to);
+        // Spectral hull ghosts (offline parity): snapshot the depicted root
+        // in place for the phase-out streak, and re-pose it at the arrival
+        // for the phase-in. A sensor-hidden jumper has no (enabled) view —
+        // skip rather than leak a ghost of a ship we never depicted.
+        // Arrival heading = the home carrier's (humans 0, machines π).
+        const jumperView = this.views.get(e.ship);
+        if (jumperView?.root.isEnabled()) {
+          const faction = this.meta.get(e.ship)?.faction;
+          this.jumpGhosts.spawnDeparture(jumperView.root);
+          this.jumpGhosts.spawnArrival(
+            jumperView.root,
+            e.toX,
+            e.toZ,
+            faction === "machines" ? Math.PI : 0,
+          );
+        }
         if (e.ship === this.myKey) {
           // Our own teleport: hard-snap the camera across the discontinuity
           // (mirrors offline) and zero the velocity lead so it doesn't whip.
