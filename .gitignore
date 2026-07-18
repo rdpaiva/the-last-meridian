@@ -12,6 +12,7 @@ npm-debug.log*
 .DS_Store
 .vscode/
 .idea/
+.codex/
 
 # Vite cache
 .vite/
