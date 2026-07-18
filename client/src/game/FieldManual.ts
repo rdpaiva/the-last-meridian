@@ -1,6 +1,7 @@
 import { GameConfig, type ShipTypeId } from "@space-duel/shared";
 import type { ShipPreview } from "./ShipPreview";
 import { SHIP_INFO } from "./LoadoutMenu";
+import { UPGRADE_LABELS } from "./Hud";
 import { loadSavedLoadout, markGuideSeen } from "./Loadout";
 
 /**
@@ -23,7 +24,14 @@ import { loadSavedLoadout, markGuideSeen } from "./Loadout";
  */
 
 /** Which diagram renders above a card's text — see the builders at the bottom. */
-type VisualKind = "flight" | "weapons" | "carrier" | "roster" | "battlefield" | "hud";
+type VisualKind =
+  | "flight"
+  | "weapons"
+  | "carrier"
+  | "roster"
+  | "battlefield"
+  | "strategic"
+  | "hud";
 
 interface ManualCard {
   /** Small kicker above the title (the card's "chapter"). */
@@ -52,7 +60,7 @@ function buildCards(): ManualCard[] {
         `You fly top-down on a flat plane. <b>W/S</b> thrust, <b>A/D</b> turn, <b>Q/E</b> strafe — or just point the <b>mouse</b> where you want to go (the ship steers toward the cursor), or use the gamepad's left stick.`,
         `Your ship keeps its momentum. Cut thrust and you drift; mix strafe and reverse to slip a pursuer's aim without giving up your heading.`,
         `<b>+/−</b> zooms the camera. The full key/stick list is under <b>CONTROLS</b> in the footer.`,
-        `Lose all your hull and you respawn at your carrier after a delay — deaths cost your side, so break off early rather than flying it to zero.`,
+        `Lose all your hull and you're benched: redeploying at your carrier takes ~${sec(GameConfig.combat.playerRespawnDelayMs)}s (the red countdown ring on the HUD shows the wait). Every death buys the enemy real board time — break off early rather than flying it to zero.`,
       ],
     },
     {
@@ -73,6 +81,7 @@ function buildCards(): ManualCard[] {
       visual: "carrier",
       lines: [
         `Your carrier is home base. Nuzzle up to a launch bay and <b>slow to a crawl</b> — inside the service ring your hull, cannon rounds, and missiles all refill over a few seconds. Strafing past at speed gets you nothing.`,
+        `The launch bays are themselves targets: a destroyed bay slows every respawn on that side (up to ×${GameConfig.mothership.subsystems.hangar.destroyedRespawnDelayScale} with both down), and relaunches re-route to the surviving bay. Torching the enemy's bays keeps their pilots benched — and yours are just as burnable.`,
         `<b>J</b> arms the <b>Meridian Drive</b>: after a ${sec(j.spoolMs)}s spool (the rising whine is your countdown) it snaps you straight home into that service ring. You can fly and fight the whole spool, and enemy fire can't break it.`,
         `Press <b>J</b> again to <b>cancel</b> the spool — until the final ${sec(j.commitMs)}s, when coordinates lock and you're going whether you like it or not.`,
         `Jumping <i>or</i> cancelling puts the drive on a ${sec(j.cooldownMs)}s cooldown — a cancel isn't free, so don't arm it as a bluff.`,
@@ -96,10 +105,21 @@ function buildCards(): ManualCard[] {
       visual: "battlefield",
       lines: [
         `The objective is the <b>enemy carrier</b>: bring its hull down before yours falls. Its flak turrets are individually destructible — strip a corner to open a safe attack lane.`,
-        `<b>Asteroids</b> block shots — yours and theirs. Duck behind one to break contact, or shoot the rock itself: they shatter, which opens the lane and makes chaos of a furball.`,
+        `<b>Asteroids</b> block shots — yours and theirs. Duck behind one to break contact, or shoot the rock itself: they shatter, which opens the lane and makes chaos of a furball. Derelict carrier <b>wrecks</b> give the same cover but never break — fight around them, not through.`,
         `<b>Nebulas</b> swallow radar signatures. Inside a cloud you vanish from the enemy picture unless someone flies close enough to eyeball you. Use them to reset a losing fight or line up an ambush.`,
         `<b>Ion storms</b> — the electric blue-cyan clouds — bite: a lightning zap every ~${GameConfig.storms.zapIntervalSec}s while you fly inside. They hide you from radar exactly like a nebula, so a storm run is an escape you pay for in hull. AI pilots route around them — storm banks carve the map into lanes.`,
         `Every arena arranges these differently — the map card's schematic on the MISSION step is a true top-down preview.`,
+      ],
+    },
+    {
+      tag: "Strategic Ops",
+      title: "Stations, Energy & Shields",
+      visual: "strategic",
+      lines: [
+        `Some arenas seed neutral <b>orbital stations</b>. Park inside a station's ring and <b>slow to a crawl</b> — about ${GameConfig.stations.captureTimeSec}s docked fills the capture meter (the HUD shows progress while you're in the ring). Docked wingmates speed it up; an enemy in the ring freezes it.`,
+        `Enemy-held stations flip in <b>two stages</b> — drain theirs to neutral, then capture it for yourself. Double the work, so guard what you take.`,
+        `Owned stations feed your side <b>Energy</b> (the ⚡ line under your carrier bar), and upgrades unlock automatically down the ladder above: <b>${UPGRADE_LABELS.fasterRespawn}</b> (respawns ${Math.round((1 - GameConfig.energy.fasterRespawnScale) * 100)}% faster), <b>${UPGRADE_LABELS.sensorBoost}</b> (radar +${Math.round((GameConfig.energy.sensorRangeScale - 1) * 100)}%), then <b>${UPGRADE_LABELS.turretOverdrive}</b> — your carrier's guns revive, and full-strength guns fire faster and hit harder. Chip an overdriven gun below full and it drops back to stock.`,
+        `Stations also power <b>carrier shields</b>: every station your side holds blunts damage to your carrier's hull — hold them all and enemy hits land at ${Math.round(GameConfig.stations.shield.minFactor * 100)}% strength. If your shots are barely scratching the enemy carrier, take their stations before pressing the attack.`,
       ],
     },
     {
@@ -111,7 +131,7 @@ function buildCards(): ManualCard[] {
         `The radar shows your side's <b>sensor picture, not the truth</b>. Solid blips are live tracks; hollow <b>ghost rings</b> are last-known positions that fade after ~${GameConfig.sensors.memorySec}s. An empty radar doesn't mean an empty sky.`,
         `Tracks come from every friendly fighter's radar plus your carrier's long-range sweep around home — stay near friends and you see more.`,
         `A pulsing red border and a quickening beep is the <b>missile warning</b>: a seeker is homing on you. Break hard and outlast its motor.`,
-        `The carrier hull bars are the win condition — when one empties, the match ends.`,
+        `The carrier hull bars are the win condition — when one empties, the match ends. The pips beneath each bar are <b>station shield power</b>: every lit pip means that carrier's hull is taking reduced damage.`,
       ],
     },
   ];
@@ -234,6 +254,33 @@ function visualBattlefield(): string {
     </svg>`;
 }
 
+function visualStrategic(): string {
+  // Left: the wheel-and-spire station inside its dashed capture ring (the
+  // service-ring look — same "get inside and slow down" grammar). Right: the
+  // Energy upgrade ladder, one chip per threshold, built from the live config
+  // (and the HUD's own upgrade labels) so retuning re-words it.
+  const chips = GameConfig.energy.thresholds
+    .map(
+      (t) =>
+        `<div class="fm-chip"><span class="fm-chip-label">⚡${t.cost}</span><span style="color:#f9e2af">${UPGRADE_LABELS[t.effect]}</span></div>`,
+    )
+    .join("");
+  return `
+    <div class="fm-visual-row">
+    <svg class="fm-svg" viewBox="0 0 170 110" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="85" cy="58" r="42" fill="rgba(166,227,161,0.06)" stroke="rgba(166,227,161,0.5)" stroke-dasharray="4 3"/>
+      <circle cx="85" cy="58" r="16" fill="none" stroke="#9aa6c8" stroke-width="3"/>
+      <line x1="85" y1="42" x2="85" y2="74" stroke="#9aa6c8" stroke-width="2"/>
+      <line x1="69" y1="58" x2="101" y2="58" stroke="#9aa6c8" stroke-width="2"/>
+      <circle cx="85" cy="58" r="4" fill="#f9e2af"/>
+      <path d="M85 88 L79 98 L85 95.5 L91 98 Z" fill="#89b4fa"/>
+      <text x="85" y="12" text-anchor="middle" class="fm-svg-label" fill="#a6e3a1">CAPTURE RING</text>
+      <text x="85" y="107" text-anchor="middle" class="fm-svg-label" fill="#6c7086">DOCK SLOW TO CAPTURE</text>
+    </svg>
+    <div class="fm-chips">${chips}</div>
+    </div>`;
+}
+
 function visualHud(): string {
   // Specimen HUD chips in the real HUD colors + the radar blip legend.
   return `
@@ -260,6 +307,7 @@ const VISUALS: Record<VisualKind, () => string> = {
   carrier: visualCarrier,
   roster: visualRoster,
   battlefield: visualBattlefield,
+  strategic: visualStrategic,
   hud: visualHud,
 };
 
