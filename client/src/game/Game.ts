@@ -41,6 +41,7 @@ import { StormSystem } from "@space-duel/shared";
 import { Backdrop } from "./Backdrop";
 import { ExplosionSystem } from "./ExplosionSystem";
 import { JumpFlashSystem } from "./JumpFlashSystem";
+import { JumpGhostSystem } from "./JumpGhostSystem";
 import { JumpRipple } from "./JumpRipple";
 import { SoundSystem } from "./SoundSystem";
 import { MusicSystem } from "./MusicSystem";
@@ -152,6 +153,8 @@ export class Game {
   private readonly weaponObstacles: DamageTarget[] = [];
   private readonly explosions: ExplosionSystem;
   private readonly jumpFlashes: JumpFlashSystem;
+  /** Spectral hull streaks at both ends of a jump (phase-out / phase-in). */
+  private readonly jumpGhosts: JumpGhostSystem;
   private readonly jumpRipple: JumpRipple;
   private readonly sound: SoundSystem;
   /**
@@ -559,6 +562,7 @@ export class Game {
 
     this.explosions = new ExplosionSystem(this.scene, this.glowLayer);
     this.jumpFlashes = new JumpFlashSystem(this.scene, this.glowLayer);
+    this.jumpGhosts = new JumpGhostSystem(this.scene, this.glowLayer);
     this.lightning = new LightningSystem(this.scene, this.glowLayer, this.stormClouds);
 
     // A rock shattered — the feedback (explosion + sound + trauma) is depicted
@@ -1117,6 +1121,16 @@ export class Game {
       this.jumpFlashes.spawn(toPos);
       this.jumpRipple.spawn(fromPos);
       this.jumpRipple.spawn(toPos);
+      // Spectral hull ghosts: the view root still holds the DEPARTURE pose
+      // (views copy sim → scene after this sim step), so snapshot it in place
+      // for the phase-out streak; the arrival ghost is the same snapshot
+      // re-posed at the jump exit (the sim's rotationY is already the
+      // arrival heading — jumpTeleport ran before this event fired).
+      const view = this.combatants.find((cb) => cb.ship === ship)?.view;
+      if (view?.root.isEnabled()) {
+        this.jumpGhosts.spawnDeparture(view.root);
+        this.jumpGhosts.spawnArrival(view.root, toX, toZ, ship.rotationY);
+      }
       // Completed jump: let the drive ring out (trigger hit + departure tail).
       this.sound.releaseJumpDrive(ship);
       if (ship === this.playerShip) {
@@ -1959,8 +1973,9 @@ export class Game {
     // Explosions animate through the end screen (so the death spectacle plays
     // out) but pause during hitstop, like the rest of the sim.
     if (!inHitstop) this.explosions.update(deltaSeconds, deltaMs);
-    // Jump cracks ride the same hitstop gate as explosions.
+    // Jump cracks + hull ghosts ride the same hitstop gate as explosions.
     if (!inHitstop) this.jumpFlashes.update(deltaMs);
+    if (!inHitstop) this.jumpGhosts.update(deltaMs);
     // Storm flicker + lightning ride it too (a freeze-frame mid-strike is fine).
     if (!inHitstop) {
       this.stormClouds.update(deltaSeconds);

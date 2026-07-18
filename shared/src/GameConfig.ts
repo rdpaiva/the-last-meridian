@@ -2077,6 +2077,26 @@ export const GameConfig = {
       /** Subtle cool brightening right at the leading edge (0 = none). */
       highlight: 0.35,
     },
+
+    /**
+     * Ship GHOST at both ends of a jump (JumpGhost/JumpGhostSystem): a frozen
+     * spectral clone of the hull. Departure: it stretches into a light streak
+     * along the ship's heading and dissolves — the real ship relocates on the
+     * teleport frame, the ghost is what the eye follows out. Arrival: the
+     * same streak plays in reverse, condensing onto the materializing ship.
+     */
+    ghost: {
+      /** Lifetime of one ghost (ms) — outlives the flash so the smear lingers. */
+      durationMs: 700,
+      /** Peak forward-axis stretch (× hull length) at full smear. */
+      stretch: 6,
+      /** How far the smear slides along the heading over its life (world units). */
+      slide: 24,
+      /** Ghost opacity at the solid end of the animation (additive blend). */
+      peakAlpha: 0.6,
+      /** Spectral tint (drives emissive through additive blend + bloom). */
+      color: { r: 0.55, g: 0.85, b: 1.35 },
+    },
   },
 
   /**
