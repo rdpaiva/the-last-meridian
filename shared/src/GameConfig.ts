@@ -2522,6 +2522,35 @@ export const GameConfig = {
      */
     carrierFireStandoff: 60,
 
+    // --- Stalemate breaker (the anti-"looping battle" doctrine) ---
+    // Two pure-pursuit pilots with matched turn rates settle into a stable
+    // mutual orbit: each steers straight at the other, each nose trails the
+    // target by ~90°, nobody ever gets inside the fire cone, and the fight
+    // circles forever. Every pilot therefore watches its own pursuit: steering
+    // at a fighter contact inside stalemateRange with the nose still outside
+    // the fire cone and the range barely changing (|range rate| under
+    // stalemateClosureMax units/sec) accumulates "orbit time"; after roughly
+    // stalemateTriggerSec of it (jittered per pilot so a locked pair doesn't
+    // break in perfect sync) the pilot breaks the loop with a RANDOM maneuver
+    // held for stalemateBreakMinSec..stalemateBreakMaxSec:
+    //   - throttle CHOP (50%): coast while still turning — bleeding speed
+    //     tightens the turn circle, so the nose finally swings onto the target;
+    //   - VEER (50%): keep thrusting but steer stalemateVeerAngle off the
+    //     pursuit heading to a random side, exiting the circle to re-engage
+    //     from fresh geometry.
+    /** Only pursuits inside this range (world units) can count as an orbit. */
+    stalemateRange: 45,
+    /** |range rate| (units/sec) below which the pursuit is "not closing". */
+    stalemateClosureMax: 6,
+    /** Sustained orbit seconds before a pilot breaks (±20% per-pilot jitter). */
+    stalemateTriggerSec: 3,
+    /** Shortest break-maneuver hold (seconds). */
+    stalemateBreakMinSec: 1.2,
+    /** Longest break-maneuver hold (seconds). */
+    stalemateBreakMaxSec: 2.4,
+    /** Veer maneuver: offset (rad) held off the pursuit heading. 1.9 ≈ 109°. */
+    stalemateVeerAngle: 1.9,
+
     // --- Missiles (AI launch doctrine) ---
     // Any AI pilot whose ship type carries a rack (shipTypes[*].missileAmmo
     // > 0) uses it, gated so the limited ammo is SPENT WELL, not dumped:

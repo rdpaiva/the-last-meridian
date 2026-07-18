@@ -158,6 +158,8 @@ export class AIController implements ShipController {
   private planAimX = 0;
   private planAimZ = 0;
   private planHasAim = false;
+  /** Whether the cached plan was chasing a fighter contact (see `pursuit`). */
+  private planPursuit = false;
   private planFireRange = 0;
   /**
    * Low-passed copy of the leader's velocity that formation flies off, so the
@@ -197,6 +199,21 @@ export class AIController implements ShipController {
   /** Latched once the pilot commits to RTB for service; released when serviced. */
   private retreating = false;
 
+  // --- Dogfight stalemate breaker (GameConfig.ai → "Stalemate breaker") ---
+  /** Accumulated seconds of sustained orbit against the current aim target. */
+  private stalemateSec = 0;
+  /** Distance to the aim target last frame (null = no pursuit to compare to). */
+  private lastAimDist: number | null = null;
+  /** Seconds left in the active break maneuver (0 = none active). */
+  private breakSec = 0;
+  /**
+   * The active break maneuver: 0 = throttle chop (coast, keep pursuing),
+   * otherwise a signed heading offset (rad) veered off the pursuit heading.
+   */
+  private breakVeer = 0;
+  /** Per-pilot orbit tolerance (jittered so a locked pair breaks out of sync). */
+  private readonly stalemateTriggerSec: number;
+
   constructor(opts: AIControllerOptions = {}) {
     this.order = opts.order ?? "patrol";
     this.slot = opts.slot ?? { x: 0, z: 0 };
@@ -212,6 +229,8 @@ export class AIController implements ShipController {
     this.caution = simRandom();
     this.hpJumpFrac = d.hpFracMin + (d.hpFracMax - d.hpFracMin) * this.caution;
     this.ammoJumpFrac = d.ammoFrac;
+    this.stalemateTriggerSec =
+      GameConfig.ai.stalemateTriggerSec * (0.8 + simRandom() * 0.4);
   }
 
   /** The pilot's current standing order (FleetCommander reads before re-tasking). */
@@ -283,6 +302,12 @@ export class AIController implements ShipController {
     let reverse = false;
     let strafeDir = 0; // -1 = left, +1 = right
     let aim: AimTarget | null = null;
+    // True only when the plan is CHASING a fighter contact (steering straight
+    // at `aim`). The stalemate breaker keys off this: a carrier strafing run
+    // holds constant range by design, and a cover/formation pilot holding its
+    // slot with a shot-of-opportunity aim isn't pursuing anything — neither
+    // may count as a dogfight loop.
+    let pursuit = false;
     let fireRange = cfg.fireRange;
 
     switch (this.order) {
@@ -292,6 +317,7 @@ export class AIController implements ShipController {
           if (close) {
             steerHeading = this.headingTo(self, close.position.x, close.position.z);
             aim = close;
+            pursuit = true;
           } else if (world.opponentMothership) {
             // Press the NEAREST POINT on the carrier's hull boxes, not its
             // center — the hull is hundreds of units long, and center-seeking
@@ -333,6 +359,7 @@ export class AIController implements ShipController {
         if (prey) {
           steerHeading = this.headingTo(self, prey.position.x, prey.position.z);
           aim = prey;
+          pursuit = true;
         } else if (world.leader && world.leader.isAlive) {
           // No prey: loiter on the leader with the formation servo instead of
           // charging its position and looping back. Station-keep on the escort
@@ -359,6 +386,7 @@ export class AIController implements ShipController {
           // No one to form on — fall back to the patrol behavior.
           steerHeading = this.patrol(deltaSeconds, self, world);
           aim = this.nearestLiveOpponent(self, world, cfg.engagementRange);
+          pursuit = aim !== null;
           break;
         }
         // "cover" breaks formation to engage a threat near the LEADER.
@@ -369,6 +397,7 @@ export class AIController implements ShipController {
         if (threat) {
           steerHeading = this.headingTo(self, threat.position.x, threat.position.z);
           aim = threat;
+          pursuit = true;
           break;
         }
         // Hold the slot with the station-keeping servo, then take any shot of
@@ -392,6 +421,7 @@ export class AIController implements ShipController {
         if (intruder) {
           steerHeading = this.headingTo(self, intruder.position.x, intruder.position.z);
           aim = intruder;
+          pursuit = true;
         } else {
           const distFromHome = Math.hypot(
             self.position.x - homeX,
@@ -414,6 +444,7 @@ export class AIController implements ShipController {
           // No assignment (or the commander's target was cleared) — patrol.
           steerHeading = this.patrol(deltaSeconds, self, world);
           aim = this.nearestLiveOpponent(self, world, cfg.engagementRange);
+          pursuit = aim !== null;
           break;
         }
         const sx = station.position.x;
@@ -426,6 +457,7 @@ export class AIController implements ShipController {
         if (intruder) {
           steerHeading = this.headingTo(self, intruder.position.x, intruder.position.z);
           aim = intruder;
+          pursuit = true;
           break;
         }
         const dx = sx - self.position.x;
@@ -451,6 +483,7 @@ export class AIController implements ShipController {
         if (!useCachedPlan) {
           steerHeading = this.patrol(deltaSeconds, self, world);
           aim = this.nearestLiveOpponent(self, world, cfg.engagementRange);
+          pursuit = aim !== null;
         }
         break;
       }
@@ -461,12 +494,14 @@ export class AIController implements ShipController {
       if (!useCachedPlan) {
         this.planHeading = steerHeading;
         this.planHasAim = aim !== null;
+        this.planPursuit = pursuit;
         if (aim) { this.planAimX = aim.position.x; this.planAimZ = aim.position.z; }
         this.planFireRange = fireRange;
         this.reactionTimer = cfg.reactionSec * (0.85 + simRandom() * 0.3);
       } else {
         steerHeading = this.planHeading;
         aim = this.planHasAim ? { position: { x: this.planAimX, z: this.planAimZ } } : null;
+        pursuit = this.planPursuit;
         fireRange = this.planFireRange;
       }
     }
@@ -499,6 +534,7 @@ export class AIController implements ShipController {
       if (runner) {
         steerHeading = this.headingTo(self, runner.position.x, runner.position.z);
         aim = runner;
+        pursuit = true;
         thrust = true;
         reverse = false;
         strafeDir = 0;
@@ -515,7 +551,8 @@ export class AIController implements ShipController {
     // politely pointed away. Runs per-frame AFTER the plan cache, so even the
     // slow-thinking orders (patrol/strike) never coast into a rock between
     // reaction ticks.
-    if (this.avoidObstacles(self, world, steerHeading)) {
+    const avoiding = this.avoidObstacles(self, world, steerHeading);
+    if (avoiding) {
       steerHeading = this.avoidSteerHeading;
       thrust = true;
       reverse = false;
@@ -523,6 +560,26 @@ export class AIController implements ShipController {
       // Reset the servo's jet latches so it re-decides cleanly after the dodge.
       this.prevFwdCmd = 0;
       this.prevLatCmd = 0;
+    }
+
+    // --- Stalemate breaker (GameConfig.ai → "Stalemate breaker") ---
+    // Pure pursuit against a target flying pure pursuit back locks both ships
+    // into a stable orbit neither fire cone can resolve. Watch for it and
+    // break it with a randomized maneuver. Runs after avoidance (a rock dodge
+    // suspends it) and only overrides the plan while a break is held.
+    if (!avoiding) {
+      this.updateStalemate(deltaSeconds, self, pursuit ? aim : null);
+      if (this.breakSec > 0) {
+        if (this.breakVeer === 0) {
+          // Throttle CHOP: coast through the turn — the shrinking turn circle
+          // walks the nose onto the target while the guns stay hot.
+          thrust = false;
+          reverse = false;
+        } else {
+          // VEER: exit the circle at an angle, re-engage from new geometry.
+          steerHeading = wrapAngle(steerHeading + this.breakVeer);
+        }
+      }
     }
 
     // --- Shared tail: turn the plan into button presses. ---
@@ -788,6 +845,70 @@ export class AIController implements ShipController {
         this.threatLateral = lateral;
       }
     }
+  }
+
+  /**
+   * Stalemate detector. `prey` is the fighter contact the plan is CHASING
+   * this frame (null on every non-pursuit frame — slot-holding, carrier
+   * strafing, wandering). A frame counts toward "orbit time" only while
+   * pursuing inside stalemateRange with the nose still outside the fire cone
+   * and the range barely changing — the signature of the mutual pursuit
+   * circle. Any other frame bleeds the accumulator back down, so a turning
+   * fight that keeps making progress never trips it. Past the (per-pilot
+   * jittered) trigger, rolls a randomized break into breakSec/breakVeer.
+   */
+  private updateStalemate(
+    deltaSeconds: number,
+    self: Ship,
+    prey: AimTarget | null,
+  ): void {
+    if (this.breakSec > 0) {
+      // Maneuver in progress — just run its clock.
+      this.breakSec -= deltaSeconds;
+      return;
+    }
+    if (!prey || this.retreating) {
+      this.stalemateSec = 0;
+      this.lastAimDist = null;
+      return;
+    }
+    const cfg = GameConfig.ai;
+    const dx = prey.position.x - self.position.x;
+    const dz = prey.position.z - self.position.z;
+    const dist = Math.hypot(dx, dz);
+    const pursuitHeading = Math.atan2(dx, dz);
+    // Range rate vs last frame; the first frame on a (new) pursuit reads as
+    // Infinity, which safely fails the "not closing" gate below.
+    const closure =
+      this.lastAimDist === null || deltaSeconds <= 0
+        ? Infinity
+        : (this.lastAimDist - dist) / deltaSeconds;
+    this.lastAimDist = dist;
+
+    const orbiting =
+      dist < cfg.stalemateRange &&
+      Math.abs(wrapAngle(pursuitHeading - self.rotationY)) > cfg.fireConeAngle &&
+      Math.abs(closure) < cfg.stalemateClosureMax;
+    if (orbiting) {
+      this.stalemateSec += deltaSeconds;
+      if (this.stalemateSec >= this.stalemateTriggerSec) this.startBreak();
+    } else {
+      this.stalemateSec = Math.max(0, this.stalemateSec - deltaSeconds);
+    }
+  }
+
+  /** Roll a randomized break maneuver: 50% throttle chop, 50% signed veer. */
+  private startBreak(): void {
+    const cfg = GameConfig.ai;
+    this.breakSec =
+      cfg.stalemateBreakMinSec +
+      simRandom() * (cfg.stalemateBreakMaxSec - cfg.stalemateBreakMinSec);
+    this.breakVeer =
+      simRandom() < 0.5
+        ? 0
+        : (simRandom() < 0.5 ? -1 : 1) * cfg.stalemateVeerAngle;
+    this.stalemateSec = 0;
+    this.lastAimDist = null;
   }
 
   /**
