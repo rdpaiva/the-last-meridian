@@ -329,9 +329,9 @@ Auto-tracking flak the carriers shoot back with. Read before touching them.
   immune until 2026-07-18 (now 15; the bound is documented at the config).
   `mountY` is cosmetic only (collision is X/Z). Death latches on the
   per-turret `explosionFired` flag (re-armable): the T3 TURRET OVERDRIVE
-  unlock revives dead turrets, `TurretView` un-stumps them, and a dead
-  turret runs the continuous fire-palette spark burn (the
-  `impactSpark.hangar` profile — see "Hangar bays" below).
+  unlock revives dead turrets, `TurretView` un-stumps them (and puts out
+  the fire), and a dead turret wears the persistent `BurnFX` fire at
+  `burnFx.turretScale` (see "BurnFX" below).
 - **Fire point comes from the model's `muzzle` empty, derived not guessed.** The
   GLB (`turret_human.glb` / `turret_novari.glb`, per faction) carries a `muzzle`
   empty parented to the rotating `TurretBody`. On load `TurretView.applyModel`
@@ -400,11 +400,14 @@ state paragraphs of that date).
   overdrive). Toasts graduate: "HANGAR BAY DESTROYED" per bay, "HANGAR
   DESTROYED — LAUNCH CREWS CRIPPLED" on the last (`remaining` rides the
   NetEvent); HUD shows one pip per bay.
-- **Damage FX = carrier-scale fire sparks** (`impactSpark.hangar` profile:
-  ~1-unit slivers, 650ms, per-sliver white/yellow/orange/red `palette` —
-  the stock `impactSpark` is fighter-scale and invisible on a carrier).
-  Every hp DROP throws a burst; ONLY a fully destroyed bay burns
-  continuously (`emitIntervalMs`, jittered). `SubsystemView` holds no
+- **Damage FX = fire-palette hit bursts** (`impactSpark.hangar` profile:
+  ~0.5-unit streaks, 420ms, per-sliver white/yellow/orange/red `palette` —
+  sized between the fighter-scale stock `impactSpark`, which is invisible
+  on a carrier, and a full explosion, which stamped too heavy under
+  sustained fire).
+  Every hp DROP throws a burst; ONLY a fully destroyed bay burns, via the
+  persistent `BurnFX` particle fire (flame + spark streaks + smoke,
+  `GameConfig.burnFx` — see "BurnFX"). `SubsystemView` holds no
   gameplay truth — it diffs the replicated/sim hp fraction per frame, so
   online works unchanged. FX plumbing: `MothershipView.setExplosions`
   hands the `ExplosionSystem` to subsystem + turret views AFTER
@@ -566,11 +569,48 @@ state paragraphs of that date).
   `play()` no-ops).
 
 ## ExplosionSystem
-- Spawns short-lived explosions: 1 flash sphere + 8 debris cubes.
-- Shared materials (one flash mat, one debris mat) reused across every
-  active explosion. To fade per-explosion without per-material alpha,
-  we scale meshes toward 0 instead of fading alpha.
-- All meshes opt into GlowLayer on spawn for bloom.
+- Spawns short-lived explosions: 1 flash **flare** + N debris pieces.
+- **Every flash is a billboarded flare plane, not a sphere** (2026-07-18,
+  owner rejected the "expanding circles" read): a shared procedural soft
+  radial sprite (`FlareTexture.ts` — code-drawn `DynamicTexture`, not a
+  repo art asset) through the emissive+opacity channels with
+  `ALPHA_ADD` blending (`makeFlareMat`). The sprite's gradient IS the
+  glow falloff, so flare planes deliberately stay OUT of the GlowLayer
+  (the layer would re-bloom the quad's square silhouette). Plane size =
+  old sphere diameter × `explosion.flareSizeFactor` (the visible hot core
+  is ~half the quad).
+- **Burst slivers are velocity-aligned STREAKS**: thin boxes (0.35× thick,
+  2.6× long) oriented along their fling direction, no tumble — they trace
+  their trajectory like sparks. Kill-explosion debris stays tumbling cubes
+  (hull chunks, deliberate contrast).
+- Shared materials reused across every active explosion. To fade
+  per-explosion without per-material alpha, we scale meshes toward 0
+  instead of fading alpha.
+- Debris/streak meshes opt into GlowLayer on spawn for bloom.
+- `createBurnFX(scale)` hands out `BurnFX` instances sharing the flare
+  sprite (see below); callers own start/stop/dispose.
+
+## BurnFX (persistent burn-site fire)
+- One instance per destroyed hangar bay (`SubsystemView`) or dead turret
+  (`TurretView`, at `burnFx.turretScale`): three looping particle systems
+  sharing the flare sprite — additive **flame** licks (white-hot→yellow→
+  orange→deep-red color ramp over each particle's life, size swells then
+  gutters), fast **spark streaks** (`BILLBOARDMODE_STRETCHED` elongates
+  each particle along its velocity), and dark alpha-blended **smoke**.
+  All knobs in `GameConfig.burnFx`.
+- Needs the side-effect import
+  `@babylonjs/core/Particles/particleSystemComponent` — only the barrel
+  index pulls it in; without it particle systems construct but never draw.
+- Size gradients are ABSOLUTE particle sizes in Babylon (they override
+  `minSize`/`maxSize`); the `(factor, factor2)` pair keeps per-particle
+  variance at each stop.
+- `preWarmCycles` makes a burn that starts mid-match (join, replicated
+  state) appear established instead of fading in.
+- `stop()` cuts emission and lets live particles finish; `dispose(false)`
+  everywhere — the flare texture is SHARED (ExplosionSystem owns it) and
+  ParticleSystem.dispose defaults to destroying its texture.
+- Particles tick with `scene.render()`, so like camera shake they keep
+  animating through hitstop — consistent with the hitstop asymmetry.
 
 ## SoundSystem
 - 4 one-shot pools (player_laser × 4, enemy_laser × 4, hit × 4, explosion × 2).

@@ -2,7 +2,6 @@ import type { Scene } from "@babylonjs/core/scene";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
-import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
@@ -12,6 +11,7 @@ import "@babylonjs/core/Meshes/Builders/boxBuilder";
 
 import { GameConfig } from "@space-duel/shared";
 import type { Faction } from "@space-duel/shared";
+import type { BurnFX } from "../BurnFX";
 import type { ExplosionSystem } from "../ExplosionSystem";
 
 /**
@@ -47,12 +47,11 @@ export class TurretView {
   private yawOffset = 0;
   private deadShown = false;
 
-  /** Dead-turret burn FX (same continuous spark emission as a destroyed
-   *  hangar bay — SubsystemView). Handed in via setExplosions after
-   *  construction; null = no burn (defensive). */
+  /** Dead-turret burn FX (the same persistent BurnFX fire as a destroyed
+   *  hangar bay — SubsystemView), at burnFx.turretScale. Handed in via
+   *  setExplosions after construction; null = no burn (defensive). */
   private explosions: ExplosionSystem | null = null;
-  private nextEmitAtMs = 0;
-  private readonly fxScratch = new Vector3();
+  private burn: BurnFX | null = null;
 
   constructor(
     scene: Scene,
@@ -247,23 +246,13 @@ export class TurretView {
         this.deadShown = true;
         this.gun.setEnabled(false);
       }
-      // Dead-turret burn: the same continuous carrier-scale spark emission a
-      // destroyed hangar bay runs (impactSpark.hangar), jittered so guns and
-      // bays desync.
+      // Dead-turret burn: the same persistent fire a destroyed hangar bay
+      // wears (BurnFX), shrunk to gun scale.
       if (this.explosions) {
-        const now = performance.now();
-        if (now >= this.nextEmitAtMs) {
-          const cfg = GameConfig.impactSpark.hangar;
-          const p = this.mount.getAbsolutePosition();
-          this.fxScratch.set(
-            p.x + (Math.random() - 0.5) * 6,
-            p.y,
-            p.z + (Math.random() - 0.5) * 6,
-          );
-          this.explosions.spawnSpark(this.fxScratch, cfg);
-          this.nextEmitAtMs =
-            now + cfg.emitIntervalMs * (0.7 + Math.random() * 0.6);
+        if (!this.burn) {
+          this.burn = this.explosions.createBurnFX(GameConfig.burnFx.turretScale);
         }
+        this.burn.start(this.mount.getAbsolutePosition());
       }
       return;
     }
@@ -271,6 +260,8 @@ export class TurretView {
       this.deadShown = false;
       this.gun.setEnabled(true);
     }
+    // T3 overdrive revive: the gun is back — put the fire out.
+    if (this.burn?.isRunning) this.burn.stop();
     this.gun.rotation.y = aimAngle - this.carrierRotationY + this.yawOffset;
   }
 
@@ -280,6 +271,7 @@ export class TurretView {
   }
 
   dispose(): void {
+    this.burn?.dispose();
     this.mount.dispose(false, true);
   }
 }

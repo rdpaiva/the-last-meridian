@@ -2,12 +2,13 @@ import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Vector3 } from "@babylonjs/core/Maths/math.vector";
 
 /**
- * Single short-lived explosion: one bright "flash" sphere plus N debris
- * cubes that fly outward and shrink. ExplosionSystem owns the materials
- * and creates these in `spawn()`.
+ * Single short-lived explosion: one bright "flash" (a billboarded flare
+ * plane carrying the soft radial sprite — see ExplosionSystem.createFlare)
+ * plus N debris pieces that fly outward and shrink. ExplosionSystem owns
+ * the materials and creates these in `spawn()`/`spawnSpark()`.
  *
  * Visual evolution over `durationMs`:
- *   - Flash sphere: scales up rapidly to `flashPeakScale`, then collapses.
+ *   - Flash flare: scales up rapidly to `flashPeakScale`, then collapses.
  *   - Debris: each piece flies along its initial outward velocity while
  *     scaling linearly toward zero. No alpha fade — sharing one material
  *     across all explosions means per-explosion alpha is impossible without

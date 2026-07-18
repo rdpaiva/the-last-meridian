@@ -4,6 +4,7 @@ import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 
 import { GameConfig } from "@space-duel/shared";
 import type { SubsystemKind } from "@space-duel/shared";
+import type { BurnFX } from "../BurnFX";
 import type { ExplosionSystem } from "../ExplosionSystem";
 
 /**
@@ -12,13 +13,15 @@ import type { ExplosionSystem } from "../ExplosionSystem";
  * 2026-07-18): NO marker geometry ever — while healthy, the carrier GLB's
  * own modelled launch bay IS the hangar (the sim mount is anchored to the
  * bay footprint, see GameConfig.mothership.subsystems.hangar.mounts), and
- * damage feedback is pure spark FX (the owner rejected a first-pass ember
- * cluster, then a subtle boosted-glint pass): every HP drop throws an
- * immediate carrier-scale FIRE burst (the impactSpark.hangar profile —
- * white/yellow/orange/red palette slivers), and a fully DESTROYED bay
- * burns continuously (a burst every ~emitIntervalMs). A wounded-but-alive
- * bay stays quiet between hits (owner call — the constant burn is the
- * "it's dead" read, not a damage meter).
+ * damage feedback is pure fire FX (the owner rejected a first-pass ember
+ * cluster, then a subtle boosted-glint pass, then the interval-burst
+ * "expanding circles" read): every HP drop throws an immediate
+ * carrier-scale FIRE burst (the impactSpark.hangar profile —
+ * white/yellow/orange/red palette streaks), and a fully DESTROYED bay runs
+ * a persistent particle FIRE (BurnFX: flame licks + spark streaks + smoke,
+ * GameConfig.burnFx). A wounded-but-alive bay stays quiet between hits
+ * (owner call — the constant burn is the "it's dead" read, not a damage
+ * meter).
  *
  * Holds no gameplay truth; each frame it reads the sim subsystem's hp
  * fraction from MothershipView.syncSubsystems(). Works online unchanged:
@@ -32,7 +35,8 @@ export class SubsystemView {
   /** hp fraction last frame; null until the first read so a mid-match join
    *  (or a pre-wounded replicated state) doesn't fire a phantom burst. */
   private lastFrac: number | null = null;
-  private nextEmitAtMs = 0;
+  /** The destroyed-state fire, created lazily on first death. */
+  private burn: BurnFX | null = null;
   private readonly scratch = new Vector3();
 
   constructor(
@@ -65,32 +69,25 @@ export class SubsystemView {
 
   /**
    * Compare this bay's hp fraction against last frame: a drop throws an
-   * immediate burst (hit feedback); only a fully DESTROYED bay runs the
-   * continuous burn. View-only wall clock — never sim state. Called each
-   * view frame from MothershipView.syncSubsystems().
+   * immediate burst (hit feedback); only a fully DESTROYED bay wears the
+   * persistent BurnFX fire (ignited on death, cut if the bay ever reads
+   * alive again — replicated repair/reset replays here for free). Called
+   * each view frame from MothershipView.syncSubsystems().
    */
   update(hpFrac: number): void {
     const frac = Math.max(0, Math.min(1, hpFrac));
     const prev = this.lastFrac;
     this.lastFrac = frac;
     if (!this.explosions) return;
-    const now = performance.now();
     if (prev !== null && frac < prev - 1e-6) {
       this.burst();
-      this.nextEmitAtMs = now + this.emitDelay();
-      return;
     }
-    if (frac <= 0 && now >= this.nextEmitAtMs) {
-      this.burst();
-      this.nextEmitAtMs = now + this.emitDelay();
+    if (frac <= 0) {
+      if (!this.burn) this.burn = this.explosions.createBurnFX();
+      this.burn.start(this.mount.getAbsolutePosition());
+    } else if (this.burn?.isRunning) {
+      this.burn.stop();
     }
-  }
-
-  /** Jittered continuous-burn period so the bays (and dead turrets) desync. */
-  private emitDelay(): number {
-    return (
-      GameConfig.impactSpark.hangar.emitIntervalMs * (0.7 + Math.random() * 0.6)
-    );
   }
 
   /** Carrier-scale spark burst, scattered around the bay so it doesn't stamp. */
@@ -105,6 +102,7 @@ export class SubsystemView {
   }
 
   dispose(): void {
+    this.burn?.dispose();
     this.mount.dispose(false, true);
   }
 }

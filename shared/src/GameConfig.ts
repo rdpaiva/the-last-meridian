@@ -1386,19 +1386,26 @@ export const GameConfig = {
         // (Mothership.getLiveLaunchBayIndices). There is no placeholder mesh
         // anymore: the modelled bays ARE the hangar; only damage renders
         // (SubsystemView's smolder → burning breach).
-        // Humans mounts sit at the BAY-FLOOR center (the glowing deck runs
-        // z 84..126), biased toward the mouth so the hit circle reaches past
-        // the bow-taper hullRect (z≥120) — shots INTO the bay entrance land
-        // on the hangar instead of dying on the hull boundary. (The measured
-        // launch empties are at z 86.9, the bay BACK where ships spawn.)
+        // BOTH factions' mounts are biased toward the bay MOUTH (forward of
+        // the measured launch empties, where ships spawn at the bay BACK) so
+        // the hit circle reaches PAST the front hull collider — shots INTO
+        // the bay entrance land on the hangar instead of dying on the hull
+        // boundary (bolts die on the FIRST geometry along their path, so
+        // the circle must poke out of the entrance face).
+        // Humans: bay-floor center (glowing deck z 84..126), circle reach
+        // z 132 > pod front face 118.7 (launch empties at z 86.9).
+        // Machines: housing box front face is z 50.9 (cz 24.9 + hz 26);
+        // z 40 + r 22 = 62 pokes 11 units out of the mouth (launch empties
+        // at z 23.3, which left the circle ending at 45.3 — INSIDE the
+        // housing, so entrance shots never reached the bay).
         mounts: {
           humans: [
             { x: -38.2, y: 8, z: 110 }, // port catapult bay
             { x: 38.2, y: 8, z: 110 },  // starboard catapult bay
           ],
           machines: [
-            { x: -41.3, y: 8, z: 23.3 }, // port launch-bay housing
-            { x: 41.3, y: 8, z: 23.3 },  // starboard launch-bay housing
+            { x: -41.3, y: 8, z: 40 }, // port launch-bay housing
+            { x: 41.3, y: 8, z: 40 },  // starboard launch-bay housing
           ],
         } as Record<
           import("./Faction").Faction,
@@ -2727,6 +2734,14 @@ export const GameConfig = {
     flashRadius: 0.7,
     /** Peak scale multiplier of the flash. */
     flashPeakScale: 5.0,
+    /**
+     * Every flash (kill, impact spark, turret muzzle pop) renders as a soft
+     * radial-gradient flare billboard, not a solid sphere. The gradient's
+     * visible hot core is ~half the sprite, so the flare plane is oversized
+     * by this factor relative to the old sphere diameter to keep the same
+     * apparent punch.
+     */
+    flareSizeFactor: 2.2,
   },
 
   /**
@@ -2765,36 +2780,33 @@ export const GameConfig = {
     flashPeakMin: 1.7,
     flashPeakMax: 2.7,
 
-    // --- Hangar-bay damage FX (SubsystemView — the bays have no marker
-    // geometry, so these sparks are the whole damage read). A damaged bay
-    // EMITS CONTINUOUSLY (cadence speeds up with damage, fastest when
-    // destroyed) using the CARRIER-SCALE profile below — the stock profile
-    // above is fighter-scale (0.18-unit slivers) and reads as nothing
-    // against a 280-unit carrier. ---
+    // --- Hangar-bay HIT feedback (SubsystemView — the bays have no marker
+    // geometry, so FX are the whole damage read). Every HP drop throws one
+    // burst from the CARRIER-SCALE profile below — the stock profile above
+    // is fighter-scale (0.18-unit slivers) and reads as nothing against a
+    // 280-unit carrier. The DESTROYED state's continuous fire is separate:
+    // the persistent burnFx particle burn, not repeated bursts. ---
     hangar: {
       /** Slivers per burst (same roll rule as the stock profile). */
-      countMin: 10,
-      countMax: 18,
-      /** Burst lifetime (ms) ± jitter — long enough to read as a fountain. */
-      durationMs: 650,
+      countMin: 5,
+      countMax: 9,
+      /** Burst lifetime (ms) ± jitter. */
+      durationMs: 420,
       durationJitter: 0.35,
-      /** Outward sliver speed (units/sec) — sprays ~10-20 units at bay scale. */
-      speedMin: 14,
-      speedMax: 30,
-      /** Sliver edge length × [sizeVarMin, sizeVarMax] — carrier-scale chunks. */
-      size: 1.1,
+      /** Outward sliver speed (units/sec) — sprays ~6-12 units at bay scale. */
+      speedMin: 12,
+      speedMax: 24,
+      /** Sliver edge length × [sizeVarMin, sizeVarMax]. Sized between the
+       *  fighter glint (0.18) and the old carrier chunks (1.1) — visible on
+       *  a carrier without every hit reading as its own explosion (the
+       *  DESTROYED bay's persistent burnFx fire carries the drama now). */
+      size: 0.55,
       sizeVarMin: 0.5,
       sizeVarMax: 1.6,
       /** Central flash base radius + peak-scale roll. */
-      flashRadius: 2.2,
-      flashPeakMin: 1.6,
-      flashPeakMax: 2.4,
-      /**
-       * Continuous-burn emission period (ms) — runs ONLY while fully
-       * DESTROYED (a wounded bay just throws a burst per hit; owner call).
-       * Jittered per burst so the two bays (and dead turrets) desync.
-       */
-      emitIntervalMs: 260,
+      flashRadius: 1.0,
+      flashPeakMin: 1.3,
+      flashPeakMax: 1.8,
       /**
        * Sliver emissive palette, rolled PER SLIVER so the burn reads as
        * FIRE — white-hot core, yellow, orange, deep red — instead of the
@@ -2805,6 +2817,97 @@ export const GameConfig = {
         { r: 2.4, g: 1.9, b: 0.5 }, // yellow
         { r: 2.0, g: 0.85, b: 0.2 }, // orange
         { r: 1.7, g: 0.35, b: 0.12 }, // deep red
+      ],
+    },
+  },
+
+  /**
+   * Burn FX (view-only, client/src/game/BurnFX.ts): the persistent FIRE a
+   * destroyed hangar bay or dead carrier turret wears — three looping
+   * particle systems per burn site (additive flame core, fast stretched
+   * spark streaks, dark smoke) built on a procedural soft-flare sprite
+   * (FlareTexture.ts; no art asset). Replaces the old interval spark-burst
+   * read (overlapping flash circles). All sizes/speeds are CARRIER scale;
+   * smaller sites multiply everything spatial by a scale factor.
+   *
+   * Each `ramp` is the particle color over its lifetime `t` 0→1 (rolled per
+   * particle). Flame/sparks blend ADDITIVELY — components >1 read white-hot,
+   * alpha ramping 0→peak→0 fades each lick in and out. Smoke blends
+   * normally (alpha = coverage).
+   */
+  burnFx: {
+    /** Dead-turret burns reuse this whole profile at this spatial scale. */
+    turretScale: 0.55,
+    /** Radius (world units) of the deck patch the flames spawn across. */
+    emitRadius: 3.0,
+    /**
+     * Particle-sim steps pre-run when a burn starts, so a site that's
+     * already dead (mid-match join, respawn relaunch) shows an established
+     * fire instead of fading in from nothing.
+     */
+    preWarmCycles: 30,
+    /** Flame core: slow additive licks that grow, curl up, and gutter out. */
+    flame: {
+      capacity: 96,
+      emitRate: 26,
+      lifeSecMin: 0.35,
+      lifeSecMax: 0.85,
+      /** Particle diameter range (world units); grows ~in the first third. */
+      sizeMin: 2.4,
+      sizeMax: 5.2,
+      /** Upward drift speed range (units/sec). */
+      powerMin: 2.0,
+      powerMax: 5.0,
+      ramp: [
+        { t: 0.0, r: 1.8, g: 1.7, b: 1.4, a: 0.0 },
+        { t: 0.12, r: 1.9, g: 1.7, b: 1.1, a: 0.85 },
+        { t: 0.35, r: 1.7, g: 1.0, b: 0.25, a: 0.8 },
+        { t: 0.65, r: 1.1, g: 0.4, b: 0.08, a: 0.5 },
+        { t: 1.0, r: 0.5, g: 0.12, b: 0.03, a: 0.0 },
+      ],
+    },
+    /** Spark streaks: fast electrical-arc slivers flung out of the fire. */
+    sparks: {
+      capacity: 48,
+      emitRate: 22,
+      lifeSecMin: 0.18,
+      lifeSecMax: 0.55,
+      /** Base particle size (stretched along velocity into a streak). */
+      sizeMin: 0.35,
+      sizeMax: 0.7,
+      /**
+       * Streak proportions (multipliers on base size). Stretched billboards
+       * align to velocity but do NOT auto-elongate — a bare quad reads as a
+       * thick smeared line. widthScale thins it to a filament; lengthScale
+       * (±30% per particle) draws it out into an arc.
+       */
+      widthScale: 0.22,
+      lengthScale: 5.0,
+      /** Outward fling speed range (units/sec). */
+      powerMin: 9,
+      powerMax: 24,
+      ramp: [
+        { t: 0.0, r: 2.6, g: 2.5, b: 2.2, a: 1.0 },
+        { t: 0.5, r: 2.2, g: 1.6, b: 0.6, a: 0.9 },
+        { t: 1.0, r: 1.2, g: 0.4, b: 0.15, a: 0.0 },
+      ],
+    },
+    /** Smoke: slow dark puffs riding up over the flame (normal blend). */
+    smoke: {
+      capacity: 40,
+      emitRate: 8,
+      lifeSecMin: 1.1,
+      lifeSecMax: 2.2,
+      /** Diameter range; puffs keep growing across their whole life. */
+      sizeMin: 3.5,
+      sizeMax: 7.0,
+      /** Rise speed range (units/sec). */
+      powerMin: 1.2,
+      powerMax: 2.6,
+      ramp: [
+        { t: 0.0, r: 0.1, g: 0.1, b: 0.11, a: 0.0 },
+        { t: 0.25, r: 0.1, g: 0.1, b: 0.11, a: 0.3 },
+        { t: 1.0, r: 0.06, g: 0.06, b: 0.07, a: 0.0 },
       ],
     },
   },

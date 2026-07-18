@@ -1,14 +1,21 @@
 import type { Scene } from "@babylonjs/core/scene";
 import type { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
+import type { DynamicTexture } from "@babylonjs/core/Materials/Textures/dynamicTexture";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import { Constants } from "@babylonjs/core/Engines/constants";
 import "@babylonjs/core/Meshes/Builders/boxBuilder";
-import "@babylonjs/core/Meshes/Builders/sphereBuilder";
+// Plane builder registration — every flash renders as a billboarded flare
+// plane (soft radial sprite), not a sphere.
+import "@babylonjs/core/Meshes/Builders/planeBuilder";
 
 import { GameConfig } from "@space-duel/shared";
 import { Explosion, type Debris } from "./Explosion";
+import { BurnFX } from "./BurnFX";
+import { createFlareTexture } from "./FlareTexture";
 import { includeInGlow } from "./GlowInclude";
 
 /**
@@ -37,22 +44,30 @@ type SparkProfile = {
 };
 
 /**
- * Spawns and ticks short-lived explosion effects. Two shared emissive
- * materials (flash + debris) are reused across every explosion.
+ * Spawns and ticks short-lived explosion effects. Shared materials are
+ * reused across every explosion; every FLASH is a camera-facing plane
+ * carrying the shared procedural flare sprite (FlareTexture.ts), blended
+ * additively — a soft glow that pops and fades, not a hard expanding circle.
  *
- * GlowLayer is opt-in per mesh: each new flash and debris piece joins it on
- * spawn (via includeInGlow, which also removes the mesh from the include
- * list on dispose — Babylon does NOT prune disposed ids itself, and sparks
- * spawn on every laser hit, so direct adds leak the list unboundedly).
+ * GlowLayer is opt-in per mesh: each new debris piece joins it on spawn
+ * (via includeInGlow, which also removes the mesh from the include list on
+ * dispose — Babylon does NOT prune disposed ids itself, and sparks spawn on
+ * every laser hit, so direct adds leak the list unboundedly). Flare planes
+ * deliberately stay OUT of the glow layer: the sprite's gradient IS the
+ * glow falloff, and the layer would re-bloom the plane's square silhouette.
  */
 export class ExplosionSystem {
   private readonly active: Explosion[] = [];
+  /** Shared soft radial sprite behind every flare + the BurnFX particles. */
+  private readonly flareTexture: DynamicTexture;
   private readonly flashMat: StandardMaterial;
   private readonly debrisMat: StandardMaterial;
   /** Hot-orange flash for turret muzzle pops (spawnMuzzleFlash). */
   private readonly muzzleFlashMat: StandardMaterial;
-  /** Hot white-gold glint for impact sparks (spawnSpark). */
+  /** Hot white-gold glint for impact-spark flashes (spawnSpark). */
   private readonly sparkMat: StandardMaterial;
+  /** Opaque white-gold emissive for the burst's streak slivers. */
+  private readonly streakMat: StandardMaterial;
   /**
    * Materials for palette-bearing spark profiles (the hangar/turret fire
    * burn), one per palette color, built lazily and cached by palette
@@ -64,12 +79,10 @@ export class ExplosionSystem {
     private readonly scene: Scene,
     private readonly glowLayer: GlowLayer,
   ) {
-    // Flash: nearly white, > 1 emissive components so it punches through bloom.
-    this.flashMat = new StandardMaterial("explosion_flash_mat", scene);
-    this.flashMat.diffuseColor = new Color3(0, 0, 0);
-    this.flashMat.specularColor = new Color3(0, 0, 0);
-    this.flashMat.emissiveColor = new Color3(2.5, 2.0, 1.2);
-    this.flashMat.disableLighting = true;
+    this.flareTexture = createFlareTexture(scene);
+
+    // Flash: nearly white flare, > 1 emissive components so the core burns hot.
+    this.flashMat = this.makeFlareMat("explosion_flash_mat", 2.5, 2.0, 1.2);
 
     // Debris: warm orange.
     this.debrisMat = new StandardMaterial("explosion_debris_mat", scene);
@@ -80,19 +93,83 @@ export class ExplosionSystem {
 
     // Muzzle flash: hot orange, tinted to match the turret bolt (config-driven).
     const mf = GameConfig.mothership.turrets.muzzleFlash.color;
-    this.muzzleFlashMat = new StandardMaterial("turret_muzzle_flash_mat", scene);
-    this.muzzleFlashMat.diffuseColor = new Color3(0, 0, 0);
-    this.muzzleFlashMat.specularColor = new Color3(0, 0, 0);
-    this.muzzleFlashMat.emissiveColor = new Color3(mf.r, mf.g, mf.b);
-    this.muzzleFlashMat.disableLighting = true;
+    this.muzzleFlashMat = this.makeFlareMat(
+      "turret_muzzle_flash_mat",
+      mf.r,
+      mf.g,
+      mf.b,
+    );
 
-    // Spark: hot white-gold, brighter than debris so each sliver punches
-    // through bloom as a glint rather than reading as a tiny ember.
-    this.sparkMat = new StandardMaterial("impact_spark_mat", scene);
-    this.sparkMat.diffuseColor = new Color3(0, 0, 0);
-    this.sparkMat.specularColor = new Color3(0, 0, 0);
-    this.sparkMat.emissiveColor = new Color3(3.0, 2.6, 1.6);
-    this.sparkMat.disableLighting = true;
+    // Spark flash: hot white-gold, brighter than debris so each burst's
+    // flash punches as a glint rather than reading as a tiny ember.
+    this.sparkMat = this.makeFlareMat("impact_spark_mat", 3.0, 2.6, 1.6);
+
+    // Spark streaks: the same white-gold as an OPAQUE emissive — streak
+    // boxes can't wear the flare material (its sprite/alpha belong on a
+    // camera-facing plane, not a stretched box).
+    this.streakMat = new StandardMaterial("impact_streak_mat", scene);
+    this.streakMat.diffuseColor = new Color3(0, 0, 0);
+    this.streakMat.specularColor = new Color3(0, 0, 0);
+    this.streakMat.emissiveColor = new Color3(3.0, 2.6, 1.6);
+    this.streakMat.disableLighting = true;
+  }
+
+  /**
+   * An unlit ADDITIVE flare material: the shared radial sprite through the
+   * emissive channel, tinted by the emissive color (sprite is white-core so
+   * the tint owns the hue), its alpha gradient fading the added light to
+   * nothing at the rim.
+   */
+  private makeFlareMat(
+    name: string,
+    r: number,
+    g: number,
+    b: number,
+  ): StandardMaterial {
+    const mat = new StandardMaterial(name, this.scene);
+    mat.diffuseColor = new Color3(0, 0, 0);
+    mat.specularColor = new Color3(0, 0, 0);
+    mat.emissiveColor = new Color3(r, g, b);
+    mat.emissiveTexture = this.flareTexture;
+    mat.opacityTexture = this.flareTexture;
+    mat.alphaMode = Constants.ALPHA_ADD;
+    mat.disableLighting = true;
+    mat.backFaceCulling = false;
+    return mat;
+  }
+
+  /**
+   * A persistent burn-site fire (destroyed hangar bay, dead turret) sharing
+   * this system's flare sprite. Caller owns the lifecycle (start/stop/
+   * dispose); `scale` shrinks the carrier-scale GameConfig.burnFx profile
+   * for smaller sites.
+   */
+  createBurnFX(scale = 1): BurnFX {
+    return new BurnFX(this.scene, this.flareTexture, scale);
+  }
+
+  /**
+   * A camera-facing flare plane — the flash of every explosion/spark/muzzle
+   * pop. `radius` matches the old flash-sphere radius; the plane is oversized
+   * by explosion.flareSizeFactor because the sprite's visible hot core is
+   * only ~half the quad. NOT added to the glow layer (see class doc).
+   */
+  private createFlare(
+    name: string,
+    radius: number,
+    material: StandardMaterial,
+    position: Vector3,
+  ): Mesh {
+    const flare = MeshBuilder.CreatePlane(
+      name,
+      { size: radius * 2 * GameConfig.explosion.flareSizeFactor },
+      this.scene,
+    );
+    flare.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    flare.position.copyFrom(position);
+    flare.material = material;
+    flare.isPickable = false;
+    return flare;
   }
 
   /**
@@ -117,15 +194,12 @@ export class ExplosionSystem {
     const duration =
       cfg.durationMs * (1 + (Math.random() * 2 - 1) * cfg.durationJitter);
 
-    const flash = MeshBuilder.CreateSphere(
+    const flash = this.createFlare(
       "impact_spark_flash",
-      { diameter: cfg.flashRadius * 2, segments: 6 },
-      this.scene,
+      cfg.flashRadius,
+      this.sparkMat,
+      position,
     );
-    flash.position.copyFrom(position);
-    flash.material = this.sparkMat;
-    flash.isPickable = false;
-    includeInGlow(this.glowLayer, flash);
 
     // Give the slivers a random base bearing so the spray isn't anchored to a
     // fixed axis, then scatter each one freely around the disc from there.
@@ -137,17 +211,24 @@ export class ExplosionSystem {
       const sliverSize =
         cfg.size *
         (cfg.sizeVarMin + Math.random() * (cfg.sizeVarMax - cfg.sizeVarMin));
+      // Streak geometry: a filament along +Z, oriented to the fling
+      // direction below — reads as a spark ARC, not a tumbling square.
       const mesh = MeshBuilder.CreateBox(
         `impact_spark_${i}`,
-        { size: sliverSize },
+        {
+          width: sliverSize * 0.16,
+          height: sliverSize * 0.16,
+          depth: sliverSize * 3.2,
+        },
         this.scene,
       );
       mesh.position.copyFrom(position);
       // Fire profiles roll each sliver's color from the palette; the stock
-      // profile keeps the single white-gold glint.
+      // profile keeps the single white-gold glint. The palette materials are
+      // opaque emissives — only these debris meshes join the glow layer.
       mesh.material = fireMats
         ? fireMats[Math.floor(Math.random() * fireMats.length)]
-        : this.sparkMat;
+        : this.streakMat;
       mesh.isPickable = false;
       includeInGlow(this.glowLayer, mesh);
 
@@ -160,12 +241,14 @@ export class ExplosionSystem {
         (Math.random() - 0.3) * 6,
         Math.sin(angle) * speed,
       );
-      const rotationVel = new Vector3(
-        (Math.random() - 0.5) * 12,
-        (Math.random() - 0.5) * 12,
-        (Math.random() - 0.5) * 12,
+      // Align the streak's long axis with its velocity and hold that line
+      // (no tumble) — a spark traces its own trajectory.
+      mesh.rotation.y = Math.atan2(velocity.x, velocity.z);
+      mesh.rotation.x = -Math.atan2(
+        velocity.y,
+        Math.hypot(velocity.x, velocity.z),
       );
-      debris.push({ mesh, velocity, rotationVel });
+      debris.push({ mesh, velocity, rotationVel: Vector3.Zero() });
     }
 
     this.active.push(new Explosion(flash, debris, duration, flashPeak));
@@ -197,30 +280,24 @@ export class ExplosionSystem {
    */
   spawnMuzzleFlash(position: Vector3): void {
     const cfg = GameConfig.mothership.turrets.muzzleFlash;
-    const flash = MeshBuilder.CreateSphere(
+    const flash = this.createFlare(
       "turret_muzzle_flash",
-      { diameter: cfg.radius * 2, segments: 6 },
-      this.scene,
+      cfg.radius,
+      this.muzzleFlashMat,
+      position,
     );
-    flash.position.copyFrom(position);
-    flash.material = this.muzzleFlashMat;
-    flash.isPickable = false;
-    includeInGlow(this.glowLayer, flash);
     this.active.push(new Explosion(flash, [], cfg.durationMs, cfg.peakScale));
   }
 
   spawn(position: Vector3): void {
     const cfg = GameConfig.explosion;
 
-    const flash = MeshBuilder.CreateSphere(
+    const flash = this.createFlare(
       "explosion_flash",
-      { diameter: cfg.flashRadius * 2, segments: 8 },
-      this.scene,
+      cfg.flashRadius,
+      this.flashMat,
+      position,
     );
-    flash.position.copyFrom(position);
-    flash.material = this.flashMat;
-    flash.isPickable = false;
-    includeInGlow(this.glowLayer, flash);
 
     const debris: Debris[] = [];
     for (let i = 0; i < cfg.debrisCount; i++) {
