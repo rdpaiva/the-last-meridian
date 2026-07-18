@@ -489,9 +489,14 @@ and explicitly skipped. Update this when you finish or start work.
 - **Individually destructible** — each turret is a `DamageTarget` with its OWN
   hp pool, registered on the opposing faction's laser + missile systems BEFORE
   the hull sections so a bolt grazing one shoots it off rather than passing to
-  the carrier. Mounts sit on the OUTER pod/sponson edges so the hit circle pokes
-  past the hull silhouette (inboard mounts can't be hit — they hide behind the
-  hull). Destruction pops an explosion; no respawn.
+  the carrier. The mount + `hitRadius` must COMBINE to poke the hit circle
+  past the hull-collider silhouette (a circle fully inside the footprint is
+  unreachable — bolts die on the hull boundary first; this silently broke
+  when the mounts moved inboard to the GLB pod-ridge positions, fixed
+  2026-07-18 by hitRadius 8→15, bound documented in the config comment).
+  Destruction pops an explosion + a continuous fire-palette spark burn; the
+  T3 TURRET OVERDRIVE unlock revives dead turrets (2026-07-18 — see the
+  strategic-layer entry below).
 - **Per-faction skinned GLB** (`public/models/turret_human.glb` /
   `turret_novari.glb`, source `art/turret.blend` + `art/textures/turret_*.png`):
   a tiered STATIC base + a rotating upper gun. `TurretView` loads it once per
@@ -504,6 +509,30 @@ and explicitly skipped. Update this when you finish or start work.
   fireCooldown, damage, hitRadius, mounts, model scale); the combat ones are
   also exposed in the match-settings GUI (`TuningSchema`).
 - _Still on the table:_ missile-launcher turrets (same seam, MissileSystem).
+
+### Strategic layer: stations, shields, upgrades & hangar bays (2026-07-17/18)
+- **Capture stations + Energy + auto upgrade tiers** (M2): dock slow inside a
+  station's ring to flip it (contested = frozen; enemy flips two-stage
+  drain→capture); owned stations trickle per-faction Energy across
+  thresholds 100/250/500 → RAPID REDEPLOY (respawn ×0.6) / SENSOR UPLINK
+  (radar ×1.35) / TURRET OVERDRIVE (one-shot turret revive + a persistent
+  full-hp-only fire-rate/damage buff). Station maps: The Void / The Belt /
+  The Tempest; station-free maps play exactly as before.
+- **Station-powered carrier shields**: hull damage × a factor graduated by
+  owned/total stations, floor 0.2 with all held (never 0 — the anti-stall
+  guarantee); faction-tinted shield hit-splash FX + HUD power segments.
+  (Superseded M1's destructible shield-generator subsystems.)
+- **Hangar bays (diegetic)**: each carrier's two REAL launch bays (the GLB
+  bay footprints — no placeholder geometry) are INDEPENDENT destructibles
+  (350hp each); the faction's respawn delay graduates ×1→×2.5 with
+  destroyed bays, relaunches re-route to surviving bays, and a fire-palette
+  spark burn (hit bursts + continuous burn when dead) is the damage read.
+- **20-second respawn bench** (both sides, was 1.5s/3s) + a HUD redeploy
+  countdown ring — deaths cost real board time, making all of the above
+  worth fighting over.
+- Detail/anchors: `docs/strategic-layer-plan.md` + the dated AGENT_KICKOFF
+  state paragraphs (2026-07-17/18). Protocol 24→27 across the arc; M3 (the
+  Loom event) still queued.
 
 ### Dev/test tooling
 - **Map editor** (2026-07-08, admin authoring tool): splash screen

@@ -320,9 +320,18 @@ Auto-tracking flak the carriers shoot back with. Read before touching them.
   turret is a `DamageTarget` with its own hp, registered on the OPPOSING
   faction's laser + missile systems **before** the hull sections (first-overlap-
   consumes ordering) so a bolt grazing a turret kills it instead of passing to
-  the carrier. Mounts MUST sit on the OUTER pod/sponson edges so the hit circle
-  (`hitRadius`) pokes past the hull silhouette — an inboard mount hides behind
-  the hull and can't be hit. `mountY` is cosmetic only (collision is X/Z).
+  the carrier. **INVARIANT: mount |x| + `hitRadius` must exceed the
+  hull-collider silhouette's half-width at the mount** — a hit circle fully
+  inside the footprint is UNREACHABLE (bolts die on the hull boundary in an
+  earlier tick; registration order only wins when one tick-segment crosses
+  both). This silently broke when the mounts moved inboard to the GLB
+  pod-ridge/sponson positions with `hitRadius` still 8 — every turret was
+  immune until 2026-07-18 (now 15; the bound is documented at the config).
+  `mountY` is cosmetic only (collision is X/Z). Death latches on the
+  per-turret `explosionFired` flag (re-armable): the T3 TURRET OVERDRIVE
+  unlock revives dead turrets, `TurretView` un-stumps them, and a dead
+  turret runs the continuous fire-palette spark burn (the
+  `impactSpark.hangar` profile — see "Hangar bays" below).
 - **Fire point comes from the model's `muzzle` empty, derived not guessed.** The
   GLB (`turret_human.glb` / `turret_novari.glb`, per faction) carries a `muzzle`
   empty parented to the rotating `TurretBody`. On load `TurretView.applyModel`
@@ -363,6 +372,48 @@ Auto-tracking flak the carriers shoot back with. Read before touching them.
   (`art/textures/turret_{human,novari}.png`). Re-export both after editing the
   model; the fire point re-derives itself from the `muzzle` empty, no code
   change. A procedural box turret is the fallback if a GLB is missing.
+
+## Hangar bays (MothershipSubsystem / SubsystemView)
+
+Each carrier's two launch bays as destructible strategic targets
+(2026-07-18 owner-driven design; the record lives in the AGENT_KICKOFF
+state paragraphs of that date).
+
+- **DIEGETIC — no marker geometry, ever.** While healthy, the carrier GLB's
+  own modelled bay IS the hangar; the sim mounts
+  (`GameConfig.mothership.subsystems.hangar.mounts`, carrier-local) are
+  anchored to the real bay footprints (Bastion: bay-floor center biased
+  toward the mouth so frontal shots INTO the bay clear the bow-taper hull
+  rect; Choirship: the side bay housings). The owner rejected placeholder
+  boxes AND ember-blob damage states — feedback is spark FX only.
+- **Two INDEPENDENT bays per carrier**, each its own `MothershipSubsystem`
+  (own 350-hp pool, `DamageTarget`, the Turret-minus-the-gun pattern).
+  Registered on opposing weapons AFTER turrets, BEFORE hull sections. The
+  same reachability INVARIANT as turrets applies: bay |x| + `hitRadius`
+  (22) must clear the hull silhouette.
+- **Effects graduate per destroyed bay** (`StrategicSystem.respawnScale`,
+  declarative each tick): respawn delay × 1 → `destroyedRespawnDelayScale`
+  (2.5) as dead/total climbs — one of two down = ×1.75. Respawn relaunches
+  RE-ROUTE around dead bays (`Mothership.getLiveLaunchBayIndices`,
+  nearest-mount bay pairing; ALL bays when the whole complex is down —
+  launches never stop, anti-stall). Nothing repairs a bay (T3 is turret
+  overdrive). Toasts graduate: "HANGAR BAY DESTROYED" per bay, "HANGAR
+  DESTROYED — LAUNCH CREWS CRIPPLED" on the last (`remaining` rides the
+  NetEvent); HUD shows one pip per bay.
+- **Damage FX = carrier-scale fire sparks** (`impactSpark.hangar` profile:
+  ~1-unit slivers, 650ms, per-sliver white/yellow/orange/red `palette` —
+  the stock `impactSpark` is fighter-scale and invisible on a carrier).
+  Every hp DROP throws a burst; ONLY a fully destroyed bay burns
+  continuously (`emitIntervalMs`, jittered). `SubsystemView` holds no
+  gameplay truth — it diffs the replicated/sim hp fraction per frame, so
+  online works unchanged. FX plumbing: `MothershipView.setExplosions`
+  hands the `ExplosionSystem` to subsystem + turret views AFTER
+  construction (carrier views build before the FX block in both loops).
+- **Wire:** per-bay `hangar0Hp`/`hangar1Hp` schema slots (index-aligned
+  with the config mounts; `BattleRoom.syncSubsystems` ↔
+  `NetworkGame.applySubsystemHp`). Turret HP is NOT replicated — the
+  mirror turrets die via the `turretDestroyed` NetEvent (nearest-match)
+  and revive on `upgradeUnlocked(turretOverdrive)`.
 
 ## Radar
 - Player-centered, **north-up** circular minimap on its own canvas

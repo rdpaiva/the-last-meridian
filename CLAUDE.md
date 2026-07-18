@@ -99,12 +99,14 @@ Game (top-level coordinator)
 ├── Lights (HemisphericLight + DirectionalLight)
 ├── Scenery (Backdrop, Nebulas, Starfield, CapitalShips — fire-and-forget)
 ├── CombatNebulas (gameplay stealth clouds; exports ConcealmentZone footprints)
+├── StrategicSystem (station maps: capture stations → per-faction Energy → auto upgrades; powers carrier shields; applies respawn/sensor/turret effects declaratively each tick)
 ├── StormClouds + LightningSystem (view) / StormSystem (sim) — ion storms: zap ships inside, conceal like nebulas, AI keep-out
 ├── SensorSystem (per-faction contact pictures — AI + radar read THESE, not ground truth)
 ├── FleetCommander (enemy-side doctrine: re-tasks the fleet on its own sensor picture)
 ├── Arena (wireframe grid + arena bounds)
 ├── Motherships × 2 (humans + machines; DamageTarget = the win/lose objective)
-│     └── Turrets (auto-tracking carrier flak; sub-emitters into the faction LaserSystem; own HP = shootable off)
+│     ├── Turrets (auto-tracking carrier flak; sub-emitters into the faction LaserSystem; own HP = shootable off; T3 upgrade revives + overdrives)
+│     └── Hangar bays × 2 (MothershipSubsystem; independent HP; destroyed bays slow that faction's respawns, graduated)
 ├── Combatants: Ship × N, each driven by a ShipController
 │     ├── player Ship    = LocalInputController (+ EngineGlow + DamageFlash)
 │     ├── wingman Ships  = AIController (player faction, standing orders) [Phase 5]
@@ -195,7 +197,10 @@ shared/src/                @space-duel/shared — the SIM + config + AI: everyth
     MissileSystem.ts       per-faction missile pool: lock-fed homing, shooter attribution, collision, onHit
     Mothership.ts          carrier sim; DamageTarget objective (HP) + multi-bay launch helpers; hullSections = solid hull footprint, avoidanceCircles = AI steering shapes
     MothershipSection.ts   one world-space rectangle of a carrier's hull footprint: weapons-collision proxy via intersectsSegmentXZ + ship keep-out box
-    Turret.ts              carrier defense gun SIM: auto-tracks a fresh SensorContact, slews, returns fire commands; own HP = individually destructible; setMuzzleData = GLB fire-point seam
+    Turret.ts              carrier defense gun SIM: auto-tracks a fresh SensorContact, slews, returns fire commands; own HP = individually destructible (hitRadius must clear the hull silhouette!); T3 "turretOverdrive" revives + buffs full-hp guns; setMuzzleData = GLB fire-point seam
+    MothershipSubsystem.ts one carrier HANGAR BAY (Turret-minus-gun pattern): own HP DamageTarget at the real bay footprint; destroyed bays slow that faction's respawns (graduated) + relaunches re-route to live bays
+    CaptureStation.ts      one neutral capture station: dock-presence meter, contested freeze, two-stage enemy flip
+    StrategicSystem.ts     the strategic tick (both loops): station capture, per-faction Energy + auto upgrade tiers (fasterRespawn/sensorBoost/turretOverdrive), DECLARATIVE effect application (respawn scale, sensor rangeScale, stationShieldFactor, turret overdrive flag)
     AsteroidSim.ts         single destructible drifting rock (DamageTarget + line-of-sight cover obstacle)
     AsteroidFieldSim.ts    rock collection: spawn/drift/wrap + shatter-into-chunks; exposes obstacles[] (held by reference by the weapon systems for cover)
     Hulk.ts                wreck hazard: a dead carrier's hull as terrain (map "hulk" hazards)
@@ -259,9 +264,12 @@ client/src/                @space-duel/client — the Babylon view, menus, and e
     Nameplates.ts          callsign labels projected under ships (fixed full-viewport DOM layer)
     ScoreBoard.ts          per-pilot kill/death/score ledger for the OFFLINE match (mirrors the server's lastHitBy attribution)
     NetDebugOverlay.ts     dev overlay: netcode internals gathered by NetworkGame.tick
+    ShieldHitFlash.ts      one faction-tinted splash where a shot lands on a station-shielded carrier hull (+ ShieldHitFlashSystem.ts, its pool)
     view/                  per-entity VIEWS: read sim state each frame, own all meshes/FX
       ShipView / LaserSystemView / MissileSystemView / MothershipView /
-      TurretView / AsteroidView / AsteroidFieldView / HulkView
+      TurretView (dead guns burn + un-stump on T3 revive) /
+      SubsystemView (hangar-bay damage FX: fire-palette spark bursts, NO marker geometry) /
+      StationView / AsteroidView / AsteroidFieldView / HulkView
 
 server/src/                @space-duel/server — Colyseus authoritative server (docs/MULTIPLAYER.md)
   index.ts                 server entry: registers BattleRoom, listens (dev: npm run server)
@@ -293,7 +301,9 @@ The whole game's tuning lives in `shared/src/GameConfig.ts`. Major sections:
 | `sensors` | Per-faction awareness: ship/carrier radar ranges, eyeball `visualRange`, ghost `memorySec`, sweep cadence, nebula penalty |
 | `commander` | Enemy fleet doctrine: think cadence, escort/defend/hunt counts, carrier-alert radius |
 | `ai` | Shared AI decision knobs: engage/fire ranges, fire cone, carrier-strike standoff, missile launch doctrine (envelope/pacing), wander, leash, formation gains |
-| `mothership` | Carrier objective: HP, GLB models + correction, launch bays, death FX — and `hullRects`, the PER-FACTION solid hull footprint (fitted to the GLBs via `scripts/measure-carrier-footprint.mjs`; re-fit after re-exporting a carrier model). `mothership.turrets` = defense-gun knobs + per-faction edge mounts + per-faction skinned GLB |
+| `mothership` | Carrier objective: HP, GLB models + correction, launch bays, death FX — and `hullRects`, the PER-FACTION solid hull footprint (fitted to the GLBs via `scripts/measure-carrier-footprint.mjs`; re-fit after re-exporting a carrier model). `mothership.turrets` = defense-gun knobs + per-faction mounts + per-faction skinned GLB. `mothership.subsystems` = the HANGAR BAYS (two independent destructibles per carrier at the real bay footprints; destroyed bays slow that faction's respawns, graduated). GOTCHA both share: mount + hitRadius must poke the hit circle past the hull-collider silhouette or the target is unreachable (docs/SUBSYSTEMS.md → "Carrier defense turrets") |
+| `stations` | Capture stations (map opt-in via `placements`, empty on stock config): capture ring/time, dock speed gate, Energy trickle, `stations.shield` = the STATION-POWERED carrier shield (hull-damage factor graduated by owned/total, floor `minFactor`) |
+| `energy` | The auto upgrade ladder: thresholds 100/250/500 → `fasterRespawn` / `sensorBoost` / `turretOverdrive` (one-shot turret revive + persistent full-hp fire buff — `overdriveCooldownScale`/`overdriveDamageScale`) |
 | `debug` | Dev/test only: `godSpeedMultiplier` for the Backquote god-mode toggle (player invuln + boost) |
 | `storms` | Ion storms (sim): map-placed `zones` (empty by default), `zapDamage`/`zapIntervalSec` cadence, AI `avoidanceMargin`. Storms also conceal like nebulas |
 | `stormFx` | Ion storm VIEW: cloud tint/flicker (`shimmerAmplitude`, `popBoost`) + procedural `bolt` knobs (cadence, width, jaggedness, color) |
@@ -409,7 +419,8 @@ Player presses Space
        └ cameraRig.addTrauma(0.55)
        └ applyHitstop(70ms)
        └ enemyExplosionFired = true (so it doesn't re-fire next frame)
-  └ After 3 sec, enemy.shouldRespawn(nowMs) → enemy.respawn(x, z)
+  └ After 20 sec (combat.enemyRespawnDelayMs × strategic scaling),
+    enemy.shouldRespawn(nowMs) → enemy.respawn(x, z)
        └ enemyExplosionFired reset to false
 ```
 
