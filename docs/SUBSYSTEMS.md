@@ -920,10 +920,19 @@ tradeoff). Zones default empty; maps place them via `MapConfig.stormZones`
   alongside match settings: splash state `mapEditor` ("Map Editor" in the
   loadout footer rail; Esc/BACK returns). A top-down 2D canvas of the board
   (+X right, +Z up — enemy carrier at the top) plus a side panel. Brushes:
-  nebula / storm / rock field / wreck — click stamps (hold to drag into
-  place), drag moves, scroll over a shape resizes (zone radius / wreck
+  nebula / storm / rock field / wreck / station — click stamps (hold to drag
+  into place), drag moves, scroll over a shape resizes (zone radius / wreck
   scale), right-click or Delete erases. The two carriers are permanent
   singletons dragged along the lane (x = 0; `carrierZ` is Z-only by design).
+  Stations are position-only markers (their dashed ring is drawn at the real
+  `GameConfig.stations.captureRadius` — a global knob, so no per-station
+  resize) exporting to `MapConfig.stations` fractions.
+- BRUSHES ARE STICKY: editing a placed shape's attributes — zone radius
+  (panel field or scroll), or any wreck field (heading/scale/spin
+  rates/source) — re-seeds that kind's brush, so the next stamp repeats the
+  last-tuned values and the ghost preview shows exactly what will land.
+  Per-kind and session-only (reload restores the stock defaults; the sticky
+  values are NOT part of the persisted draft).
 - OUTPUT IS CODE, not runtime content: COPY MAP emits a paste-ready MAPS
   entry for `shared/src/Maps.ts` as TS SOURCE in the catalog's hand-written
   style (bare keys, zones inline one per line — `tsSource`), plus a comment

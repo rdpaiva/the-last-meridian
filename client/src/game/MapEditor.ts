@@ -49,10 +49,11 @@ interface EditorHulk {
   scale: number;
 }
 
-type Tool = "select" | "nebula" | "storm" | "region" | "hulk";
+type Tool = "select" | "nebula" | "storm" | "region" | "hulk" | "station";
 type Selection =
   | { kind: "zone"; i: number }
   | { kind: "hulk"; i: number }
+  | { kind: "station"; i: number }
   | { kind: "carrier"; side: "player" | "enemy" }
   | null;
 
@@ -65,7 +66,9 @@ const DRAFT_KEY = "lastMeridian_mapDraft";
 const VIEW_HX = 650;
 const VIEW_HZ = 1000;
 
-/** Default brush radii (world units) per placeable kind. */
+/** Initial brush radii (world units) per placeable kind — the brushes are
+ *  STICKY: editing a placed shape's attributes re-seeds its brush, so the
+ *  next stamp of that kind repeats the last-tuned values. */
 const BRUSH_RADIUS: Record<EditorZone["kind"], number> = {
   nebula: 60,
   storm: 80,
@@ -75,11 +78,12 @@ const ZONE_RADIUS_MIN = 15;
 const ZONE_RADIUS_MAX = 400;
 
 /** Palette per paintable kind (stroke; fills derive with low alpha). */
-const KIND_COLOR: Record<EditorZone["kind"] | "hulk", string> = {
+const KIND_COLOR: Record<EditorZone["kind"] | "hulk" | "station", string> = {
   nebula: "#cba6f7",
   storm: "#74c7ec",
   region: "#9399b2",
   hulk: "#fab387",
+  station: "#a6e3a1",
 };
 
 /** Approximate carrier hull footprint (world units) for markers — close to
@@ -117,6 +121,21 @@ export class MapEditor {
   };
   private zones: EditorZone[] = [];
   private hulks: EditorHulk[] = [];
+  /** Capture stations — position-only (the capture ring radius is a global
+   *  GameConfig.stations knob, not per-station, so nothing to resize). */
+  private stations: { x: number; z: number }[] = [];
+
+  // ── Sticky brushes: the last-edited attributes per kind, stamped onto the
+  // next placement so a run of same-sized shapes doesn't need re-tuning. ──
+  private readonly brushRadius: Record<EditorZone["kind"], number> = { ...BRUSH_RADIUS };
+  private brushHulk: Omit<EditorHulk, "x" | "z"> = {
+    source: "humans",
+    rotationY: Math.PI / 2,
+    rotationRate: 0,
+    pitchRate: 0,
+    rollRate: 0.06,
+    scale: 0.5,
+  };
 
   // ── UI state ──
   private tool: Tool = "select";
@@ -215,8 +234,9 @@ export class MapEditor {
               <button class="med-tool" data-tool="storm"><span class="med-swatch" style="background:${KIND_COLOR.storm}"></span>STORM</button>
               <button class="med-tool" data-tool="region"><span class="med-swatch" style="background:${KIND_COLOR.region}"></span>ROCK FIELD</button>
               <button class="med-tool" data-tool="hulk"><span class="med-swatch" style="background:${KIND_COLOR.hulk}"></span>WRECK</button>
+              <button class="med-tool" data-tool="station"><span class="med-swatch" style="background:${KIND_COLOR.station}"></span>STATION</button>
             </div>
-            <div class="med-hint">Nebulas hide ships · storms zap and wall the AI out · rock fields seed the asteroid count into circles (none painted = full-arena scatter) · wrecks are indestructible cover</div>
+            <div class="med-hint">Nebulas hide ships · storms zap and wall the AI out · rock fields seed the asteroid count into circles (none painted = full-arena scatter) · wrecks are indestructible cover · stations are capture points that feed faction Energy + carrier shields (none = the strategic layer stays off)</div>
           </div>
           <div class="med-section">
             <div class="med-sec-title">CARRIERS</div>
@@ -325,10 +345,25 @@ export class MapEditor {
         <button id="med-s-del" class="set-btn med-del">DELETE</button>`;
       this.bindNum("med-s-x", -VIEW_HX, VIEW_HX, (v) => (z.x = v));
       this.bindNum("med-s-z", -VIEW_HZ, VIEW_HZ, (v) => (z.z = v));
-      this.bindNum("med-s-r", ZONE_RADIUS_MIN, ZONE_RADIUS_MAX, (v) => (z.radius = v));
+      this.bindNum("med-s-r", ZONE_RADIUS_MIN, ZONE_RADIUS_MAX, (v) => {
+        z.radius = v;
+        this.brushRadius[z.kind] = v;
+      });
       this.byId<HTMLInputElement>("med-s-x").value = String(z.x);
       this.byId<HTMLInputElement>("med-s-z").value = String(z.z);
       this.byId<HTMLInputElement>("med-s-r").value = String(z.radius);
+    } else if (sel.kind === "station") {
+      const st = this.stations[sel.i];
+      box.innerHTML = `
+        <div class="med-sec-title">SELECTED · STATION</div>
+        <div class="med-row"><span>X</span><input id="med-s-x" type="number" step="10"></div>
+        <div class="med-row"><span>Z</span><input id="med-s-z" type="number" step="10"></div>
+        <div class="med-hint">Neutral capture point. The dashed ring is the dock/capture radius — a global GameConfig.stations knob, same for every station.</div>
+        <button id="med-s-del" class="set-btn med-del">DELETE</button>`;
+      this.bindNum("med-s-x", -VIEW_HX, VIEW_HX, (v) => (st.x = v));
+      this.bindNum("med-s-z", -VIEW_HZ, VIEW_HZ, (v) => (st.z = v));
+      this.byId<HTMLInputElement>("med-s-x").value = String(st.x);
+      this.byId<HTMLInputElement>("med-s-z").value = String(st.z);
     } else {
       const h = this.hulks[sel.i];
       box.innerHTML = `
@@ -347,11 +382,26 @@ export class MapEditor {
         <button id="med-s-del" class="set-btn med-del">DELETE</button>`;
       this.bindNum("med-s-x", -VIEW_HX, VIEW_HX, (v) => (h.x = v));
       this.bindNum("med-s-z", -VIEW_HZ, VIEW_HZ, (v) => (h.z = v));
-      this.bindNum("med-s-head", -360, 360, (v) => (h.rotationY = (v * Math.PI) / 180));
-      this.bindNum("med-s-scale", 0.2, 1.5, (v) => (h.scale = v));
-      this.bindNum("med-s-yaw", -0.5, 0.5, (v) => (h.rotationRate = v));
-      this.bindNum("med-s-roll", -0.5, 0.5, (v) => (h.rollRate = v));
-      this.bindNum("med-s-pitch", -0.5, 0.5, (v) => (h.pitchRate = v));
+      this.bindNum("med-s-head", -360, 360, (v) => {
+        h.rotationY = (v * Math.PI) / 180;
+        this.brushHulk.rotationY = h.rotationY;
+      });
+      this.bindNum("med-s-scale", 0.2, 1.5, (v) => {
+        h.scale = v;
+        this.brushHulk.scale = v;
+      });
+      this.bindNum("med-s-yaw", -0.5, 0.5, (v) => {
+        h.rotationRate = v;
+        this.brushHulk.rotationRate = v;
+      });
+      this.bindNum("med-s-roll", -0.5, 0.5, (v) => {
+        h.rollRate = v;
+        this.brushHulk.rollRate = v;
+      });
+      this.bindNum("med-s-pitch", -0.5, 0.5, (v) => {
+        h.pitchRate = v;
+        this.brushHulk.pitchRate = v;
+      });
       this.byId<HTMLInputElement>("med-s-x").value = String(h.x);
       this.byId<HTMLInputElement>("med-s-z").value = String(h.z);
       this.byId<HTMLInputElement>("med-s-head").value = String(Math.round((h.rotationY * 180) / Math.PI));
@@ -363,6 +413,7 @@ export class MapEditor {
       src.value = h.source;
       src.addEventListener("change", () => {
         h.source = src.value as Faction;
+        this.brushHulk.source = h.source;
         this.touch();
       });
     }
@@ -449,14 +500,17 @@ export class MapEditor {
         e.preventDefault();
         const p = this.toWorld(e.offsetX, e.offsetY);
         const target = this.hitTest(p.x, p.z) ?? this.selection;
-        if (!target || target.kind === "carrier") return;
+        // Carriers aren't resizable; neither are stations (global capture radius).
+        if (!target || target.kind === "carrier" || target.kind === "station") return;
         const dir = e.deltaY < 0 ? 1 : -1;
         if (target.kind === "zone") {
           const z = this.zones[target.i];
           z.radius = clamp(z.radius + dir * 5, ZONE_RADIUS_MIN, ZONE_RADIUS_MAX);
+          this.brushRadius[z.kind] = z.radius;
         } else {
           const h = this.hulks[target.i];
           h.scale = clamp(Math.round((h.scale + dir * 0.05) * 100) / 100, 0.2, 1.5);
+          this.brushHulk.scale = h.scale;
         }
         this.selection = target;
         this.renderSelected();
@@ -480,19 +534,13 @@ export class MapEditor {
     x = Math.round(x);
     z = Math.round(z);
     if (tool === "hulk") {
-      this.hulks.push({
-        source: "humans",
-        x,
-        z,
-        rotationY: Math.PI / 2,
-        rotationRate: 0,
-        pitchRate: 0,
-        rollRate: 0.06,
-        scale: 0.5,
-      });
+      this.hulks.push({ ...this.brushHulk, x, z });
       this.selection = { kind: "hulk", i: this.hulks.length - 1 };
+    } else if (tool === "station") {
+      this.stations.push({ x, z });
+      this.selection = { kind: "station", i: this.stations.length - 1 };
     } else {
-      this.zones.push({ kind: tool, x, z, radius: BRUSH_RADIUS[tool] });
+      this.zones.push({ kind: tool, x, z, radius: this.brushRadius[tool] });
       this.selection = { kind: "zone", i: this.zones.length - 1 };
     }
     // Stamp-and-position: keep holding to drag the fresh shape into place.
@@ -502,12 +550,20 @@ export class MapEditor {
     this.touch();
   }
 
-  /** Topmost-drawn wins: carriers, then wrecks, then zones (newest first). */
+  /** Topmost-drawn wins: carriers, then stations, then wrecks, then zones
+   *  (newest first). */
   private hitTest(x: number, z: number): Selection {
     for (const side of ["player", "enemy"] as const) {
       const cz = this.carrierZ[side];
       if (Math.abs(x) < HULL_WIDTH / 2 + 15 && Math.abs(z - cz) < HULL_LEN / 2 + 15) {
         return { kind: "carrier", side };
+      }
+    }
+    const stationR = GameConfig.stations.captureRadius;
+    for (let i = this.stations.length - 1; i >= 0; i--) {
+      const st = this.stations[i];
+      if ((x - st.x) ** 2 + (z - st.z) ** 2 < stationR * stationR) {
+        return { kind: "station", i };
       }
     }
     for (let i = this.hulks.length - 1; i >= 0; i--) {
@@ -527,6 +583,7 @@ export class MapEditor {
     if (!s) return null;
     if (s.kind === "zone") return this.zones[s.i];
     if (s.kind === "hulk") return this.hulks[s.i];
+    if (s.kind === "station") return this.stations[s.i];
     return { x: 0, z: this.carrierZ[s.side] };
   }
 
@@ -541,7 +598,12 @@ export class MapEditor {
       this.carrierZ[s.side] = v;
       this.byId<HTMLInputElement>(`med-cz-${s.side}`).value = String(v);
     } else {
-      const o = s.kind === "zone" ? this.zones[s.i] : this.hulks[s.i];
+      const o =
+        s.kind === "zone"
+          ? this.zones[s.i]
+          : s.kind === "hulk"
+            ? this.hulks[s.i]
+            : this.stations[s.i];
       o.x = x;
       o.z = z;
       const sx = this.root.querySelector<HTMLInputElement>("#med-s-x");
@@ -556,7 +618,8 @@ export class MapEditor {
     const s = this.selection;
     if (!s || s.kind === "carrier") return;
     if (s.kind === "zone") this.zones.splice(s.i, 1);
-    else this.hulks.splice(s.i, 1);
+    else if (s.kind === "hulk") this.hulks.splice(s.i, 1);
+    else this.stations.splice(s.i, 1);
     this.selection = null;
     this.renderSelected();
     this.touch();
@@ -613,6 +676,13 @@ export class MapEditor {
       );
     }
 
+    // Capture stations.
+    for (let i = 0; i < this.stations.length; i++) {
+      const st = this.stations[i];
+      const selected = this.selection?.kind === "station" && this.selection.i === i;
+      this.drawStation(ctx, cx(st.x), cy(st.z), s, selected, 1);
+    }
+
     // Carriers — fixed fixtures on the lane, labelled.
     for (const side of ["player", "enemy"] as const) {
       const color = side === "player" ? "#89b4fa" : "#f38ba8";
@@ -635,13 +705,15 @@ export class MapEditor {
     if (hover && tool !== "select" && !this.dragging) {
       if (tool === "hulk") {
         this.drawHull(
-          ctx, cx(hover.x), cy(hover.z), Math.PI / 2, 0.5 * s,
+          ctx, cx(hover.x), cy(hover.z), this.brushHulk.rotationY, this.brushHulk.scale * s,
           "rgba(60, 56, 54, 0.3)", KIND_COLOR.hulk, false, 0.45,
         );
+      } else if (tool === "station") {
+        this.drawStation(ctx, cx(hover.x), cy(hover.z), s, false, 0.45);
       } else {
         this.drawZone(
           ctx, cx(hover.x), cy(hover.z),
-          BRUSH_RADIUS[tool] * s, tool, false, 0.45,
+          this.brushRadius[tool] * s, tool, false, 0.45,
         );
       }
     }
@@ -664,6 +736,43 @@ export class MapEditor {
     ctx.stroke();
     ctx.setLineDash([]);
     if (selected) this.drawSelectionRing(ctx, x, y, r + 5);
+    ctx.globalAlpha = 1;
+  }
+
+  /** A capture-station marker: dashed dock/capture ring at the global
+   *  GameConfig.stations.captureRadius plus a small "wheel" hub with spokes
+   *  (≈ the GLB's wheel footprint). `s` = world→px scale. */
+  private drawStation(
+    ctx: CanvasRenderingContext2D,
+    x: number, y: number, s: number,
+    selected: boolean, alpha: number,
+  ): void {
+    const color = KIND_COLOR.station;
+    const ringR = GameConfig.stations.captureRadius * s;
+    const hubR = 26 * s;
+    ctx.globalAlpha = alpha;
+    // Dock/capture ring — dashed, faint fill so the footprint reads on the board.
+    ctx.beginPath();
+    ctx.arc(x, y, ringR, 0, Math.PI * 2);
+    ctx.fillStyle = `${color}1a`; // ~10% fill
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = selected ? 2 : 1.2;
+    ctx.setLineDash([6, 4]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Wheel hub + spokes.
+    ctx.beginPath();
+    ctx.arc(x, y, hubR, 0, Math.PI * 2);
+    ctx.stroke();
+    for (let k = 0; k < 4; k++) {
+      const a = (k * Math.PI) / 2 + Math.PI / 4;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(a) * hubR, y + Math.sin(a) * hubR);
+      ctx.stroke();
+    }
+    if (selected) this.drawSelectionRing(ctx, x, y, ringR + 5);
     ctx.globalAlpha = 1;
   }
 
@@ -751,6 +860,12 @@ export class MapEditor {
     };
     const storms = this.zones.filter((z) => z.kind === "storm").map(toFracZone);
     if (storms.length > 0) map.stormZones = storms;
+    if (this.stations.length > 0) {
+      map.stations = this.stations.map((st) => ({
+        xFrac: frac(st.x, hx),
+        zFrac: frac(st.z, hz),
+      }));
+    }
     if (this.hulks.length > 0) {
       map.hazards = this.hulks.map((h) => {
         const spec: HulkHazard = { kind: "hulk", source: h.source, x: h.x, z: h.z };
@@ -794,6 +909,10 @@ export class MapEditor {
     for (const rg of map.asteroids?.regions ?? []) {
       this.zones.push({ kind: "region", x: rg.x, z: rg.z, radius: rg.radius });
     }
+    this.stations = (map.stations ?? []).map((st) => ({
+      x: Math.round(st.xFrac * hx),
+      z: Math.round(st.zFrac * hz),
+    }));
     this.hulks = (map.hazards ?? [])
       .filter((h): h is HulkHazard => h.kind === "hulk")
       .map((h) => ({

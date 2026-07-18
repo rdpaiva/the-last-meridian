@@ -526,6 +526,39 @@ radar + HUD), NOT `laserEmissive` (humans' pink lasers made a
 human-owned station read RED — owner caught it). Owner has flown
 stations at least once (color bug report); full check still item 0e.
 
+**Built 2026-07-18 — map-editor stations + sticky brushes + "The Eye"**
+(owner-requested, third 07-18 session). (1) STATION BRUSH: the map editor
+can now paint capture stations — green wheel-and-spokes markers with the
+dashed dock ring drawn at the real `GameConfig.stations.captureRadius`
+(global knob, so stations are position-only: no scroll-resize, panel shows
+X/Z + delete). Full round-trip: COPY MAP exports `stations` fractions,
+IMPORT/LOAD PRESET/draft autosave all carry them (station presets like The
+Void now load their rows into the editor). TEST FLIGHT needed zero changes
+(`applyMapConfig` already wrote `map.stations`). N stations is naturally
+supported everywhere (StrategicSystem/views/radar all iterate; the shield
+factor is owned/total-graduated) — but Energy income scales with station
+COUNT against fixed 100/250/500 thresholds, so dense-station maps climb
+the upgrade ladder faster; a balance lever to watch, not a bug. (2) STICKY
+BRUSHES (owner: "stop re-typing the same radius"): editing a placed
+shape's attributes — zone radius via panel or scroll, any wreck field
+(heading/scale/spin/source) — re-seeds that kind's brush; next stamps +
+the ghost preview repeat the last-tuned values. Per-kind, session-only
+(not part of the persisted draft). (3) **The Eye** (`theEye`): first
+editor-authored catalog map, byte-exact from the owner's draft (pulled
+from `lastMeridian_mapDraft` via the browser). Four huge corner storms
+(r 335–400) pinch a cross of lanes; one big center nebula (r 145, the
+"eye") where the carrier corridors converge; four rock clusters ringing
+it; TWO stations at the flank-lane mouths. Anchors: brush + sticky work
+all in `client/src/game/MapEditor.ts` (Tool/Selection unions, `stations`
+array, `brushRadius`/`brushHulk`, `drawStation`, buildMap/loadMap);
+catalog entry + `ConcreteMapId` in `shared/src/Maps.ts`; docs ARENA-MAPS
+table / ROADMAP / SUBSYSTEMS "Map editor" / CLAUDE.md file map. Typecheck
++ 52/52 green (map is data-only — no protocol bump, but online it needs
+both halves deployed so server + client both know `theEye`). NOT yet
+owner-verified: The Eye in the picker + a full flight on it (does the eye
+funnel fights as designed? two stations = slower Energy than the
+3-station maps — intended?), and the station brush/sticky-brush feel.
+
 **Owner goal**: a friends playtest — HOSTING IS LIVE (provisioned
 2026-07-06, CI-path verified same day). Topology in `docs/DEPLOY.md`
 ("Provisioned state" section has every detail): ONE DigitalOcean droplet
@@ -568,15 +601,17 @@ playtest results: what broke, what felt off, overlay numbers if netcode>
    online not individually exercised (low risk — same zone/replication
    path as nebulas, stormZap event predates this work). Remember: both
    halves must be deployed together (v22).
-0c. **Owner check of the map editor** (built 2026-07-08, see the state
-   paragraph): open it from the loadout footer, paint a board, TEST FLIGHT
-   it, COPY MAP and paste the entry into `MAPS` in `shared/src/Maps.ts`
-   (+ add the id to `ConcreteMapId`) — the committed map then shows up in
-   the arena picker in both modes. Also note: the working tree carries an
-   UNCOMMITTED Tempest storm-layout densification in `shared/src/Maps.ts`
-   (slit gates + center-lane pinchers + corner drifters — predates the
-   map-editor session, deliberately left unstaged); keep or discard after
-   the storm feel check in item 0.
+0c. ~~Owner check of the map editor~~ DONE in practice 2026-07-18: the
+   owner authored a full map in it (The Eye — storms, nebula, rock
+   regions, stations, name + blurb) and it's now in the catalog. Remaining
+   editor-adjacent checks folded into 0g.
+0g. **Owner check of The Eye + the new editor brushes** (built 2026-07-18,
+   see the state paragraph): pick The Eye on the MISSION step and fly it —
+   does the center eye funnel the fight, do the AI lanes read, is
+   two-station Energy pacing right (vs the 3-station maps)? In the editor:
+   stamp a few stations (green ring markers), confirm sticky brushes
+   (resize one nebula, next stamps match). Online it needs both halves
+   deployed (new `ConcreteMapId`).
 0d. **Owner check of the hangar subsystem + station-powered shields**
    (M1 built 2026-07-17, shields redesigned 2026-07-18 — see the state
    paragraphs): solo on a STATION map (The Void / The Belt / The Tempest) —

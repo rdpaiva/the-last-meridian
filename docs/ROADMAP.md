@@ -517,7 +517,7 @@ and explicitly skipped. Update this when you finish or start work.
   thresholds 100/250/500 → RAPID REDEPLOY (respawn ×0.6) / SENSOR UPLINK
   (radar ×1.35) / TURRET OVERDRIVE (one-shot turret revive + a persistent
   full-hp-only fire-rate/damage buff). Station maps: The Void / The Belt /
-  The Tempest; station-free maps play exactly as before.
+  The Tempest / The Eye; station-free maps play exactly as before.
 - **Station-powered carrier shields**: hull damage × a factor graduated by
   owned/total stations, floor 0.2 with all held (never 0 — the anti-stall
   guarantee); faction-tinted shield hit-splash FX + HUD power segments.
@@ -537,11 +537,14 @@ and explicitly skipped. Update this when you finish or start work.
 ### Dev/test tooling
 - **Map editor** (2026-07-08, admin authoring tool): splash screen
   (`MapEditor.ts`, loadout footer link) — top-down canvas, brush-paints
-  nebula/storm/rock-field/wreck circles + draggable carriers, exports a
-  paste-ready `MAPS` entry for `shared/src/Maps.ts` (maps stay compile-time
-  presets; works online for free once committed). TEST FLIGHT launches a
-  solo match on the draft (`applyMapConfig`); draft persists in
-  localStorage. Deliberately NOT runtime/user-generated maps — that
+  nebula/storm/rock-field/wreck circles + capture stations (added
+  2026-07-18) + draggable carriers, exports a paste-ready `MAPS` entry for
+  `shared/src/Maps.ts` (maps stay compile-time presets; works online for
+  free once committed). Brushes are sticky (2026-07-18): editing a placed
+  shape re-seeds its brush so the next stamp repeats the last-tuned
+  attributes. TEST FLIGHT launches a solo match on the draft
+  (`applyMapConfig`); draft persists in localStorage. First
+  editor-authored catalog map: **The Eye** (`theEye`, 2026-07-18). Deliberately NOT runtime/user-generated maps — that
   (custom maps in the picker, share blobs, online custom boards) is a
   separate product decision, see the backlog.
 - **God-mode cheat** (Backquote `` ` ``): toggles player invulnerability +

@@ -41,7 +41,8 @@ export type ConcreteMapId =
   | "asteroidBelt"
   | "nebulaVeil"
   | "theWreck"
-  | "theTempest";
+  | "theTempest"
+  | "theEye";
 
 type NebulaZone = { xFrac: number; zFrac: number; radius: number };
 type FleetComposition = {
@@ -222,6 +223,44 @@ export const MAPS: Record<ConcreteMapId, MapConfig> = {
       { xFrac: 0, zFrac: 0 },
       { xFrac: -0.92, zFrac: 0 },
       { xFrac: 0.92, zFrac: 0 },
+    ],
+  },
+  theEye: {
+    id: "theEye",
+    name: "The Eye",
+    blurb: "Four storms, one calm heart. Every lane leads to the eye — so does theirs.",
+    carrierZ: { player: -700, enemy: 700 },
+    asteroids: {
+      count: 50,
+      radiusMin: 8,
+      radiusMax: 24,
+      // Four rock clusters ringing the calm center — one astride each carrier
+      // approach, one on each flank lane. Brisk drift so the ring churns.
+      regions: [
+        { x: -176, z: -11, radius: 150 },
+        { x: 178, z: -2, radius: 150 },
+        { x: -11, z: 296, radius: 150 },
+        { x: 19, z: -292, radius: 150 },
+      ],
+      driftSpeedMin: 1.5,
+      driftSpeedMax: 5,
+    },
+    // The eye itself: one big stealth pocket dead-center where the approach
+    // lanes converge — the calm heart every fight funnels into.
+    nebulaZones: [{ xFrac: 0.003, zFrac: 0.003, radius: 145 }],
+    // Four massive corner storms box the board in, pinching movement onto a
+    // cross of lanes: carrier corridors north-south, station runs east-west.
+    stormZones: [
+      { xFrac: -0.66, zFrac: -0.722, radius: 355 },
+      { xFrac: -0.705, zFrac: 0.758, radius: 335 },
+      { xFrac: 0.802, zFrac: 0.81, radius: 400 },
+      { xFrac: 0.798, zFrac: -0.775, radius: 400 },
+    ],
+    // One station at each flank-lane mouth, between the storm banks — holding
+    // both means owning the east-west cross of the map.
+    stations: [
+      { xFrac: -0.66, zFrac: 0.007 },
+      { xFrac: 0.663, zFrac: 0.003 },
     ],
   },
 };

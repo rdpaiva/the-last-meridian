@@ -103,6 +103,7 @@ map system doesn't need reshaping when content arrives.
 | `nebulaVeil` | The Veil | ~25 | 4–5 large | mid | swarm-heavy (more light fighters) — ambush |
 | `theWreck` | The Wreck | ~40 | 1 | mid | stock + 1 hulk hazard (Phase 2) |
 | `theTempest` | The Tempest | ~20 | 1 (center lane) | wide | stock + 6 ion storms — a midline storm wall with lanes (2026-07-08) |
+| `theEye` | The Eye | ~50 in 4 clusters | 1 large (center) | mid | stock + 4 corner storms + 2 flank stations — a cross of lanes converging on the calm center (2026-07-18, map-editor authored) |
 
 `random` is a meta-id resolved to one concrete preset at launch (not stored as
 the saved map — we persist the *resolved* choice so quick-play is stable, or
