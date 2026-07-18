@@ -70,6 +70,49 @@ stern with four cyan exhausts.
 - **Export:** same as the Bastion — GLB, +Y up, apply modifiers, selection =
   the `Choirship` collection.
 
+## `station.blend` → `public/models/station.glb`
+
+Low-poly capture station (the strategic layer's neutral points — see
+`docs/strategic-layer-plan.md`). Wheel-and-spire orbital: a 48-segment
+habitat wheel with six spokes, three chunky coupler modules and dashed
+orange window strips; a central hub climbing through a tapering core into a
+tall stacked spire with blade fins; a reactor drum with rosette end cap
+hanging below the wheel plane. Loaded at runtime by
+`StationView.tryLoadModel()` via `GameConfig.stations.model`.
+
+### Conventions baked into the model
+- **Axes:** station axis along **+Z** (Blender native up), radially
+  symmetric so no facing correction is needed. Wheel plane at z=0; native
+  bounds: wheel Ø ~13.1 units, spire top +10.05, reactor bottom -3.38.
+- **Root/structure:** all meshes parented to the `Station_Root` empty in the
+  `Station` collection, prefixed `Station_`. No marker empties.
+- **Ownership emitters — naming is load-bearing:** `StationView` re-materials
+  GLB meshes whose lowercase names contain `beacon`/`ring` with its
+  faction-tinted emissives. That's **`Station_Beacon`** (spire-tip sphere)
+  and **`Station_RingLight`** (thin light torus on the wheel's top face,
+  the top-down ownership read). Don't let "ring"/"beacon" leak into hull
+  mesh names (the wheel is `Station_Wheel` for exactly this reason).
+- **Emission:** orange window strips (`Station_Windows_*`) stay
+  station-owned (not faction-tinted); strengths ~2.2 per the GlowLayer/ACES
+  blow-out gotcha.
+- **Textures (AI-painted, user-generated):** two skins, both embedded in the
+  GLB. `textures/station_skin.png` — top-down painting projected planar from
+  above onto the wheel/spokes/modules (`Station_SkinWheel` material); the
+  projection frame is the MEASURED painted ring (center 627.2/653.3 px,
+  outer edge 543.5 px ↔ wheel outer radius 5.55). The coupler modules sit at
+  **33.2° / 147.1° / 269.7°** — moved from the original 20/140/260 to match
+  where the painting put them (on the spoke junctions); keep that if
+  regenerating the skin. `textures/station_spire_atlas.png` — sprite-sheet
+  regions UV-mapped per part onto the spire/core/hub/lower stack
+  (`Station_SkinSpire`); region rects live only in the baked UVs, so
+  re-atlasing means re-running the mapping (session script) or hand-UVing.
+
+### Export settings
+`File → Export → glTF 2.0 (.glb)`, format **GLB**, **+Y up**, apply
+modifiers, selection = the `Station` collection. In-game placement
+(scale 4, sunk `yOffset: -44` below the fighter plane, slow idle spin) lives
+in `GameConfig.stations.model`.
+
 ## `breaker.blend` → `public/models/breaker.glb`
 
 Low-poly Breaker heavy gunship (the human strike craft — see the story bible).

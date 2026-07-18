@@ -618,16 +618,31 @@ export const GameConfig = {
     /** Energy per second one owned station feeds its faction's pool. */
     energyPerSec: 1.2,
     /**
-     * Station GLB (user-authored art, drops in later — the two-tier
-     * procedural-fallback pattern every model in the game uses). Null/missing
-     * file = the procedural ring-and-pylon StationView build.
+     * Station GLB (art/station.blend → the wheel-and-spire orbital;
+     * two-tier procedural-fallback pattern every model in the game uses).
+     * Null/missing file = the procedural ring-and-pylon StationView build.
+     * Native model: wheel Ø~13 units, spire top at +10.05, lower module to
+     * -3.4 (Z-up in Blender → Y-up in Babylon via the +Y-up GLB export).
      */
     model: {
-      file: null as string | null,
+      file: "station.glb" as string | null,
       rotX: 0,
       rotY: 0,
       rotZ: 0,
-      scale: 10,
+      scale: 4,
+      /**
+       * World-space Y the GLB body sits at — SUNK below the fighter plane so
+       * ships never fly through the structure (spire tip = 10.05 × scale
+       * above the model origin; -44 leaves the tip ~4 units under the
+       * plane). The flat dock-radius ring stays on the plane at y=0.
+       */
+      yOffset: -44,
+      /**
+       * Slow habitat-wheel spin (rad/sec) around the vertical axis — view
+       * only, driven from absolute time so it's frame-rate independent.
+       * 0.06 ≈ one revolution every ~105 s.
+       */
+      spinRadPerSec: 0.06,
     },
   },
 

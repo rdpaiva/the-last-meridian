@@ -23,13 +23,21 @@ import type { CaptureStation, Faction } from "@space-duel/shared";
  *
  * Two-tier like every model in the game: a procedural build (pylon + beacon
  * + ring, plus a flat ring on the fighter plane marking the DOCK RADIUS — the
- * gameplay-legibility piece) that ships immediately, upgraded to the
- * user-authored GLB via tryLoadModel() once `GameConfig.stations.model.file`
- * exists. The dock-radius ring and beacon tinting survive the model swap —
- * they're the state read, the model is the body.
+ * gameplay-legibility piece) as the fallback, upgraded to the wheel-and-spire
+ * station GLB (art/station.blend) via tryLoadModel(). The dock-radius ring
+ * and beacon tinting survive the model swap — they're the state read, the
+ * model is the body. The body idles with a slow spin and (GLB only) sits
+ * `model.yOffset` BELOW the fighter plane so ships never clip through it.
  */
 export class StationView {
   private readonly root: TransformNode;
+  /**
+   * The station BODY (procedural build or GLB) hangs off this child node so
+   * it can spin slowly (the space-station idle rotation) without dragging
+   * the flat dock-radius ring — which stays static on the fighter plane —
+   * along with it.
+   */
+  private readonly bodyRoot: TransformNode;
   /** Beacon + ring emissives — retinted per frame from the sim state. */
   private readonly beaconMat: StandardMaterial;
   private readonly ringMat: StandardMaterial;
@@ -58,6 +66,8 @@ export class StationView {
   ) {
     this.root = new TransformNode(`station_${sim.id}_root`, scene);
     this.root.position.set(sim.position.x, 0, sim.position.z);
+    this.bodyRoot = new TransformNode(`station_${sim.id}_body`, scene);
+    this.bodyRoot.parent = this.root;
 
     const hullMat = new StandardMaterial(`station_hull_${sim.id}`, scene);
     hullMat.diffuseColor = new Color3(0.24, 0.27, 0.34);
@@ -90,7 +100,7 @@ export class StationView {
       { diameter: 9, height: 16, tessellation: 6 },
       this.scene,
     );
-    pylon.parent = this.root;
+    pylon.parent = this.bodyRoot;
     pylon.position.y = 2;
     pylon.material = hullMat;
     pylon.isPickable = false;
@@ -101,7 +111,7 @@ export class StationView {
       { diameter: 6, segments: 12 },
       this.scene,
     );
-    beacon.parent = this.root;
+    beacon.parent = this.bodyRoot;
     beacon.position.y = 12;
     beacon.material = this.beaconMat;
     beacon.isPickable = false;
@@ -112,7 +122,7 @@ export class StationView {
       { diameter: 24, thickness: 1.2, tessellation: 32 },
       this.scene,
     );
-    ring.parent = this.root;
+    ring.parent = this.bodyRoot;
     ring.position.y = 4;
     ring.material = this.ringMat;
     ring.isPickable = false;
@@ -132,12 +142,12 @@ export class StationView {
   }
 
   /**
-   * Swap the procedural body for the user-authored station GLB when
-   * `GameConfig.stations.model.file` names one (null today — procedural
-   * ships first, the model drops in with zero code change later). The
-   * beacon/ring materials keep driving ownership color via the GLB meshes
-   * whose names contain "beacon"/"ring", if authored; otherwise the tint
-   * rides only the dock ring.
+   * Swap the procedural body for the station GLB named by
+   * `GameConfig.stations.model.file` (procedural stays if null or the load
+   * fails). The beacon/ring materials keep driving ownership color via the
+   * GLB meshes whose names contain "beacon"/"ring" — `Station_Beacon` (spire
+   * tip) and `Station_RingLight` (the wheel's top light band) in the shipped
+   * model; otherwise the tint rides only the dock ring.
    */
   private async tryLoadModel(): Promise<void> {
     const cfg = GameConfig.stations.model;
@@ -145,9 +155,12 @@ export class StationView {
     try {
       const result = await SceneLoader.ImportMeshAsync("", "/models/", cfg.file, this.scene);
       const glbRoot = result.meshes[0];
-      glbRoot.parent = this.root;
+      glbRoot.parent = this.bodyRoot;
       glbRoot.rotation.set(cfg.rotX, cfg.rotY, cfg.rotZ);
       glbRoot.scaling.setAll(cfg.scale);
+      // The whole structure sits BELOW the fighter plane (yOffset < 0) so
+      // ships pass over the spire tip instead of clipping through the model.
+      glbRoot.position.y = cfg.yOffset;
       for (const m of result.meshes) {
         m.isPickable = false;
         const name = m.name.toLowerCase();
@@ -167,6 +180,10 @@ export class StationView {
    * capturing faction's color with the meter; contested flickers the beacon.
    */
   update(nowMs: number): void {
+    // Idle station spin — absolute-time-driven (frame-rate independent, no
+    // dt plumbing); the static dock ring lives on `root`, so it doesn't turn.
+    this.bodyRoot.rotation.y = (nowMs / 1000) * GameConfig.stations.model.spinRadPerSec;
+
     const st = this.sim;
     const base = st.owner ? StationView.factionColor(st.owner) : StationView.NEUTRAL;
     const c = this.colorScratch;
