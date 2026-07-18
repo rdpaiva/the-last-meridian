@@ -18,6 +18,22 @@ test suite is **20/20 green** (`npm test`). PROTOCOL_VERSION is **17** —
 stale tabs get a clean join rejection (rendered as "NEW VERSION —
 refresh"), so always reload after pulling.
 
+## 2026-07-18 — strategic layer merged to `main`; owner cleared the queue
+
+`feat/strategic-layer` (14 commits, protocol 17→27: capture stations +
+Energy + upgrade tiers, station-powered carrier shields, diegetic dual-bay
+hangars, 20s respawn bench, ion-storm/editor/The Eye work, Field Manual
+sync) fast-forwarded into `main` at `2a2a11e`; 52/52 tests green. The
+owner reviewed the whole state and closed EVERY pending owner-check item
+as accepted — "happy with the way everything is right now; if I find
+something wrong down the road, we'll address it." AGENT_KICKOFF was
+rewritten to an empty work order; the freeze investigation
+(`docs/perf-freeze-investigation.md`) and the feel-tuning loop are parked
+records, M3 (Loom Fragment) moved to the ROADMAP backlog. The detailed
+per-feature state paragraphs that used to fill AGENT_KICKOFF live in that
+file's git history. Live droplet still answers v17 — the next "Deploy
+game" dispatch ships v27 both-halves.
+
 ## DONE 2026-07-06 — Phase 3 remainder: room lifecycle + lobby polish (merged to `main` same day; rematch flow owner-verified)
 
 Phase 3 is now feature-complete; docs/MULTIPLAYER.md Phase 3 items are all

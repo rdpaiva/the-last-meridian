@@ -530,9 +530,10 @@ and explicitly skipped. Update this when you finish or start work.
 - **20-second respawn bench** (both sides, was 1.5s/3s) + a HUD redeploy
   countdown ring — deaths cost real board time, making all of the above
   worth fighting over.
-- Detail/anchors: `docs/strategic-layer-plan.md` + the dated AGENT_KICKOFF
-  state paragraphs (2026-07-17/18). Protocol 24→27 across the arc; M3 (the
-  Loom event) still queued.
+- Detail/anchors: `docs/strategic-layer-plan.md` + the AGENT_KICKOFF git
+  history (2026-07-17/18 state paragraphs). Protocol 24→27 across the arc;
+  MERGED to `main` 2026-07-18 (`2a2a11e`) and owner-accepted. M3 (the Loom
+  event) moved to the backlog below.
 
 ### Dev/test tooling
 - **Map editor** (2026-07-08, admin authoring tool): splash screen
@@ -648,6 +649,11 @@ implemented yet. Roughly ordered by gameplay value.
   relaunch retries the friend's room); an unreachable invite room shows
   "finding a new room…" before quick-matching; a faction-full quick match
   creates a fresh room (`NetClient.createMatch`) instead of dead-ending.
+- **Strategic layer M3: the Loom Fragment event** — a mid-match
+  deterministic sim-clock spawn: a fast-capture fragment granting a
+  temporary sensor-omniscience "Loom Resonance" buff (protocol bump
+  required). The last unshipped milestone of `docs/strategic-layer-plan.md`;
+  moved here 2026-07-18 when the owner cleared the queue post-merge.
 - **Combo multiplier** — quick consecutive kills build a score multiplier.
   (Base kills/score + localStorage best landed in Phase 6.)
 - **Wave system** — replace single respawning enemy with escalating
