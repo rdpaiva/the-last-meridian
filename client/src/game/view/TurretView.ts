@@ -2,6 +2,7 @@ import type { Scene } from "@babylonjs/core/scene";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
@@ -11,6 +12,7 @@ import "@babylonjs/core/Meshes/Builders/boxBuilder";
 
 import { GameConfig } from "@space-duel/shared";
 import type { Faction } from "@space-duel/shared";
+import type { ExplosionSystem } from "../ExplosionSystem";
 
 /**
  * Depiction of ONE carrier defense turret — the VIEW half of the Turret/
@@ -44,6 +46,13 @@ export class TurretView {
   /** Added to `gun.rotation.y` so the visible barrel matches the bolt heading. */
   private yawOffset = 0;
   private deadShown = false;
+
+  /** Dead-turret burn FX (same continuous spark emission as a destroyed
+   *  hangar bay — SubsystemView). Handed in via setExplosions after
+   *  construction; null = no burn (defensive). */
+  private explosions: ExplosionSystem | null = null;
+  private nextEmitAtMs = 0;
+  private readonly fxScratch = new Vector3();
 
   constructor(
     scene: Scene,
@@ -227,7 +236,9 @@ export class TurretView {
 
   /**
    * Swing the gun to the sim turret's world aim, and the first frame it reads
-   * dead, drop the gun (the static base stays as a charred stump). Called every
+   * dead, drop the gun (the static base stays as a charred stump). The
+   * strategic "turretOverdrive" repair can REVIVE a turret — a live read
+   * after a dead one un-stumps it (the SubsystemView pattern). Called every
    * view frame from MothershipView.syncTurrets().
    */
   update(aimAngle: number, isAlive: boolean): void {
@@ -236,9 +247,36 @@ export class TurretView {
         this.deadShown = true;
         this.gun.setEnabled(false);
       }
+      // Dead-turret burn: the same continuous carrier-scale spark emission a
+      // destroyed hangar bay runs (impactSpark.hangar), jittered so guns and
+      // bays desync.
+      if (this.explosions) {
+        const now = performance.now();
+        if (now >= this.nextEmitAtMs) {
+          const cfg = GameConfig.impactSpark.hangar;
+          const p = this.mount.getAbsolutePosition();
+          this.fxScratch.set(
+            p.x + (Math.random() - 0.5) * 6,
+            p.y,
+            p.z + (Math.random() - 0.5) * 6,
+          );
+          this.explosions.spawnSpark(this.fxScratch, cfg);
+          this.nextEmitAtMs =
+            now + cfg.emitIntervalMs * (0.7 + Math.random() * 0.6);
+        }
+      }
       return;
     }
+    if (this.deadShown) {
+      this.deadShown = false;
+      this.gun.setEnabled(true);
+    }
     this.gun.rotation.y = aimAngle - this.carrierRotationY + this.yawOffset;
+  }
+
+  /** FX hookup — called by MothershipView.setExplosions once the system exists. */
+  setExplosions(explosions: ExplosionSystem): void {
+    this.explosions = explosions;
   }
 
   dispose(): void {

@@ -2102,6 +2102,66 @@ body {
   display: none;
 }
 
+/* Respawn countdown ring — the jump-ring recipe in the warning red, shown
+   while the player is dead: fills as the redeploy clock runs down, remaining
+   seconds in the center. Sits above screen center where the dead player's
+   eyes are (nothing else to fly); driven per-frame by
+   Hud.setRespawnCountdown. */
+.respawn-ring {
+  position: fixed;
+  left: 50%;
+  top: 30%;
+  transform: translateX(-50%);
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  /* The conic-gradient angle is set inline per frame (--spool). */
+  background: conic-gradient(
+    rgba(243, 139, 168, 0.85) var(--spool, 0deg),
+    rgba(243, 139, 168, 0.12) 0
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  user-select: none;
+  box-shadow: 0 0 24px 4px rgba(243, 139, 168, 0.35);
+}
+
+.respawn-ring::before {
+  content: "";
+  position: absolute;
+  inset: 12px;
+  border-radius: 50%;
+  background: rgba(17, 17, 27, 0.92);
+}
+
+.respawn-ring .respawn-ring-text {
+  position: relative;
+  z-index: 1;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #f5c2e7;
+  text-shadow: 0 0 10px rgba(243, 139, 168, 0.8);
+}
+
+/* Label riding under the ring, outside the disk. */
+.respawn-ring .respawn-ring-label {
+  position: absolute;
+  top: 100%;
+  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.35em;
+  color: #f38ba8;
+  text-shadow: 0 0 8px rgba(243, 139, 168, 0.6);
+}
+
+.respawn-ring.hidden {
+  display: none;
+}
+
 /* ── Map editor (data-state="mapEditor") ───────────────────────────────── */
 /* MapEditor.ts renders the arena-authoring screen into #map-editor — admin
    tooling in the same dress as match settings (it reuses the settings-head /

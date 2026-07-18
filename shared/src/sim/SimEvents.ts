@@ -87,7 +87,7 @@ export interface SimEventMap {
   upgradeUnlocked: {
     faction: Faction;
     tier: number;
-    effect: "fasterRespawn" | "sensorBoost" | "subsystemRepair";
+    effect: "fasterRespawn" | "sensorBoost" | "turretOverdrive";
   };
   /** A ship armed its jump drive and began the spool-up countdown. */
   jumpSpoolStarted: { ship: Ship };

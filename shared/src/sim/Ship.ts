@@ -294,6 +294,21 @@ export class Ship implements DamageTarget, ShipPose {
     );
   }
 
+  /** Full respawn wait (ms) as currently scaled — the HUD countdown's total. */
+  get respawnTotalMs(): number {
+    return this.respawnDelayMs * this.respawnDelayScale;
+  }
+
+  /**
+   * Milliseconds until this dead ship may respawn (the HUD countdown), or
+   * null while alive. Clamped at 0 for the frames between "wait served" and
+   * the loop's respawn() call.
+   */
+  respawnRemainingMs(nowMs: number): number | null {
+    if (this.deathTimeMs === null) return null;
+    return Math.max(0, this.respawnTotalMs - (nowMs - this.deathTimeMs));
+  }
+
   /** Reset to full HP at the given spawn pose (views re-enable off isAlive). */
   respawn(x = 0, z = 0, rotationY = 0): void {
     this.position.set(x, 0, z);

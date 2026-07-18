@@ -74,12 +74,12 @@ export function captureStatusFor(
 
 /** Player-facing names for the strategic upgrade effects (toast copy). */
 export const UPGRADE_LABELS: Record<
-  "fasterRespawn" | "sensorBoost" | "subsystemRepair",
+  "fasterRespawn" | "sensorBoost" | "turretOverdrive",
   string
 > = {
   fasterRespawn: "RAPID REDEPLOY",
   sensorBoost: "SENSOR UPLINK",
-  subsystemRepair: "SUBSYSTEM REPAIR",
+  turretOverdrive: "TURRET OVERDRIVE",
 };
 
 export class Hud {
@@ -131,6 +131,10 @@ export class Hud {
   private readonly jumpRingTextEl: HTMLElement | null;
   /** Last spool tenth written to the ring (write-on-change; per-frame). */
   private lastJumpTenths = -1;
+  private readonly respawnRingEl: HTMLElement;
+  private readonly respawnRingTextEl: HTMLElement | null;
+  /** Last countdown tenth written to the respawn ring (write-on-change). */
+  private lastRespawnTenths = -1;
 
   private lastTextUpdateMs = 0;
   private lastOverlayText: string | null = null;
@@ -197,6 +201,20 @@ export class Hud {
     document.body.appendChild(jumpRing);
     this.jumpRingEl = jumpRing;
     this.jumpRingTextEl = jumpRing.querySelector<HTMLElement>(".jump-ring-text");
+
+    // Respawn countdown ring — the jump-ring recipe in the warning red,
+    // centered where the dead player's attention is. Fills as the redeploy
+    // clock runs down; driven per-frame by setRespawnCountdown.
+    const respawnRing = document.createElement("div");
+    respawnRing.id = "respawn-ring";
+    respawnRing.className = "respawn-ring hidden";
+    respawnRing.innerHTML =
+      `<span class="respawn-ring-text"></span>` +
+      `<span class="respawn-ring-label">REDEPLOY</span>`;
+    document.body.appendChild(respawnRing);
+    this.respawnRingEl = respawnRing;
+    this.respawnRingTextEl =
+      respawnRing.querySelector<HTMLElement>(".respawn-ring-text");
 
     // Launch overlay lives outside the debug panel — it's fullscreen-centered.
     const overlay = document.createElement("div");
@@ -353,9 +371,10 @@ export class Hud {
   }
 
   /**
-   * Update the subsystem pips under each carrier bar (the hangar, lit while
-   * alive). Accepts each carrier's live `subsystems` array (structural type —
-   * both Game's motherships and NetworkGame's carrierSims qualify).
+   * Update the subsystem pips under each carrier bar — one pip per hangar
+   * BAY (each is an independent destructible), lit while that bay lives.
+   * Accepts each carrier's live `subsystems` array (structural type — both
+   * Game's motherships and NetworkGame's carrierSims qualify).
    * Write-on-change: cheap to call every frame.
    */
   setSubsystems(
@@ -379,7 +398,7 @@ export class Hud {
       for (const s of subs) {
         const pip = document.createElement("span");
         pip.className = `ms-pip ${s.kind}${s.isAlive ? "" : " dead"}`;
-        pip.title = "Hangar";
+        pip.title = "Hangar bay";
         el.appendChild(pip);
       }
     };
@@ -610,6 +629,40 @@ export class Hud {
     );
     if (this.jumpRingTextEl) {
       this.jumpRingTextEl.textContent = (tenths / 10).toFixed(1);
+    }
+  }
+
+  /**
+   * Drive the respawn countdown ring. `remainingMs` is the wait left while
+   * the player is dead, or null to hide (alive, launching, match over).
+   * `totalMs` is the full wait (the ring fills as it elapses). Called every
+   * frame; only touches the DOM when the displayed tenth changes. Whole
+   * seconds read best for a long bench; the last 10s tick in tenths like the
+   * jump spool.
+   */
+  setRespawnCountdown(remainingMs: number | null, totalMs: number): void {
+    if (remainingMs === null) {
+      if (this.lastRespawnTenths !== -1) {
+        this.lastRespawnTenths = -1;
+        this.respawnRingEl.classList.add("hidden");
+      }
+      return;
+    }
+    const tenths = Math.ceil(remainingMs / 100);
+    if (tenths === this.lastRespawnTenths) return;
+    if (this.lastRespawnTenths === -1) {
+      this.respawnRingEl.classList.remove("hidden");
+    }
+    this.lastRespawnTenths = tenths;
+    const progress = totalMs > 0 ? 1 - remainingMs / totalMs : 1;
+    this.respawnRingEl.style.setProperty(
+      "--spool",
+      `${Math.round(progress * 360)}deg`,
+    );
+    if (this.respawnRingTextEl) {
+      const sec = tenths / 10;
+      this.respawnRingTextEl.textContent =
+        sec > 10 ? String(Math.ceil(sec)) : sec.toFixed(1);
     }
   }
 

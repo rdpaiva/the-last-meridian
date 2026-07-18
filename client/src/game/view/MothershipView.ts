@@ -19,6 +19,7 @@ import { Mothership } from "@space-duel/shared";
 import { TurretView } from "./TurretView";
 import { includeInGlow } from "../GlowInclude";
 import { SubsystemView } from "./SubsystemView";
+import type { ExplosionSystem } from "../ExplosionSystem";
 
 /**
  * Procedural BSG-style carrier/battleship (Galactica silhouette) — the VIEW
@@ -140,7 +141,6 @@ export class MothershipView {
           new SubsystemView(
             scene,
             this.root,
-            faction,
             kind,
             m.x,
             m.y ?? scfg.mountY,
@@ -161,8 +161,19 @@ export class MothershipView {
     const subs = this.sim.subsystems;
     for (let i = 0; i < this.subsystemViews.length; i++) {
       const s = subs[i];
-      if (s) this.subsystemViews[i].update(s.isAlive);
+      if (s) this.subsystemViews[i].update(s.maxHp > 0 ? s.hp / s.maxHp : 0);
     }
+  }
+
+  /**
+   * Hand the FX system to the subsystem + turret views (hangar damage
+   * feedback and the dead-turret burn are pure spark bursts). Called by
+   * Game/NetworkGame right after constructing the ExplosionSystem — the
+   * carrier views are built earlier in both loops.
+   */
+  setExplosions(explosions: ExplosionSystem): void {
+    for (const v of this.subsystemViews) v.setExplosions(explosions);
+    for (const v of this.turretViews) v.setExplosions(explosions);
   }
 
   /**

@@ -12,6 +12,31 @@ import { Explosion, type Debris } from "./Explosion";
 import { includeInGlow } from "./GlowInclude";
 
 /**
+ * The knobs one spark burst reads — GameConfig.impactSpark itself (the
+ * fighter-scale default) or a sub-profile like impactSpark.hangar (the
+ * carrier-scale hangar-bay burn).
+ */
+type SparkProfile = {
+  countMin: number;
+  countMax: number;
+  durationMs: number;
+  durationJitter: number;
+  speedMin: number;
+  speedMax: number;
+  size: number;
+  sizeVarMin: number;
+  sizeVarMax: number;
+  flashRadius: number;
+  flashPeakMin: number;
+  flashPeakMax: number;
+  /**
+   * Optional per-sliver emissive palette (fire mix: white/yellow/orange/red).
+   * Absent = every sliver uses the stock white-gold spark material.
+   */
+  palette?: ReadonlyArray<{ r: number; g: number; b: number }>;
+};
+
+/**
  * Spawns and ticks short-lived explosion effects. Two shared emissive
  * materials (flash + debris) are reused across every explosion.
  *
@@ -28,6 +53,12 @@ export class ExplosionSystem {
   private readonly muzzleFlashMat: StandardMaterial;
   /** Hot white-gold glint for impact sparks (spawnSpark). */
   private readonly sparkMat: StandardMaterial;
+  /**
+   * Materials for palette-bearing spark profiles (the hangar/turret fire
+   * burn), one per palette color, built lazily and cached by palette
+   * reference — config palettes are stable arrays, so this stays tiny.
+   */
+  private readonly paletteMats = new Map<object, StandardMaterial[]>();
 
   constructor(
     private readonly scene: Scene,
@@ -65,15 +96,16 @@ export class ExplosionSystem {
   }
 
   /**
-   * A small, subtle spark burst at a laser bolt's point of impact — a tiny
-   * flash plus a handful of fast slivers that fly out and shrink. Wired off
-   * every laserHit so an impact reads on the hull surface, not just via the
-   * ship's damage flash. Reuses the Explosion entity (same tween + dispose)
-   * at a fraction of a kill's scale.
+   * A spark burst at a point of impact — a flash plus fast slivers that fly
+   * out and shrink. Wired off every laserHit so an impact reads on the hull
+   * surface, not just via the ship's damage flash. Reuses the Explosion
+   * entity (same tween + dispose) at a fraction of a kill's scale.
+   *
+   * `cfg` selects the spark PROFILE: default is the subtle fighter-scale
+   * `GameConfig.impactSpark`; the hangar-bay damage FX passes
+   * `impactSpark.hangar` (carrier-scale slivers/flash/spray) instead.
    */
-  spawnSpark(position: Vector3): void {
-    const cfg = GameConfig.impactSpark;
-
+  spawnSpark(position: Vector3, cfg: SparkProfile = GameConfig.impactSpark): void {
     // Roll the burst's shape so no two impacts look stamped from one mold:
     // count, flash punch, and lifetime all vary per hit.
     const count =
@@ -98,6 +130,7 @@ export class ExplosionSystem {
     // Give the slivers a random base bearing so the spray isn't anchored to a
     // fixed axis, then scatter each one freely around the disc from there.
     const baseAngle = Math.random() * Math.PI * 2;
+    const fireMats = cfg.palette ? this.matsForPalette(cfg.palette) : null;
     const debris: Debris[] = [];
     for (let i = 0; i < count; i++) {
       // Per-sliver size: a burst mixes fine glints with chunkier flecks.
@@ -110,7 +143,11 @@ export class ExplosionSystem {
         this.scene,
       );
       mesh.position.copyFrom(position);
-      mesh.material = this.sparkMat;
+      // Fire profiles roll each sliver's color from the palette; the stock
+      // profile keeps the single white-gold glint.
+      mesh.material = fireMats
+        ? fireMats[Math.floor(Math.random() * fireMats.length)]
+        : this.sparkMat;
       mesh.isPickable = false;
       includeInGlow(this.glowLayer, mesh);
 
@@ -132,6 +169,25 @@ export class ExplosionSystem {
     }
 
     this.active.push(new Explosion(flash, debris, duration, flashPeak));
+  }
+
+  /** Lazily build (and cache) one unlit emissive material per palette color. */
+  private matsForPalette(
+    palette: ReadonlyArray<{ r: number; g: number; b: number }>,
+  ): StandardMaterial[] {
+    let mats = this.paletteMats.get(palette);
+    if (!mats) {
+      mats = palette.map((c, i) => {
+        const mat = new StandardMaterial(`spark_palette_${i}`, this.scene);
+        mat.diffuseColor = new Color3(0, 0, 0);
+        mat.specularColor = new Color3(0, 0, 0);
+        mat.emissiveColor = new Color3(c.r, c.g, c.b);
+        mat.disableLighting = true;
+        return mat;
+      });
+      this.paletteMats.set(palette, mats);
+    }
+    return mats;
   }
 
   /**

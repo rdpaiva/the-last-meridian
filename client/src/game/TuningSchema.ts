@@ -284,10 +284,10 @@ export const TUNING_SCHEMA: ReadonlyArray<TuningGroup> = [
     entries: [
       num("mothership.maxHp", "Mothership HP", 200, 10000, 100,
         "Health of both motherships. Destroy the enemy's to win the match — lose yours and it's over."),
-      num("combat.playerRespawnDelayMs", "Player respawn (ms)", 0, 10000, 250,
+      num("combat.playerRespawnDelayMs", "Player respawn (ms)", 0, 60000, 1000,
         "How long you wait after dying before relaunching from your mothership."),
-      num("combat.enemyRespawnDelayMs", "Enemy respawn (ms)", 0, 15000, 250,
-        "How long enemy fighters wait after dying before they relaunch."),
+      num("combat.enemyRespawnDelayMs", "Enemy respawn (ms)", 0, 60000, 1000,
+        "How long AI fighters wait after dying before they relaunch."),
     ],
   },
   {
@@ -303,6 +303,10 @@ export const TUNING_SCHEMA: ReadonlyArray<TuningGroup> = [
         "Seconds between shots for each turret — lower = heavier flak."),
       num("mothership.turrets.turnRate", "Turret slew rate", 0.3, 6, 0.1,
         "How fast a turret barrel tracks a moving target (radians/sec)."),
+      num("energy.overdriveCooldownScale", "Overdrive fire interval ×", 0.3, 1, 0.05,
+        "Fire-interval multiplier for a full-health turret once its faction unlocks TURRET OVERDRIVE (T3). Lower = faster flak."),
+      num("energy.overdriveDamageScale", "Overdrive damage ×", 1, 3, 0.05,
+        "Per-bolt damage multiplier for a full-health turret under TURRET OVERDRIVE (T3)."),
     ],
   },
   {
@@ -312,10 +316,10 @@ export const TUNING_SCHEMA: ReadonlyArray<TuningGroup> = [
     entries: [
       num("stations.shield.minFactor", "Full-power shield factor", 0.05, 1, 0.05,
         "Hull damage fraction a carrier takes when its faction owns EVERY station (shield strength scales linearly with owned/total). Keep above 0 so a match can always end."),
-      num("mothership.subsystems.hangar.hp", "Hangar HP", 50, 1500, 25,
-        "Health of the carrier hangar. Destroying it slows that faction's respawns."),
+      num("mothership.subsystems.hangar.hp", "Hangar bay HP", 50, 1500, 25,
+        "Health of EACH carrier hangar bay (independent pools). Destroying bays slows that faction's respawns, graduating per bay."),
       num("mothership.subsystems.hangar.destroyedRespawnDelayScale", "Hangar-down respawn ×", 1, 6, 0.25,
-        "Respawn-delay multiplier a faction suffers once its hangar is destroyed."),
+        "Respawn-delay multiplier with EVERY bay destroyed (one of two down = halfway there)."),
       num("stations.captureTimeSec", "Station capture time (s)", 3, 60, 1,
         "Seconds one docked ship takes to flip a neutral station (draining an enemy one costs the same again)."),
       num("stations.dockMaxSpeed", "Dock speed limit", 4, 40, 1,

@@ -522,16 +522,21 @@ export class BattleRoom extends Room<{ state: BattleState }> {
         z: position.z,
       }),
     );
-    ev.on("subsystemDestroyed", ({ mothership, subsystem }) =>
+    ev.on("subsystemDestroyed", ({ mothership, subsystem }) => {
+      let remaining = 0;
+      for (const s of mothership.subsystems) {
+        if (s.kind === subsystem.kind && s.isAlive) remaining++;
+      }
       this.pendingEvents.push({
         k: "subsystemDestroyed",
         faction: mothership.faction,
         kind: subsystem.kind,
+        remaining,
         x: subsystem.position.x,
         y: subsystem.position.y,
         z: subsystem.position.z,
-      }),
-    );
+      });
+    });
     ev.on("shieldsDown", ({ faction }) =>
       this.pendingEvents.push({ k: "shieldsDown", faction }),
     );
@@ -860,8 +865,14 @@ export class BattleRoom extends Room<{ state: BattleState }> {
   /** Copy subsystem HP into the fixed schema slot (the hangar). No allocation. */
   private syncSubsystems(schema: MothershipSchema, faction: Faction): void {
     const ms = this.sim.motherships[faction];
+    let bay = 0;
     for (const sub of ms.subsystems) {
-      if (sub.kind === "hangar") schema.hangarHp = sub.hp;
+      if (sub.kind !== "hangar") continue;
+      // Index-aligned with the config mounts (buildSubsystems order) — the
+      // client mirror walks its subsystems the same way.
+      if (bay === 0) schema.hangar0Hp = sub.hp;
+      else if (bay === 1) schema.hangar1Hp = sub.hp;
+      bay++;
     }
   }
 }

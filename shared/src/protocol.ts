@@ -9,7 +9,7 @@ import type { InputState } from "./types";
  * message protocol or to GameConfig (balance lives in shared, so a tweak is a
  * both-sides deploy) — see docs/MULTIPLAYER.md → Decisions (protocol version).
  */
-export const PROTOCOL_VERSION = 26;
+export const PROTOCOL_VERSION = 27;
 
 /** Room name registered on the server + asked for by the client. */
 export const BATTLE_ROOM = "battle";
@@ -88,8 +88,11 @@ export type NetEvent =
   | { k: "mothershipDied"; faction: Faction }
   | { k: "turretFired"; faction: Faction; rot: number; x: number; y: number; z: number }
   | { k: "turretDestroyed"; x: number; y: number; z: number }
-  /** A carrier subsystem fell. `faction` = the CARRIER's side. */
-  | { k: "subsystemDestroyed"; faction: Faction; kind: "hangar"; x: number; y: number; z: number }
+  /** A carrier subsystem BAY fell (each bay is an independent destructible).
+   *  `faction` = the CARRIER's side; `remaining` = how many bays of this
+   *  kind that carrier still has alive (0 = the whole complex is down —
+   *  the "HANGAR DESTROYED" toast beat vs the per-bay one). */
+  | { k: "subsystemDestroyed"; faction: Faction; kind: "hangar"; remaining: number; x: number; y: number; z: number }
   /** `faction` lost its LAST powered station — carrier shields offline.
    *  (The graduated shield factor itself is derived client-side from the
    *  replicated station owners; these events mark the toast beats.) */
@@ -106,7 +109,7 @@ export type NetEvent =
       k: "upgradeUnlocked";
       faction: Faction;
       tier: number;
-      effect: "fasterRespawn" | "sensorBoost" | "subsystemRepair";
+      effect: "fasterRespawn" | "sensorBoost" | "turretOverdrive";
     }
   | { k: "jumpSpoolStarted"; ship: string }
   | { k: "jumpCancelled"; ship: string }

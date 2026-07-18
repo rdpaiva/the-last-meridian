@@ -674,25 +674,34 @@ export const GameConfig = {
    *    Ship.respawnDelayScale).
    *  - "sensorBoost": faction radar ranges × sensorRangeScale
    *    (SensorSystem.rangeScale — ship + carrier radar; eyeballs unchanged).
-   *  - "subsystemRepair": one-shot on unlock — revives/refills this faction's
-   *    hangar to repairHpFrac of max.
+   *  - "turretOverdrive": one-shot on unlock — revives/refills this faction's
+   *    carrier turrets to repairHpFrac of max; PLUS, persistently from then
+   *    on, any turret at FULL hp fires overdriveCooldownScale× faster for
+   *    overdriveDamageScale× damage. Chipping a turret below full knocks it
+   *    out of overdrive until repaired — the counterplay stays "shoot the
+   *    guns", so the buff never hard-walls a carrier push.
+   *    (The hangar is NOT repaired by anything: once destroyed it stays down.)
    */
   energy: {
     /** Cumulative-energy thresholds, unlocked strictly in order. */
     thresholds: [
       { cost: 100, effect: "fasterRespawn" },
       { cost: 250, effect: "sensorBoost" },
-      { cost: 500, effect: "subsystemRepair" },
+      { cost: 500, effect: "turretOverdrive" },
     ] as ReadonlyArray<{
       cost: number;
-      effect: "fasterRespawn" | "sensorBoost" | "subsystemRepair";
+      effect: "fasterRespawn" | "sensorBoost" | "turretOverdrive";
     }>,
     /** Respawn-delay multiplier once "fasterRespawn" unlocks (<1 = faster). */
     fasterRespawnScale: 0.6,
     /** Radar-range multiplier once "sensorBoost" unlocks (>1 = farther). */
     sensorRangeScale: 1.35,
-    /** Fraction of max HP subsystems are restored to on "subsystemRepair". */
+    /** Fraction of max HP turrets are restored to on "turretOverdrive". */
     repairHpFrac: 1.0,
+    /** Overdriven turret fire-cooldown multiplier (<1 = faster; full-hp only). */
+    overdriveCooldownScale: 0.8,
+    /** Overdriven turret per-bolt damage multiplier (>1; full-hp only). */
+    overdriveDamageScale: 1.3,
   },
 
   /**
@@ -1158,13 +1167,17 @@ export const GameConfig = {
       /** Per-turret hit points (shoot a turret off the pod). */
       hp: 120,
       /**
-       * Collision radius for being shot. Sized so the turret's hit circle
-       * pokes PAST the hull silhouette at its edge mount (see `mounts`): a bolt
-       * aimed at the turret crosses this circle at/before the hull, and since
-       * turrets register ahead of the hull sections (Game.start) the turret
-       * takes the hit instead of the carrier behind it.
+       * Collision radius for being shot. MUST poke PAST the hull-collider
+       * silhouette at the mounts — turrets register ahead of the hull
+       * sections, but a circle fully inside the hull footprint never gets
+       * touched: bolts die on the hull boundary first (this bit once: the
+       * mounts moved inboard to the GLB pod-ridge/sponson positions while r
+       * stayed 8, making every turret IMMUNE — owner-reported 2026-07-18).
+       * Current mounts: humans |x|=38 vs pod-box edge 50.9 → needs r > 12.9;
+       * machines |x|=42 vs sponson edge 53 → needs r > 11. 15 pokes both.
+       * Re-check this bound whenever mounts or hull colliders move.
        */
-      hitRadius: 8,
+      hitRadius: 15,
       /**
        * Max engagement range (world units). Deliberately OUT-RANGES the
        * fighters (a fighter bolt expires after laser.speed × laser.lifetimeMs
@@ -1347,22 +1360,46 @@ export const GameConfig = {
      */
     subsystems: {
       hangar: {
-        /** Hangar hit points (tough — it's buried in hull). */
+        /** Hit points PER BAY (each bay is an independent pool). Sized so a
+         *  heavy gunship needs a real strafing run per bay (~10 Breaker
+         *  bolts), not one pass — was 200 and died in 3-4 volleys. */
         hp: 350,
-        /** Collision radius — sized to poke past the hull edge at its mount. */
-        hitRadius: 16,
         /**
-         * Respawn-delay multiplier for the owning faction once the hangar is
-         * destroyed. Composes multiplicatively with the energy-upgrade
-         * respawn scale (M2) via Ship.respawnDelayScale.
+         * Collision radius — sized to poke past the hull edge at its mount
+         * (bay |x| + hitRadius must exceed the hullRects halfWidth there:
+         * humans 38.2+22 > 51, machines 41.3+22 > 53), so the bay is
+         * shootable from its flank even though the mount sits ON the deck.
+         */
+        hitRadius: 22,
+        /**
+         * Respawn-delay multiplier with EVERY bay destroyed — the penalty
+         * GRADUATES per bay (1 → this value as dead/total climbs, so one of
+         * two bays down = halfway). Composes multiplicatively with the
+         * energy-upgrade respawn scale (M2) via Ship.respawnDelayScale.
          */
         destroyedRespawnDelayScale: 2.5,
-        // One per carrier, at the launch structure: Bastion catapults fire
-        // over the bow (mount pokes past the bow tip); Choirship launches
-        // from the port side-bay housing.
+        // BOTH launch bays per carrier, anchored to the REAL launch
+        // structure: the launch.* empties measured off each carrier GLB
+        // (`measuredLaunch` above — re-fit here if a re-export moves the
+        // bays). Each bay is an INDEPENDENT destructible (own hp pool);
+        // respawn launches re-route to surviving bays
+        // (Mothership.getLiveLaunchBayIndices). There is no placeholder mesh
+        // anymore: the modelled bays ARE the hangar; only damage renders
+        // (SubsystemView's smolder → burning breach).
+        // Humans mounts sit at the BAY-FLOOR center (the glowing deck runs
+        // z 84..126), biased toward the mouth so the hit circle reaches past
+        // the bow-taper hullRect (z≥120) — shots INTO the bay entrance land
+        // on the hangar instead of dying on the hull boundary. (The measured
+        // launch empties are at z 86.9, the bay BACK where ships spawn.)
         mounts: {
-          humans: [{ x: 0, y: 8, z: 138 }],    // bow tip, catapult mouth
-          machines: [{ x: -46, y: 8, z: 25 }], // port launch-bay housing
+          humans: [
+            { x: -38.2, y: 8, z: 110 }, // port catapult bay
+            { x: 38.2, y: 8, z: 110 },  // starboard catapult bay
+          ],
+          machines: [
+            { x: -41.3, y: 8, z: 23.3 }, // port launch-bay housing
+            { x: 41.3, y: 8, z: 23.3 },  // starboard launch-bay housing
+          ],
         } as Record<
           import("./Faction").Faction,
           ReadonlyArray<{ x: number; z: number; y?: number }>
@@ -2072,10 +2109,18 @@ export const GameConfig = {
 
     // NOTE: ship HP is PER SHIP TYPE — see shipTypes[*].maxHp.
 
-    /** Delay before a dead player ship comes back. */
-    playerRespawnDelayMs: 1500,
-    /** Delay before a dead enemy ship comes back. */
-    enemyRespawnDelayMs: 3000,
+    /**
+     * Delay before a dead player ship comes back. Deliberately LONG (was
+     * 1.5s): a death should bench you — kills need to buy the winning side
+     * real time on the board. The T1 "fasterRespawn" station upgrade (×0.6)
+     * and the hangar-destroyed penalty (×2.5) scale off this base, so both
+     * only read as meaningful against a base worth scaling.
+     */
+    playerRespawnDelayMs: 20000,
+    /** Delay before a dead AI ship (either faction) comes back — matched to
+     * the player's: fleet battles are symmetric, and a faster-returning AI
+     * fleet would erase the player's kill advantage while they sit out. */
+    enemyRespawnDelayMs: 20000,
   },
 
   /**
@@ -2719,6 +2764,49 @@ export const GameConfig = {
     /** Peak flash scale, rolled per burst in [flashPeakMin, flashPeakMax]. */
     flashPeakMin: 1.7,
     flashPeakMax: 2.7,
+
+    // --- Hangar-bay damage FX (SubsystemView — the bays have no marker
+    // geometry, so these sparks are the whole damage read). A damaged bay
+    // EMITS CONTINUOUSLY (cadence speeds up with damage, fastest when
+    // destroyed) using the CARRIER-SCALE profile below — the stock profile
+    // above is fighter-scale (0.18-unit slivers) and reads as nothing
+    // against a 280-unit carrier. ---
+    hangar: {
+      /** Slivers per burst (same roll rule as the stock profile). */
+      countMin: 10,
+      countMax: 18,
+      /** Burst lifetime (ms) ± jitter — long enough to read as a fountain. */
+      durationMs: 650,
+      durationJitter: 0.35,
+      /** Outward sliver speed (units/sec) — sprays ~10-20 units at bay scale. */
+      speedMin: 14,
+      speedMax: 30,
+      /** Sliver edge length × [sizeVarMin, sizeVarMax] — carrier-scale chunks. */
+      size: 1.1,
+      sizeVarMin: 0.5,
+      sizeVarMax: 1.6,
+      /** Central flash base radius + peak-scale roll. */
+      flashRadius: 2.2,
+      flashPeakMin: 1.6,
+      flashPeakMax: 2.4,
+      /**
+       * Continuous-burn emission period (ms) — runs ONLY while fully
+       * DESTROYED (a wounded bay just throws a burst per hit; owner call).
+       * Jittered per burst so the two bays (and dead turrets) desync.
+       */
+      emitIntervalMs: 260,
+      /**
+       * Sliver emissive palette, rolled PER SLIVER so the burn reads as
+       * FIRE — white-hot core, yellow, orange, deep red — instead of the
+       * stock single gold glint. Components >1 punch through bloom.
+       */
+      palette: [
+        { r: 2.6, g: 2.5, b: 2.2 }, // white-hot
+        { r: 2.4, g: 1.9, b: 0.5 }, // yellow
+        { r: 2.0, g: 0.85, b: 0.2 }, // orange
+        { r: 1.7, g: 0.35, b: 0.12 }, // deep red
+      ],
+    },
   },
 
   shake: {

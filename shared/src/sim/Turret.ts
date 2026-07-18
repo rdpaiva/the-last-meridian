@@ -142,11 +142,15 @@ export class Turret implements DamageTarget {
    * + arc, slew toward it, and (when aligned, in range, and off cooldown)
    * return a fire command. Returns null when there is nothing to shoot or the
    * gun isn't ready. `contacts` is the OWNING faction's sensor picture.
+   * `overdriveUnlocked` = the owning faction holds the "turretOverdrive"
+   * upgrade (Mothership.turretOverdrive); it only bites while this turret is
+   * at FULL hp — chip the gun and it drops back to stock fire rate/damage.
    */
   update(
     deltaSeconds: number,
     contacts: readonly SensorContact[],
     _nowMs: number,
+    overdriveUnlocked = false,
   ): TurretFireCommand | null {
     if (this.cooldown > 0) this.cooldown -= deltaSeconds;
 
@@ -192,7 +196,10 @@ export class Turret implements DamageTarget {
     if (Math.abs(wrapAngle(bestAngle - this.aimAngle)) > cfg.aimTolerance) {
       return null;
     }
-    this.cooldown = cfg.fireCooldownSec;
+    const overdrive = overdriveUnlocked && this.hp >= this.maxHp;
+    this.cooldown = overdrive
+      ? cfg.fireCooldownSec * GameConfig.energy.overdriveCooldownScale
+      : cfg.fireCooldownSec;
     const muzzleY = this.muzzleHeight ?? this.position.y;
     const origin = new Vector3(
       this.position.x + Math.sin(this.aimAngle) * this.muzzleForward,
@@ -206,7 +213,10 @@ export class Turret implements DamageTarget {
     // target. sqrt(bestSq) is that distance (bestSq is the locked target's).
     const horizDist = Math.sqrt(bestSq) || 1;
     const velocityY = (-muzzleY * GameConfig.laser.speed) / horizDist;
-    return { origin, rotationY: this.aimAngle, damage: cfg.damage, velocityY };
+    const damage = overdrive
+      ? cfg.damage * GameConfig.energy.overdriveDamageScale
+      : cfg.damage;
+    return { origin, rotationY: this.aimAngle, damage, velocityY };
   }
 }
 

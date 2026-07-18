@@ -570,6 +570,10 @@ export class Game {
     };
 
     this.explosions = new ExplosionSystem(this.scene, this.glowLayer);
+    // Hangar-bay damage feedback is spark bursts — hand the FX system to the
+    // carrier views (built earlier, before the FX block).
+    this.mothershipViews.humans.setExplosions(this.explosions);
+    this.mothershipViews.machines.setExplosions(this.explosions);
     this.jumpFlashes = new JumpFlashSystem(this.scene, this.glowLayer);
     this.shieldHitFlashes = new ShieldHitFlashSystem(this.scene);
     this.jumpGhosts = new JumpGhostSystem(this.scene, this.glowLayer);
@@ -1138,9 +1142,18 @@ export class Game {
           subsystem.position,
         ),
       );
+      // Per-bay milestone toast; the LAST bay escalates to the full headline
+      // (each bay is an independent destructible — mirrors the NetEvent's
+      // `remaining` in NetworkGame.applyFxEvent).
+      let remaining = 0;
+      for (const s of mothership.subsystems) {
+        if (s.kind === subsystem.kind && s.isAlive) remaining++;
+      }
       const name = FACTION_THEME[mothership.faction].mothershipName.toUpperCase();
       this.hud.showStrategicToast(
-        `${name} HANGAR DESTROYED`,
+        remaining > 0
+          ? `${name} HANGAR BAY DESTROYED`
+          : `${name} HANGAR DESTROYED — LAUNCH CREWS CRIPPLED`,
         mothership.faction === this.playerFaction ? "bad" : "good",
       );
     });
@@ -1977,7 +1990,9 @@ export class Game {
     }
 
     // Turret death FX (fires once per turret, gated by its explosionFired
-    // latch — same shape as ship death). No respawn: a shot-off gun stays gone.
+    // latch — same shape as ship death). The strategic "turretOverdrive"
+    // repair re-arms the latch, so a revived-then-redestroyed gun announces
+    // again (mirrors BattleSim.advance).
     for (const f of ["humans", "machines"] as Faction[]) {
       for (const turret of this.motherships[f].turrets) {
         if (!turret.isAlive && !turret.explosionFired) {
@@ -1986,10 +2001,9 @@ export class Game {
         }
       }
       // Subsystem death latch (mirrors BattleSim.advance): announce once on
-      // the subsystem's explosionFired flag — the strategic "subsystemRepair"
-      // upgrade re-arms it, so a revived-then-redestroyed subsystem announces
-      // again. Destruction EFFECTS (hangar respawn penalty) are applied
-      // declaratively by StrategicSystem.update, not here.
+      // the subsystem's explosionFired flag. Destruction EFFECTS (hangar
+      // respawn penalty) are applied declaratively by StrategicSystem.update,
+      // not here.
       for (const sub of this.motherships[f].subsystems) {
         if (!sub.isAlive && !sub.explosionFired) {
           sub.explosionFired = true;
@@ -2193,6 +2207,14 @@ export class Game {
       this.hud.setServiceStatus(this.playerServiceState);
       this.hud.setJumpSpool(
         this.playerShip.isSpoolingJump ? this.playerShip.jumpSpoolProgress : null,
+      );
+      // Redeploy countdown while dead (hidden once the match is decided —
+      // the end banner owns the screen).
+      this.hud.setRespawnCountdown(
+        this.state === "playing"
+          ? this.playerShip.respawnRemainingMs(nowMs)
+          : null,
+        this.playerShip.respawnTotalMs,
       );
     }
     this.hud.setMothershipHp(
@@ -2449,7 +2471,13 @@ export class Game {
     // No respawn once a carrier is gone (for the player that path ends in defeat,
     // and a fallen enemy carrier means the match is already won).
     if (!home.isAlive) return;
-    const start = home.getLaunchStartPosition(c.bayIndex);
+    // Re-route around destroyed hangar bays: keep the assigned bay while it
+    // lives, else launch from a surviving one (deterministic pick).
+    const liveBays = home.getLiveLaunchBayIndices();
+    const bayIndex = liveBays.includes(c.bayIndex)
+      ? c.bayIndex
+      : liveBays[c.bayIndex % liveBays.length];
+    const start = home.getLaunchStartPosition(bayIndex);
     ship.respawn(start.x, start.z, home.rotationY);
     // Flush the trail history so no streak appears on the first thrust after
     // teleporting to the respawn position.

@@ -1,38 +1,43 @@
 import type { Scene } from "@babylonjs/core/scene";
-import type { Mesh } from "@babylonjs/core/Meshes/mesh";
-import { Color3 } from "@babylonjs/core/Maths/math.color";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
-import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
-import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
-// Box builder registration — housing boxes (matches the carrier's boxy
-// procedural style, see MothershipView/TurretView).
-import "@babylonjs/core/Meshes/Builders/boxBuilder";
 
-import { FACTION_THEME } from "@space-duel/shared";
-import type { Faction, SubsystemKind } from "@space-duel/shared";
+import { GameConfig } from "@space-duel/shared";
+import type { SubsystemKind } from "@space-duel/shared";
+import type { ExplosionSystem } from "../ExplosionSystem";
 
 /**
- * Depiction of ONE carrier subsystem (the hangar) — the VIEW half of the
- * MothershipSubsystem split (the TurretView recipe minus the traverse:
- * subsystems don't aim). Holds no gameplay truth; each frame it reads the
- * sim subsystem's `isAlive` and, on the first dead frame, drops the live
- * structure to a charred base stump (exactly TurretView's dead state).
+ * Depiction of ONE carrier subsystem mount (a hangar bay) — the VIEW half of
+ * the MothershipSubsystem split. DIEGETIC by design (owner calls,
+ * 2026-07-18): NO marker geometry ever — while healthy, the carrier GLB's
+ * own modelled launch bay IS the hangar (the sim mount is anchored to the
+ * bay footprint, see GameConfig.mothership.subsystems.hangar.mounts), and
+ * damage feedback is pure spark FX (the owner rejected a first-pass ember
+ * cluster, then a subtle boosted-glint pass): every HP drop throws an
+ * immediate carrier-scale FIRE burst (the impactSpark.hangar profile —
+ * white/yellow/orange/red palette slivers), and a fully DESTROYED bay
+ * burns continuously (a burst every ~emitIntervalMs). A wounded-but-alive
+ * bay stays quiet between hits (owner call — the constant burn is the
+ * "it's dead" read, not a damage meter).
  *
- * Procedural-only: a deck housing plus a faction-emissive bay light strip
- * that dies with the subsystem. A future carrier GLB can author real
- * geometry via `hangar.*` empties (Mothership.setModelSubsystemMounts is the
- * generic re-seat seam).
+ * Holds no gameplay truth; each frame it reads the sim subsystem's hp
+ * fraction from MothershipView.syncSubsystems(). Works online unchanged:
+ * bay HP is replicated, so the drop edges and the dead state replay here.
+ * The ExplosionSystem arrives via setExplosions() after construction (the
+ * carrier views are built before the FX systems in both loops).
  */
 export class SubsystemView {
   private readonly mount: TransformNode;
-  /** The live structure disabled on death (the base box stays as a stump). */
-  private readonly live: TransformNode;
-  private deadShown = false;
+  private explosions: ExplosionSystem | null = null;
+  /** hp fraction last frame; null until the first read so a mid-match join
+   *  (or a pre-wounded replicated state) doesn't fire a phantom burst. */
+  private lastFrac: number | null = null;
+  private nextEmitAtMs = 0;
+  private readonly scratch = new Vector3();
 
   constructor(
     scene: Scene,
     root: TransformNode,
-    faction: Faction,
     readonly kind: SubsystemKind,
     mountX: number,
     mountY: number,
@@ -41,82 +46,62 @@ export class SubsystemView {
     this.mount = new TransformNode(`subsys_${kind}_${mountX}_${mountZ}`, scene);
     this.mount.parent = root;
     this.mount.position.set(mountX, mountY, mountZ);
+  }
 
-    this.live = new TransformNode(`subsys_${kind}_live_${mountX}_${mountZ}`, scene);
-    this.live.parent = this.mount;
-
-    const hullMat = new StandardMaterial(`subsys_hull_${faction}_${kind}`, scene);
-    hullMat.diffuseColor =
-      faction === "humans"
-        ? new Color3(0.22, 0.28, 0.4)
-        : new Color3(0.34, 0.16, 0.15);
-    hullMat.specularColor = new Color3(0.05, 0.05, 0.08);
-
-    // Faction-tinted emissive for the live element — the faction IDENTITY
-    // palette (engine exhaust: Commonwealth blue, Novari red — the same
-    // friend-or-foe read as radar/HUD; laserEmissive would make human
-    // hardware glow pink). Unlit on purpose (style rule: emissive elements
-    // glow regardless of scene light).
-    const glowMat = new StandardMaterial(`subsys_glow_${faction}_${kind}`, scene);
-    const theme = FACTION_THEME[faction].engineHot;
-    glowMat.emissiveColor = new Color3(theme.r * 0.45, theme.g * 0.45, theme.b * 0.45);
-    glowMat.diffuseColor = Color3.Black();
-    glowMat.disableLighting = true;
-
-    this.buildHangar(scene, hullMat, glowMat);
+  /** FX hookup — called by MothershipView.setExplosions once the system exists. */
+  setExplosions(explosions: ExplosionSystem): void {
+    this.explosions = explosions;
   }
 
   /**
    * Re-seat this subsystem at a new carrier-LOCAL mount (x/y/z under the
-   * carrier root) — the seam for a future carrier GLB authoring `hangar.*`
-   * empties (the sim side re-seats in lockstep via
+   * carrier root) — the seam for a carrier GLB authoring `hangar.*` empties
+   * (the sim side re-seats in lockstep via
    * Mothership.setModelSubsystemMounts).
    */
   setMount(x: number, y: number, z: number): void {
     this.mount.position.set(x, y, z);
   }
 
-  /** Deck housing + emissive bay-mouth light strip. */
-  private buildHangar(
-    scene: Scene,
-    hullMat: StandardMaterial,
-    glowMat: StandardMaterial,
-  ): void {
-    const housing = MeshBuilder.CreateBox(
-      "subsys_hangar_housing",
-      { width: 12, height: 3.2, depth: 9 },
-      scene,
-    );
-    housing.parent = this.mount;
-    housing.material = hullMat;
-    housing.isPickable = false;
-
-    const strip: Mesh = MeshBuilder.CreateBox(
-      "subsys_hangar_strip",
-      { width: 10, height: 1.2, depth: 0.8 },
-      scene,
-    );
-    strip.parent = this.live;
-    strip.position.set(0, 1.2, 4.6);
-    strip.material = glowMat;
-    strip.isPickable = false;
+  /**
+   * Compare this bay's hp fraction against last frame: a drop throws an
+   * immediate burst (hit feedback); only a fully DESTROYED bay runs the
+   * continuous burn. View-only wall clock — never sim state. Called each
+   * view frame from MothershipView.syncSubsystems().
+   */
+  update(hpFrac: number): void {
+    const frac = Math.max(0, Math.min(1, hpFrac));
+    const prev = this.lastFrac;
+    this.lastFrac = frac;
+    if (!this.explosions) return;
+    const now = performance.now();
+    if (prev !== null && frac < prev - 1e-6) {
+      this.burst();
+      this.nextEmitAtMs = now + this.emitDelay();
+      return;
+    }
+    if (frac <= 0 && now >= this.nextEmitAtMs) {
+      this.burst();
+      this.nextEmitAtMs = now + this.emitDelay();
+    }
   }
 
-  /**
-   * First frame the sim subsystem reads dead: drop the live structure (bay
-   * lights) and leave the housing as a stump. The strategic
-   * "subsystemRepair" upgrade can REVIVE a subsystem — a live read after a
-   * dead one un-stumps it. Called each view frame from
-   * MothershipView.syncSubsystems().
-   */
-  update(isAlive: boolean): void {
-    if (!isAlive && !this.deadShown) {
-      this.deadShown = true;
-      this.live.setEnabled(false);
-    } else if (isAlive && this.deadShown) {
-      this.deadShown = false;
-      this.live.setEnabled(true);
-    }
+  /** Jittered continuous-burn period so the bays (and dead turrets) desync. */
+  private emitDelay(): number {
+    return (
+      GameConfig.impactSpark.hangar.emitIntervalMs * (0.7 + Math.random() * 0.6)
+    );
+  }
+
+  /** Carrier-scale spark burst, scattered around the bay so it doesn't stamp. */
+  private burst(): void {
+    const p = this.mount.getAbsolutePosition();
+    this.scratch.set(
+      p.x + (Math.random() - 0.5) * 12,
+      p.y,
+      p.z + (Math.random() - 0.5) * 12,
+    );
+    this.explosions!.spawnSpark(this.scratch, GameConfig.impactSpark.hangar);
   }
 
   dispose(): void {

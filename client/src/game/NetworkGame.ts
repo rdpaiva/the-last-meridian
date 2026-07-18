@@ -359,6 +359,12 @@ export class NetworkGame {
   };
   private myAlive = false;
   private myLaunching = true;
+  /**
+   * Render-clock time our ship was first seen dead (alive→dead edge), for
+   * the cosmetic redeploy countdown. The server owns the actual respawn —
+   * this only times the wait locally. Null while alive.
+   */
+  private myDeathStartMs: number | null = null;
 
   // ─── Transient FX (Phase 2 event replication) ───
   private readonly sound: SoundSystem;
@@ -635,6 +641,10 @@ export class NetworkGame {
     this.sound = new SoundSystem(this.scene);
     this.music = new MusicSystem(this.scene);
     this.explosions = new ExplosionSystem(this.scene, this.glowLayer);
+    // Hangar-bay damage feedback is spark bursts — hand the FX system to the
+    // carrier views (built earlier; mirrors the solo Game wiring).
+    carriers.humans.setExplosions(this.explosions);
+    carriers.machines.setExplosions(this.explosions);
     this.jumpFlashes = new JumpFlashSystem(this.scene, this.glowLayer);
     this.shieldHitFlashes = new ShieldHitFlashSystem(this.scene);
     this.jumpGhosts = new JumpGhostSystem(this.scene, this.glowLayer);
@@ -1320,12 +1330,14 @@ export class NetworkGame {
       humansMothership?: {
         hp: number;
         maxHp: number;
-        hangarHp?: number;
+        hangar0Hp?: number;
+        hangar1Hp?: number;
       };
       machinesMothership?: {
         hp: number;
         maxHp: number;
-        hangarHp?: number;
+        hangar0Hp?: number;
+        hangar1Hp?: number;
       };
       phase?: string;
       winner?: string;
@@ -1471,6 +1483,25 @@ export class NetworkGame {
       this.hud.setJumpSpool(
         myStub.isSpoolingJump && this.myAlive ? myStub.jumpSpoolProgress : null,
       );
+
+      // Redeploy countdown (offline parity — Game.updateViews's block): the
+      // server owns the respawn clock, so time the wait locally from the
+      // alive→dead edge, mirroring the server's scaling (hangar penalty ×
+      // replicated fasterRespawn tier). Cosmetic: the actual respawn arrives
+      // by replication; a small drift just snaps the last fraction.
+      if (!this.myAlive && phase === "playing" && !this.ended) {
+        if (this.myDeathStartMs === null) this.myDeathStartMs = nowMs;
+        const total =
+          GameConfig.combat.enemyRespawnDelayMs * // every online seat spawns with this delay
+          this.respawnScaleFor(this.playerFaction);
+        this.hud.setRespawnCountdown(
+          Math.max(0, total - (nowMs - this.myDeathStartMs)),
+          total,
+        );
+      } else {
+        this.myDeathStartMs = null;
+        this.hud.setRespawnCountdown(null, 0);
+      }
 
       // Capture status (offline parity — Game.updateViews's docked block):
       // the meter itself is server truth riding the StationSchema; the
@@ -1864,6 +1895,24 @@ export class NetworkGame {
         this.cameraRig.addTrauma(
           this.traumaAtDistance(GameConfig.mothership.turrets.destroyTrauma, e.x, e.z),
         );
+        // Kill the matching MIRROR turret (turret HP is not replicated —
+        // this event is the only death signal), so TurretView drops the gun
+        // to its stump and runs the dead-turret burn, same as offline. The
+        // event position is the turret's static mount: nearest-match it.
+        let nearest: { hp: number } | null = null;
+        let nearestSq = Infinity;
+        for (const f of ["humans", "machines"] as Faction[]) {
+          for (const t of this.carrierSims[f].turrets) {
+            const dx = t.position.x - e.x;
+            const dz = t.position.z - e.z;
+            const dSq = dx * dx + dz * dz;
+            if (dSq < nearestSq) {
+              nearestSq = dSq;
+              nearest = t;
+            }
+          }
+        }
+        if (nearest) nearest.hp = 0;
         return;
       }
       case "subsystemDestroyed": {
@@ -1880,9 +1929,14 @@ export class NetworkGame {
             e.z,
           ),
         );
+        // Per-bay milestone toast; the LAST bay escalates to the full
+        // headline (mirrors the Game.ts subscription; `remaining` counted
+        // server-side at emit).
         const name = FACTION_THEME[e.faction].mothershipName.toUpperCase();
         this.hud.showStrategicToast(
-          `${name} HANGAR DESTROYED`,
+          e.remaining > 0
+            ? `${name} HANGAR BAY DESTROYED`
+            : `${name} HANGAR DESTROYED — LAUNCH CREWS CRIPPLED`,
           e.faction === this.playerFaction ? "bad" : "good",
         );
         return;
@@ -1924,6 +1978,13 @@ export class NetworkGame {
         return;
       }
       case "upgradeUnlocked": {
+        // T3's one-shot revives that faction's turrets server-side; mirror
+        // it here (turret HP is not replicated) so the TurretViews un-stump.
+        if (e.effect === "turretOverdrive") {
+          for (const t of this.carrierSims[e.faction].turrets) {
+            t.hp = t.maxHp;
+          }
+        }
         const own = e.faction === this.playerFaction;
         const label = UPGRADE_LABELS[e.effect];
         this.hud.showStrategicToast(
@@ -2611,6 +2672,36 @@ export class NetworkGame {
     return ms.maxHp > 0 ? ms.hp / ms.maxHp : 0;
   }
 
+  /** This faction's respawn-delay multiplier over replicated state — the
+   *  GRADUATED hangar penalty (replicated bay HP → carrier sim) × the
+   *  fasterRespawn upgrade (replicated tier). Mirrors
+   *  StrategicSystem.respawnScale; drives the cosmetic redeploy countdown
+   *  only. */
+  private respawnScaleFor(f: Faction): number {
+    let total = 0;
+    let dead = 0;
+    for (const s of this.carrierSims[f].subsystems) {
+      if (s.kind !== "hangar") continue;
+      total++;
+      if (!s.isAlive) dead++;
+    }
+    const hangarPenalty =
+      total === 0
+        ? 1
+        : 1 +
+          (GameConfig.mothership.subsystems.hangar.destroyedRespawnDelayScale - 1) *
+            (dead / total);
+    const thresholds = GameConfig.energy.thresholds;
+    const tier = Math.min(this.netTier[f], thresholds.length);
+    let upgrade = 1;
+    for (let i = 0; i < tier; i++) {
+      if (thresholds[i].effect === "fasterRespawn") {
+        upgrade = GameConfig.energy.fasterRespawnScale;
+      }
+    }
+    return hangarPenalty * upgrade;
+  }
+
   /** This faction's radar-range multiplier from its replicated upgrade tier
    *  (mirrors StrategicSystem.applyEffects's sensorBoost half). */
   private sensorScaleFor(f: Faction): number {
@@ -2632,12 +2723,15 @@ export class NetworkGame {
    */
   private applySubsystemHp(
     carrier: Mothership,
-    ms: { hangarHp?: number },
+    ms: { hangar0Hp?: number; hangar1Hp?: number },
   ): void {
+    let bay = 0;
     for (const sub of carrier.subsystems) {
-      if (sub.kind === "hangar" && ms.hangarHp !== undefined) {
-        sub.hp = ms.hangarHp;
-      }
+      if (sub.kind !== "hangar") continue;
+      // Index-aligned with BattleRoom.syncSubsystems (buildSubsystems order).
+      const v = bay === 0 ? ms.hangar0Hp : bay === 1 ? ms.hangar1Hp : undefined;
+      if (v !== undefined) sub.hp = v;
+      bay++;
     }
   }
 

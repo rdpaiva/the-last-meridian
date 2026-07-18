@@ -66,23 +66,43 @@ const THREE_STATIONS = [
 ];
 
 describe("mothership subsystems (hangar)", () => {
-  it("builds the configured subsystems: 1 hangar, own HP pool, no shields", () => {
+  it("builds the hangar as two INDEPENDENT bays, own pools, no shields", () => {
     const ms = makeCarrier();
     const hangars = ms.subsystems.filter((s) => s.kind === "hangar");
-    expect(hangars.length).toBe(1);
-    expect(ms.subsystems.length).toBe(1);
+    expect(hangars.length).toBe(2); // both launch bays are destructibles
+    expect(ms.subsystems.length).toBe(2);
     expect(ms.hangarAlive).toBe(true);
     // A fresh carrier is UNSHIELDED (no station power yet).
     expect(ms.stationShieldFactor).toBe(1);
     expect(ms.shieldsUp).toBe(false);
-    // Subsystem damage is its own pool — the carrier hull must not move.
+    // Subsystem damage is its own pool — the carrier hull must not move —
+    // and each bay is INDEPENDENT: wounding one leaves the other whole.
     const hullBefore = ms.hp;
     hangars[0].takeDamage(50, 0);
     expect(hangars[0].hp).toBe(hangars[0].maxHp - 50);
+    expect(hangars[1].hp).toBe(hangars[1].maxHp);
     expect(ms.hp).toBe(hullBefore);
+    // Killing one bay leaves the complex partially alive.
+    killSubsystem(hangars[0]);
+    expect(ms.hangarAlive).toBe(false); // "all bays alive" reads false…
+    expect(hangars[1].isAlive).toBe(true); // …but the other bay still lives
     // And with factor 1, hull damage lands in full.
     ms.takeDamage(100, 0);
     expect(ms.hp).toBeCloseTo(hullBefore - 100, 6);
+  });
+
+  it("routes respawn launches around a destroyed bay", () => {
+    const ms = makeCarrier();
+    const all = ms.getLiveLaunchBayIndices();
+    expect(all.length).toBe(ms.getLaunchBayCount()); // healthy = every bay
+    const hangars = ms.subsystems.filter((s) => s.kind === "hangar");
+    killSubsystem(hangars[0]); // port bay down
+    const live = ms.getLiveLaunchBayIndices();
+    expect(live.length).toBeGreaterThan(0);
+    expect(live.length).toBeLessThan(all.length);
+    // Both bays down: fall back to every bay — launches never stop.
+    killSubsystem(hangars[1]);
+    expect(ms.getLiveLaunchBayIndices()).toEqual(all);
   });
 
   it("stretches a ship's respawn clock by respawnDelayScale", () => {
@@ -104,24 +124,30 @@ describe("mothership subsystems (hangar)", () => {
     expect(ship2.shouldRespawn(2500)).toBe(true);
   });
 
-  it("BattleSim latches the hangar death: event fires once, faction slows", () => {
+  it("BattleSim latches per-bay deaths; the respawn penalty graduates", () => {
     const { sim, ship } = makeSim([]);
     const destroyed: string[] = [];
     sim.events.on("subsystemDestroyed", ({ mothership, subsystem }) => {
       destroyed.push(`${mothership.faction}:${subsystem.kind}`);
     });
 
+    const fullScale =
+      GameConfig.mothership.subsystems.hangar.destroyedRespawnDelayScale;
     const humans = sim.motherships.humans;
-    const hangar = humans.subsystems.find((s) => s.kind === "hangar")!;
-    killSubsystem(hangar);
+    const [bay0, bay1] = humans.subsystems.filter((s) => s.kind === "hangar");
+
+    killSubsystem(bay0); // one of two bays down → halfway penalty
     sim.advance(DT);
     expect(destroyed).toEqual(["humans:hangar"]);
+    expect(ship.respawnDelayScale).toBeCloseTo(1 + (fullScale - 1) / 2, 6);
+
+    killSubsystem(bay1); // whole complex down → full penalty
     sim.advance(DT);
-    expect(destroyed).toEqual(["humans:hangar"]); // latched
+    expect(destroyed).toEqual(["humans:hangar", "humans:hangar"]);
+    sim.advance(DT);
+    expect(destroyed.length).toBe(2); // latched
     expect(humans.hangarAlive).toBe(false);
-    expect(ship.respawnDelayScale).toBe(
-      GameConfig.mothership.subsystems.hangar.destroyedRespawnDelayScale,
-    );
+    expect(ship.respawnDelayScale).toBeCloseTo(fullScale, 6);
   });
 });
 

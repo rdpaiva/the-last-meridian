@@ -50,6 +50,14 @@ The design doc `docs/the-last-meridian-strategic-persistence-design.md` proposes
 > The HANGAR subsystem and everything else in M1 stands. Protocol 25→26.
 > See `docs/AGENT_KICKOFF.md` (state paragraph "STATION-POWERED carrier
 > shields") for the full record; the section below is kept as history.
+>
+> **AMENDED (2026-07-18, later session):** the M2 tier-3 upgrade is no
+> longer `subsystemRepair` (hangar revive) — it's **`turretOverdrive`**:
+> one-shot turret revive/refill + a persistent full-hp-only fire-rate/damage
+> buff (`GameConfig.energy.overdrive*`). The hangar has NO repairer now.
+> Base respawns also went 1.5s/3s → 20s/20s with a HUD redeploy countdown.
+> Protocol 26→27. Record: AGENT_KICKOFF state paragraph "20s respawn bench
+> + redeploy countdown + T3 = TURRET OVERDRIVE".
 
 **New:** `shared/src/sim/MothershipSubsystem.ts` — Turret-minus-gun: `implements DamageTarget`, `kind: "shield" | "hangar"`, own hp/maxHp, `explosionFired` death latch, `setMountPosition()` seam for future GLB empties.
 

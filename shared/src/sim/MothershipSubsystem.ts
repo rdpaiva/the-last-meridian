@@ -7,22 +7,28 @@ import type { DamageTarget } from "../types";
 export type SubsystemKind = "hangar";
 
 /**
- * A destructible mothership SUBSYSTEM — SIM only (the Turret pattern minus the
- * gun; see sim/Turret.ts). It runs anywhere: the browser, the headless smoke
- * harness, and the server. Its Babylon depiction is a client-side
- * SubsystemView that reads this object's `position`/`isAlive`.
+ * A destructible mothership SUBSYSTEM mount — SIM only (the Turret pattern
+ * minus the gun; see sim/Turret.ts). It runs anywhere: the browser, the
+ * headless smoke harness, and the server. Its Babylon depiction is a
+ * client-side SubsystemView that reads this object's `position`/`hp` each
+ * frame.
  *
- * Each subsystem is a DamageTarget with its OWN hp pool, separate from the
- * carrier's — it can be shot off the hull without touching the objective.
- * What DESTROYING one means is the owner's business, not this class's:
- *  - "hangar": once destroyed, the owning faction's ships respawn slower
- *    (the death-latch scan in each sim loop applies Ship.respawnDelayScale).
+ * One subsystem exists per configured mount, each with its OWN hp pool
+ * (owner call 2026-07-18: the hangar's two bays are INDEPENDENT — shooting
+ * one out leaves the other launching). What losing mounts means is the
+ * owner's business, not this class's:
+ *  - "hangar": the faction's respawn delay GRADUATES with destroyed bays —
+ *    1 → destroyedRespawnDelayScale as dead/total climbs (applied
+ *    declaratively by StrategicSystem), and respawn launches re-route to
+ *    surviving bays (Mothership.getLiveLaunchBayIndices). Nothing repairs a
+ *    bay (T3 became turret overdrive 2026-07-18).
  * (Carrier SHIELDS are not a subsystem: they're powered by capture-station
  * ownership — Mothership.stationShieldFactor, written by StrategicSystem.)
  *
  * The carrier is static, so the world mount position is computed once by the
  * owning Mothership. HP is the only mutable state — exactly what the server
- * replicates as carrier sub-state. Deterministic: no RNG anywhere.
+ * replicates as carrier sub-state (hangar0Hp/hangar1Hp, index-aligned with
+ * the mounts array). Deterministic: no RNG anywhere.
  */
 export class MothershipSubsystem implements DamageTarget {
   /** World-space mount position (Y at deck level). DamageTarget contract. */
@@ -60,7 +66,7 @@ export class MothershipSubsystem implements DamageTarget {
 
   /**
    * Move the mount to the WORLD position the view measured off a carrier GLB
-   * empty (future `shield.*`/`hangar.*` seam — mirrors Turret.setMountPosition).
+   * empty (future `hangar.*` seam — mirrors Turret.setMountPosition).
    * Mutates the existing Vector3 in place: the subsystem is already registered
    * by reference as a DamageTarget on the opposing weapon systems.
    */

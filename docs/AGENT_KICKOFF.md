@@ -379,6 +379,114 @@ Tests: `subsystems.test.ts` rewritten (graduation/edges/hangar),
 `stations.test.ts` repair test now wounds the hangar. NOT owner-verified
 in-game yet — see work item 0d.
 
+**Built 2026-07-18 — 20s respawn bench + redeploy countdown + T3 =
+TURRET OVERDRIVE** (owner-decided rebalance, second 07-18 session).
+(1) Respawns: `combat.playerRespawnDelayMs`/`enemyRespawnDelayMs`
+1.5s/3s → **20s BOTH** — a death benches you; kills buy real board time;
+the T1 ×0.6 upgrade and the hangar ×2.5 penalty now bite against a base
+worth scaling. Match-settings respawn sliders now go to 60s. (2) HUD: respawn countdown ring
+(`Hud.setRespawnCountdown` + `.respawn-ring` in `style.css` — the
+jump-ring recipe in warning red, upper-center, whole seconds then tenths
+under 10s, REDEPLOY label). Solo wired in `Game.updateViews` off new
+`Ship.respawnRemainingMs(nowMs)`/`respawnTotalMs`; online in
+NetworkGame's predicted-ship block, timed locally from the alive→dead
+edge × `NetworkGame.respawnScaleFor` (hangar penalty × replicated
+fasterRespawn tier — mirrors StrategicSystem.respawnScale; cosmetic, the
+server owns the real clock; online seats all spawn with
+`enemyRespawnDelayMs`). (3) T3 effect renamed `subsystemRepair` →
+**`turretOverdrive`** (PROTOCOL_VERSION **27** — deploy both halves
+together): on unlock, one-shot revive/refill of that faction's carrier
+TURRETS (`StrategicSystem.repairTurrets`; the turret death latch is now
+the per-turret `explosionFired` flag in BOTH loops — BattleSim's
+`deadTurretsAnnounced` Set removed; `TurretView` un-stumps on revive);
+persistently after, a FULL-hp turret fires at
+`energy.overdriveCooldownScale` (0.8) × cooldown for
+`overdriveDamageScale` (1.3) × damage (`Turret.update` 4th arg; flag =
+`Mothership.turretOverdrive`, written declaratively by
+`StrategicSystem.applyEffects` — chip a gun below full and it drops to
+stock stats, so the counterplay stays "shoot the guns"). The HANGAR now
+has NO repairer — destroyed is destroyed. Toast label "TURRET
+OVERDRIVE"; overdrive knobs in the Carrier Turrets match-settings group.
+Tests: the stations.test.ts T3 test wounds a turret now. Known
+pre-existing gap (unchanged): turret HP is NOT replicated online, so
+mirror turrets never die/un-stump client-side. (4) HANGAR GOES DIEGETIC
+(the session's original ask — owner disliked the placeholder box bolted
+to the deck, and it wasn't even at the real bay): the box + bay-light
+strip are DELETED from `SubsystemView` — while healthy, the carrier
+GLB's own modelled launch bays ARE the hangar. The sim mounts are
+RE-ANCHORED from the eyeballed spots (Bastion bow tip 0/138!) to BOTH
+bays: humans (±38.2, z 110 — the BAY-FLOOR center biased toward the
+mouth, NOT the measured launch empty at z 86.9: there the hit circle
+stopped short of the bow-taper hullRect, so shots INTO the bay entrance
+died on the hull first — owner-reported), machines (±41.3, 23.3);
+`hitRadius` 16→22 so each circle pokes past the hullRects halfWidth on
+its flank (38.2+22>51 / 41.3+22>53 — subsystems must overhang the
+silhouette to out-prioritize hull sections) and past the humans
+bow-taper boundary for mouth shots. The two
+mounts are INDEPENDENT destructibles (owner rejected a shared pool:
+"one bay dies → both die" felt wrong): own 350-hp pool PER BAY
+(`subsystems.hangar.hp` is per bay now; was briefly 200 — owner: "died
+in 3-4 hits", a Breaker volley run), and the respawn penalty
+GRADUATES — `StrategicSystem.respawnScale` computes
+`1 + (destroyedRespawnDelayScale-1) × dead/total` (one of two bays
+down = ×1.75, both = ×2.5; `NetworkGame.respawnScaleFor` mirrors it for
+the redeploy countdown). Respawn relaunches RE-ROUTE around dead bays:
+`Mothership.getLiveLaunchBayIndices()` (nearest-hangar-mount pairing;
+falls back to ALL bays when the whole complex is down — launches never
+stop, anti-stall), consumed by both respawnShip sites (solo
+Game.respawnShip / BattleSim.respawnShip). Wire: the `hangarHp` slot →
+`hangar0Hp`/`hangar1Hp` (index-aligned with the config mounts;
+BattleRoom.syncSubsystems ↔ NetworkGame.applySubsystemHp), and the
+subsystemDestroyed NetEvent carries `remaining` (bays still alive) —
+toast copy graduates in BOTH toast sites: "HANGAR BAY DESTROYED" per
+bay, "HANGAR DESTROYED — LAUNCH CREWS CRIPPLED" on the last. HUD shows
+one pip PER BAY. DAMAGE FEEDBACK is pure SPARK FX (owner rejected the
+first-pass ember cluster, then a subtle boosted-glint pass — "too
+subtle, needs to be constantly emitting and much larger"):
+`ExplosionSystem.spawnSpark(pos, profile)` takes a spark PROFILE, and
+`GameConfig.impactSpark.hangar` is a CARRIER-SCALE one (1.1-unit
+slivers, 650ms, flashRadius 2.2 — the stock impactSpark is
+fighter-scale 0.18-unit glints and reads as nothing on a carrier) with
+a per-sliver FIRE `palette` (white-hot/yellow/orange/deep-red,
+components >1 for bloom punch; `ExplosionSystem.matsForPalette` caches
+the materials). `SubsystemView.update` reads the bay's hp fraction
+(via MothershipView.syncSubsystems): every hp DROP throws an immediate
+fire burst; ONLY a fully DESTROYED bay burns continuously
+(`hangar.emitIntervalMs` 260, jittered — owner call: the constant burn
+is the "it's dead" read, not a damage meter; a wounded bay is quiet
+between hits). DEAD TURRETS run the SAME burn (TurretView dead
+branch, same profile). The ExplosionSystem reaches both view kinds via
+`MothershipView.setExplosions` (carrier views construct BEFORE the FX
+block in both loops — wired right after `new ExplosionSystem`). ONLINE
+turret-death gap CLOSED: turret HP isn't replicated, so NetworkGame's
+`turretDestroyed` handler now kills the nearest MIRROR turret (stump +
+burn appear online) and `upgradeUnlocked(turretOverdrive)` revives
+that faction's mirror turrets (un-stump on T3). Bay HP was already
+replicated, so hangar FX replay online unchanged. TURRETS WERE
+GENUINELY IMMUNE (owner-reported, confirmed vs the hull-collider
+boxes): the turret mounts had moved inboard to the GLB
+pod-ridge/sponson positions (humans |x|=38 vs pod-box edge 50.9,
+machines |x|=42 vs sponson edge 53) while `turrets.hitRadius` stayed 8
+— the hit circle sat fully INSIDE the hull silhouette, so hull
+sections ate every bolt first (registration order only helps when the
+same tick-segment crosses both). FIX: `hitRadius` 8→15 (needs >12.9 /
+>11 — the config comment now documents the bound; re-check when
+mounts or hull colliders move). Related: a LIVE hangar circle (r22)
+still shadows bolts crossing it (frontal runs at the fore turrets) —
+off-axis approaches are clean, dead subsystems stop absorbing.
+Baseline RECAPTURED three times (respawn+anchor 24187→25409,
+mouth-anchor/r22 →26986, turret-hitRadius →28961 ticks, 56 deaths;
+battle still ends — flak dies mid-battle now, as designed). REMEMBER
+friendly fire doesn't exist
+for subsystems: only OPPOSING weapons register them — shooting your own
+carrier's bay does nothing (likely part of the owner's confusion; the
+other part: they shot the starboard bay when only port was mounted).
+NOT owner-verified in-game yet: check each bay takes damage + smolders
+independently, per-bay toasts, respawns re-routing to the surviving
+bay, and how the graduated bench feels (35s one bay / 50s both, off the
+20s base) — "Hangar bay HP" and "Hangar-down respawn ×" are the
+match-settings knobs.
+
 **Built 2026-07-17 — strategic layer M2: capture stations + Energy +
 upgrade thresholds** (same session as M1; full design in
 `docs/strategic-layer-plan.md`). Neutral stations a faction flips by
@@ -478,10 +586,11 @@ playtest results: what broke, what felt off, overlay numbers if netcode>
    (distinct from bare-hull sparks); segments/damage scale per station
    (knob: `stations.shield.minFactor`); losing the last station → "SHIELDS
    OFFLINE — NO STATION POWER" and the splashes stop. Check the enemy AI
-   still contests stations (`commander.captureCount`) and that the hangar
-   box sits sensibly on the carrier GLB (mount:
-   `GameConfig.mothership.subsystems.hangar.mounts`) — its destruction
-   toast/pip/slow-respawn + subsystemRepair revive are unchanged. The Veil /
+   still contests stations (`commander.captureCount`) and the hangar
+   (NOTE 2026-07-18: no placeholder box anymore — the hangar is the
+   carrier's OWN port launch bay, destruction shows as a burning breach
+   there; it is no longer repairable, T3 is TURRET OVERDRIVE now; mounts:
+   `GameConfig.mothership.subsystems.hangar.mounts`). The Veil /
    The Wreck: no segments, no shield toasts, unshielded carriers. Deploy
    note: v26 — both halves together, as always.
 0f. **The freeze bug — STILL OPEN** (2026-07-17): multi-second freeze

@@ -16,7 +16,6 @@ import type { AsteroidSim } from "./AsteroidSim";
 import { Hulk } from "./Hulk";
 import type { HulkSection, PlanarPushOut } from "./HulkSection";
 import type { MothershipSection } from "./MothershipSection";
-import type { Turret } from "./Turret";
 import type { DamageTarget, InputState } from "../types";
 import { SimEventBus } from "./SimEvents";
 import { LaunchSequence } from "../LaunchSequence";
@@ -106,8 +105,6 @@ export class BattleSim {
   private readonly lastBumpMs = new Map<Ship, number>();
   /** Per-ship wreck-scrape damage cooldown (own clock — separate knob from rocks). */
   private readonly lastHulkBumpMs = new Map<Ship, number>();
-  /** Turrets whose destruction has been announced (fire-once latch). */
-  private readonly deadTurretsAnnounced = new Set<Turret>();
 
   /** The seat whose launch-clear flips launching → playing (the cinematic one). */
   private primaryLaunch: SimCombatant | null = null;
@@ -518,17 +515,18 @@ export class BattleSim {
           rotationY: cmd.rotationY,
         });
       }
+      // Turret death latch: announce once, on the turret's OWN explosionFired
+      // flag (not a Set) so the strategic "turretOverdrive" repair can re-arm
+      // it — a revived-then-redestroyed turret announces again.
       for (const turret of this.motherships[f].turrets) {
-        if (!turret.isAlive && !this.deadTurretsAnnounced.has(turret)) {
-          this.deadTurretsAnnounced.add(turret);
+        if (!turret.isAlive && !turret.explosionFired) {
+          turret.explosionFired = true;
           this.events.emit("turretDestroyed", { position: turret.position });
         }
       }
-      // Subsystem death latch: announce once, on the subsystem's OWN
-      // explosionFired flag (not a Set) so the strategic "subsystemRepair"
-      // upgrade can re-arm it — a revived-then-redestroyed subsystem
-      // announces again. Destruction EFFECTS (hangar respawn penalty) are
-      // applied declaratively by StrategicSystem.update, not here.
+      // Subsystem death latch: same shape. Destruction EFFECTS (hangar
+      // respawn penalty) are applied declaratively by StrategicSystem.update,
+      // not here.
       for (const sub of this.motherships[f].subsystems) {
         if (!sub.isAlive && !sub.explosionFired) {
           sub.explosionFired = true;
@@ -713,7 +711,14 @@ export class BattleSim {
     const ship = c.ship;
     const home = this.motherships[ship.faction];
     if (!home.isAlive) return;
-    const start = home.getLaunchStartPosition(c.bayIndex);
+    // Re-route around destroyed hangar bays: keep the assigned bay while it
+    // lives, else launch from a surviving one (deterministic pick — mirrors
+    // solo Game.respawnShip).
+    const liveBays = home.getLiveLaunchBayIndices();
+    const bayIndex = liveBays.includes(c.bayIndex)
+      ? c.bayIndex
+      : liveBays[c.bayIndex % liveBays.length];
+    const start = home.getLaunchStartPosition(bayIndex);
     ship.respawn(start.x, start.z, home.rotationY);
     c.launch = this.makeLaunchSequence(home, 0, c.cinematic, true);
   }

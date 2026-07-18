@@ -193,8 +193,9 @@ export class Mothership implements DamageTarget {
     const cfg = GameConfig.mothership.subsystems;
     const built: MothershipSubsystem[] = [];
     for (const kind of ["hangar"] as const satisfies readonly SubsystemKind[]) {
-      const mounts = cfg[kind].mounts[this.faction] ?? [];
-      for (const m of mounts) {
+      // Each mount is an INDEPENDENT bay with its own hp pool — the respawn
+      // penalty graduates with how many are down (StrategicSystem).
+      for (const m of cfg[kind].mounts[this.faction] ?? []) {
         built.push(
           new MothershipSubsystem(
             kind,
@@ -217,17 +218,63 @@ export class Mothership implements DamageTarget {
    */
   stationShieldFactor = 1;
 
+  /**
+   * True once this faction has unlocked the "turretOverdrive" upgrade —
+   * written DECLARATIVELY each tick by StrategicSystem.applyEffects (same
+   * contract as stationShieldFactor). Turrets read it per shot: a FULL-hp
+   * turret fires faster/harder (GameConfig.energy.overdrive* scales).
+   */
+  turretOverdrive = false;
+
   /** True while station power shields the hull at all (any station held). */
   get shieldsUp(): boolean {
     return this.stationShieldFactor < 1;
   }
 
-  /** True while the hangar subsystem is alive (no hangar mounted = true). */
+  /** True while EVERY hangar bay is alive (no hangar mounted = true). The
+   *  graduated respawn penalty reads the per-bay counts, not this. */
   get hangarAlive(): boolean {
     for (const s of this.subsystems) {
       if (s.kind === "hangar" && !s.isAlive) return false;
     }
     return true;
+  }
+
+  /**
+   * Launch-bay indices currently backed by a LIVE hangar bay — respawn
+   * relaunches re-route here so ships visibly stop launching from a burning
+   * bay. Bay↔hangar pairing is nearest-mount in world X/Z (both lists come
+   * from the same measured launch geometry but aren't index-aligned: model
+   * bays arrive in GLB node order). Falls back to EVERY bay when the whole
+   * hangar is down or unmounted — launches never stop (anti-stall; the dead
+   * complex slows the clock via Ship.respawnDelayScale instead).
+   */
+  getLiveLaunchBayIndices(): number[] {
+    const bays = this.launchBays();
+    const all = bays.map((_, i) => i);
+    const hangars: MothershipSubsystem[] = [];
+    for (const s of this.subsystems) if (s.kind === "hangar") hangars.push(s);
+    if (hangars.length === 0) return all;
+    const sin = Math.sin(this.rotationY);
+    const cos = Math.cos(this.rotationY);
+    const live: number[] = [];
+    for (let i = 0; i < bays.length; i++) {
+      const bx = this.position.x + cos * bays[i].x + sin * bays[i].z;
+      const bz = this.position.z - sin * bays[i].x + cos * bays[i].z;
+      let nearest: MothershipSubsystem | null = null;
+      let nearestSq = Infinity;
+      for (const h of hangars) {
+        const dx = h.position.x - bx;
+        const dz = h.position.z - bz;
+        const dSq = dx * dx + dz * dz;
+        if (dSq < nearestSq) {
+          nearestSq = dSq;
+          nearest = h;
+        }
+      }
+      if (nearest && nearest.isAlive) live.push(i);
+    }
+    return live.length > 0 ? live : all;
   }
 
   /**
@@ -243,7 +290,7 @@ export class Mothership implements DamageTarget {
   ): TurretFireCommand[] {
     const fires: TurretFireCommand[] = [];
     for (const turret of this.turrets) {
-      const cmd = turret.update(deltaSeconds, contacts, nowMs);
+      const cmd = turret.update(deltaSeconds, contacts, nowMs, this.turretOverdrive);
       if (cmd) fires.push(cmd);
     }
     return fires;

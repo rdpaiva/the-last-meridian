@@ -42,9 +42,12 @@ const FACTIONS: readonly Faction[] = ["humans", "machines"];
  *    (stations.shield): hull damage × 1 with no stations held, graduated
  *    down to minFactor with all of them. shieldsOnline/shieldsDown events
  *    fire on the 0↔≥1 owned-station edges (the toast beats).
- *  - "subsystemRepair" is the one genuine one-shot: on unlock it revives this
- *    faction's hangar (resetting its death latch, so re-destroying it
- *    announces again).
+ *  - Mothership.turretOverdrive = "turretOverdrive" unlocked (Turret reads it
+ *    per-shot: full-hp guns fire faster/harder — energy.overdrive* scales).
+ *  - "turretOverdrive" also carries the one genuine one-shot: on unlock it
+ *    revives this faction's carrier turrets (resetting their death latches,
+ *    so re-destroying one announces again). The hangar has no repairer —
+ *    destroyed is destroyed.
  *
  * Deterministic: no RNG, no allocation in update.
  */
@@ -168,7 +171,7 @@ export class StrategicSystem {
       ) {
         const unlocked = thresholds[this.tier[f]];
         this.tier[f]++;
-        if (unlocked.effect === "subsystemRepair") this.repairSubsystems(motherships[f]);
+        if (unlocked.effect === "turretOverdrive") this.repairTurrets(motherships[f]);
         this.events.emit("upgradeUnlocked", {
           faction: f,
           tier: this.tier[f],
@@ -181,7 +184,7 @@ export class StrategicSystem {
   /** Has `faction` unlocked a threshold carrying `effect` yet? */
   private hasEffect(
     faction: Faction,
-    effect: "fasterRespawn" | "sensorBoost" | "subsystemRepair",
+    effect: "fasterRespawn" | "sensorBoost" | "turretOverdrive",
   ): boolean {
     const thresholds = GameConfig.energy.thresholds;
     for (let i = 0; i < this.tier[faction]; i++) {
@@ -191,16 +194,16 @@ export class StrategicSystem {
   }
 
   /**
-   * The one-shot "subsystemRepair" unlock: revive/refill this faction's
-   * hangar and RE-ARM its death latch, so the view un-stumps it and a
-   * re-destruction announces again.
+   * The one-shot half of "turretOverdrive": revive/refill this faction's
+   * carrier turrets and RE-ARM their death latches, so the view un-stumps
+   * them and a re-destruction announces again.
    */
-  private repairSubsystems(carrier: Mothership): void {
+  private repairTurrets(carrier: Mothership): void {
     if (!carrier.isAlive) return; // no ghost repairs after the carrier falls
     const frac = GameConfig.energy.repairHpFrac;
-    for (const sub of carrier.subsystems) {
-      sub.hp = Math.max(sub.hp, sub.maxHp * frac);
-      if (sub.isAlive) sub.explosionFired = false;
+    for (const turret of carrier.turrets) {
+      turret.hp = Math.max(turret.hp, turret.maxHp * frac);
+      if (turret.isAlive) turret.explosionFired = false;
     }
   }
 
@@ -225,6 +228,8 @@ export class StrategicSystem {
       // Station-powered carrier shield: graduated per owned station, never 0.
       motherships[f].stationShieldFactor =
         total === 0 ? 1 : 1 - (1 - minFactor) * (this.owned[f] / total);
+      // Persistent half of "turretOverdrive": the flag Turret reads per shot.
+      motherships[f].turretOverdrive = this.hasEffect(f, "turretOverdrive");
     }
     const scaleHumans = this.respawnScale("humans", motherships, subsCfg, energyCfg);
     const scaleMachines = this.respawnScale("machines", motherships, subsCfg, energyCfg);
@@ -240,9 +245,20 @@ export class StrategicSystem {
     subsCfg: typeof GameConfig.mothership.subsystems,
     energyCfg: typeof GameConfig.energy,
   ): number {
-    const hangarPenalty = motherships[f].hangarAlive
-      ? 1
-      : subsCfg.hangar.destroyedRespawnDelayScale;
+    // The hangar penalty GRADUATES per destroyed bay: 1 with all bays up,
+    // destroyedRespawnDelayScale with every bay down (each bay is an
+    // independent pool — one of two down = halfway).
+    let total = 0;
+    let dead = 0;
+    for (const s of motherships[f].subsystems) {
+      if (s.kind !== "hangar") continue;
+      total++;
+      if (!s.isAlive) dead++;
+    }
+    const hangarPenalty =
+      total === 0
+        ? 1
+        : 1 + (subsCfg.hangar.destroyedRespawnDelayScale - 1) * (dead / total);
     const upgrade = this.hasEffect(f, "fasterRespawn")
       ? energyCfg.fasterRespawnScale
       : 1;

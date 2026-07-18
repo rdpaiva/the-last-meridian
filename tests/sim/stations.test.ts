@@ -6,8 +6,8 @@
  *    freeze, the two-stage enemy flip (drain → neutral → capture);
  *  - StrategicSystem docking gate (radius + dockMaxSpeed + not mid-launch),
  *    energy accrual from owned stations, thresholds unlocking in order, and
- *    the three effects (respawn scale / sensor rangeScale / subsystem
- *    repair reviving the death latch);
+ *    the three effects (respawn scale / sensor rangeScale / turret overdrive
+ *    reviving the turret death latches + arming the full-hp fire buff);
  *  - the stock-config guarantee: no placements → inert (the smoke baseline
  *    contract; the smoke test itself is the enforcement).
  *
@@ -151,7 +151,7 @@ describe("StrategicSystem docking gate + energy + upgrades", () => {
     GameConfig.energy.thresholds = [
       { cost: 2, effect: "fasterRespawn" },
       { cost: 4, effect: "sensorBoost" },
-      { cost: 6, effect: "subsystemRepair" },
+      { cost: 6, effect: "turretOverdrive" },
     ];
     const { sim, ship, seat } = makeSim([{ xFrac: 0, zFrac: 0 }]);
     const station = sim.strategic.stations[0];
@@ -162,12 +162,12 @@ describe("StrategicSystem docking gate + energy + upgrades", () => {
     });
 
     for (let i = 0; i < 1200 && seat.launch; i++) sim.advance(DT);
-    // Pre-wound the hangar to death so subsystemRepair has work.
+    // Pre-wound a turret to death so turretOverdrive's repair has work.
     const humansCarrier = sim.motherships.humans;
-    const hangar = humansCarrier.subsystems.find((s) => s.kind === "hangar")!;
-    hangar.takeDamage(hangar.maxHp, 0);
+    const turret = humansCarrier.turrets[0]!;
+    turret.takeDamage(turret.maxHp, 0);
     sim.advance(DT); // death latch announces
-    expect(hangar.explosionFired).toBe(true);
+    expect(turret.explosionFired).toBe(true);
 
     // Dock until captured, then hold until every threshold has fired.
     for (let t = 0; t < 60 && unlocked.length < 3; t += DT) {
@@ -176,15 +176,17 @@ describe("StrategicSystem docking gate + energy + upgrades", () => {
       sim.advance(DT);
     }
     expect(station.owner).toBe("humans");
-    expect(unlocked).toEqual(["fasterRespawn", "sensorBoost", "subsystemRepair"]);
+    expect(unlocked).toEqual(["fasterRespawn", "sensorBoost", "turretOverdrive"]);
     expect(sim.strategic.tier.humans).toBe(3);
     // Effects observable:
     expect(ship.respawnDelayScale).toBeCloseTo(GameConfig.energy.fasterRespawnScale, 6);
     expect(sim.sensors.rangeScale.humans).toBeCloseTo(GameConfig.energy.sensorRangeScale, 6);
     expect(sim.sensors.rangeScale.machines).toBe(1);
-    expect(hangar.isAlive).toBe(true); // revived…
-    expect(hangar.explosionFired).toBe(false); // …and the death latch re-armed
-    expect(humansCarrier.hangarAlive).toBe(true);
+    expect(turret.isAlive).toBe(true); // revived…
+    expect(turret.explosionFired).toBe(false); // …and the death latch re-armed
+    expect(turret.hp).toBe(turret.maxHp);
+    expect(humansCarrier.turretOverdrive).toBe(true); // full-hp fire buff armed
+    expect(sim.motherships.machines.turretOverdrive).toBe(false);
   });
 
   it("stock config (no placements) leaves the strategic layer inert", () => {
