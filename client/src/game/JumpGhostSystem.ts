@@ -31,9 +31,17 @@ export class JumpGhostSystem {
     private readonly glowLayer: GlowLayer,
   ) {}
 
-  /** Ghost the ship's current pose in place — the phase-out streak. */
-  spawnDeparture(sourceRoot: TransformNode): void {
-    this.spawn(sourceRoot, "out", null);
+  /**
+   * Ghost the ship's pose — the phase-out streak. With no pose it snapshots
+   * the root in place (solo: the view still holds the pre-teleport pose when
+   * jumpFired fires). Online the root has already popped to the ARRIVAL by
+   * event playback time, so the caller passes the departure pose explicitly.
+   */
+  spawnDeparture(
+    sourceRoot: TransformNode,
+    pose?: { x: number; z: number; rotationY: number },
+  ): void {
+    this.spawn(sourceRoot, "out", pose ?? null);
   }
 
   /** Ghost the ship re-posed at the arrival point — the phase-in streak. */
@@ -57,10 +65,16 @@ export class JumpGhostSystem {
     // helpers parented to the ship root (the disabled DamageFlash sphere,
     // hidden trail anchors, idle thruster plumes faded to alpha 0) so the
     // ghost is the hull silhouette, not a shell of invisible props.
+    // Enabled-ness is checked per node UP TO (excluding) the ship root: an
+    // online jumper that left the sensor picture has its ROOT disabled by the
+    // time the delayed jumpFired event plays back, but its hull meshes' own
+    // flags still say what was showing — while per-node hides (the disabled
+    // DamageFlash sphere) stay filtered. Solo roots are always enabled here,
+    // so this matches the plain hierarchy check offline.
     const sources = sourceRoot.getChildMeshes(false).filter(
       (m): m is Mesh =>
         m instanceof Mesh &&
-        m.isEnabled() &&
+        this.isShownUnder(m, sourceRoot) &&
         m.isVisible &&
         m.visibility > 0 &&
         m.getTotalVertices() > 0 &&
@@ -116,6 +130,16 @@ export class JumpGhostSystem {
     }
 
     this.active.push(new JumpGhost(ghostRoot, mat, mode));
+  }
+
+  /** Own-flag enabled walk from `node` up to (excluding) the ship root. */
+  private isShownUnder(node: Mesh, root: TransformNode): boolean {
+    let n: TransformNode | null = node;
+    while (n && n !== root) {
+      if (!n.isEnabled(false)) return false;
+      n = n.parent as TransformNode | null;
+    }
+    return true;
   }
 
   update(deltaMs: number): void {
