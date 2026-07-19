@@ -24,6 +24,7 @@ import { MissileSystemView } from "./view/MissileSystemView";
 import { SimEventBus } from "@space-duel/shared";
 import { wrapAngle } from "@space-duel/shared";
 import { CameraRig } from "./CameraRig";
+import { SpectatorCamera, type SpectateSubject } from "./SpectatorCamera";
 import { buildPostPipeline } from "./PostPipeline";
 import { Hud, UPGRADE_LABELS, captureStatusFor, type CaptureStatus } from "./Hud";
 import { Radar } from "./Radar";
@@ -250,6 +251,16 @@ export class Game {
   /** The locally-controlled ship (built on async asset load). */
   private playerShip: Ship | null = null;
   private readonly playerController: LocalInputController;
+
+  /** Death spectate: follows a live ship while the redeploy clock runs. */
+  private readonly spectator = new SpectatorCamera();
+  /** Killer captured at the player's death edge (ScoreBoard.lastAttacker),
+   *  consumed when the spectate camera begins; null = environment kill. */
+  private playerKiller: Ship | null = null;
+  /** One stable SpectateSubject adapter per ship (lazy; see subjectFor). */
+  private readonly spectateSubjects = new Map<Ship, SpectateSubject>();
+  /** Scratch roster rebuilt each spectating frame (held only within the frame). */
+  private readonly spectateRoster: SpectateSubject[] = [];
 
   /** DEBUG god mode (Backquote toggle): player invuln + boosted speed. */
   private debugGodMode = false;
@@ -1077,6 +1088,9 @@ export class Game {
     // Ship death: explosion + sound + (distance-scaled for AI) trauma/hitstop.
     this.events.on("shipDied", ({ ship }) => {
       const isPlayer = ship === this.playerShip;
+      // Death spectate opens on the killer: peek the attribution BEFORE
+      // noteDeath consumes it. Null for turret/asteroid/storm deaths.
+      if (isPlayer) this.playerKiller = this.scoreBoard.lastAttacker(ship);
       // Leaderboard: count the death, credit the last shooter to hit it.
       this.scoreBoard.noteDeath(ship);
       // Destroyed mid-spool: cut its jump-drive clip (no-op if it wasn't
@@ -2122,13 +2136,19 @@ export class Game {
     this.jumpRipple.update(deltaMs);
 
     // --- Animations that continue THROUGH hitstop ---
+    const zoomInput =
+      (this.input.state.zoomIn ? 1 : 0) - (this.input.state.zoomOut ? 1 : 0);
     if (this.playerShip && this.playerShip.isAlive) {
+      if (this.spectator.active) {
+        // Respawn edge: hard-cut from the spectate subject back to our own
+        // catapult (a smoothed pan would streak the whole arena past).
+        this.spectator.end();
+        this.cameraRig.snapTo(this.playerShip.position);
+      }
       const playerLaunch = this.playerLaunch;
       if (playerLaunch) {
         this.cameraRig.setZoom(playerLaunch.desiredZoom);
       }
-      const zoomInput =
-        (this.input.state.zoomIn ? 1 : 0) - (this.input.state.zoomOut ? 1 : 0);
       this.cameraRig.update(
         deltaSeconds,
         this.playerShip.position,
@@ -2159,6 +2179,35 @@ export class Game {
           alive && this.input.state.strafeRight,
         );
       }
+    } else if (this.playerShip && this.state === "playing") {
+      // Death spectate: while the redeploy clock runs, follow a live ship
+      // (killer first) instead of freezing on the wreck. Once the match ends
+      // neither branch runs — the end banner owns the screen, camera holds.
+      if (!this.spectator.active) {
+        this.spectator.begin(
+          nowMs,
+          this.playerShip.position,
+          this.playerKiller ? this.subjectFor(this.playerKiller) : null,
+        );
+        this.playerKiller = null;
+      }
+      // This frame's watchable roster: live, out of the launch tube, not us.
+      this.spectateRoster.length = 0;
+      for (const c of this.combatants) {
+        if (c.ship === this.playerShip || !c.ship.isAlive || c.launch !== null)
+          continue;
+        this.spectateRoster.push(this.subjectFor(c.ship));
+      }
+      this.spectator.update(
+        deltaSeconds,
+        nowMs,
+        this.cameraRig,
+        zoomInput,
+        this.input.state,
+        this.spectateRoster,
+      );
+      this.starfield.update();
+      this.backdrop.update(this.cameraRig.camera.getTarget());
     }
     this.playerDamageFlash?.update();
     for (const flash of this.aiDamageFlashes.values()) flash.update();
@@ -2215,6 +2264,12 @@ export class Game {
           ? this.playerShip.respawnRemainingMs(nowMs)
           : null,
         this.playerShip.respawnTotalMs,
+      );
+      // Who the death-cam is following (null hides the line — alive, still
+      // lingering on the wreck, or the match ended and the banner owns the
+      // screen — the end state freezes the camera but never calls end()).
+      this.hud.setSpectating(
+        this.state === "playing" ? this.spectator.subjectLabel : null,
       );
     }
     this.hud.setMothershipHp(
@@ -2456,6 +2511,28 @@ export class Game {
       heavy: type.heavy,
     });
     return { ship, view: new ShipView(root) };
+  }
+
+  /**
+   * The stable death-spectate adapter for a ship (created on first use).
+   * Position/life are live getters into the sim ship; the callsign is fixed
+   * at creation (callsigns never change mid-match).
+   */
+  private subjectFor(ship: Ship): SpectateSubject {
+    let s = this.spectateSubjects.get(ship);
+    if (!s) {
+      s = {
+        get position() {
+          return ship.position;
+        },
+        get isAlive() {
+          return ship.isAlive;
+        },
+        callsign: this.shipCallsigns.get(ship) ?? "UNKNOWN",
+      };
+      this.spectateSubjects.set(ship, s);
+    }
+    return s;
   }
 
   /**

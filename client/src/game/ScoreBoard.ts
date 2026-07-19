@@ -49,6 +49,15 @@ export class ScoreBoard {
     }
   }
 
+  /**
+   * Peek at the last shooter to land a hit on this ship (NOT consumed —
+   * noteDeath still credits the kill). The death-spectate camera reads this
+   * at the player's death edge to open on the killer.
+   */
+  lastAttacker(victim: Ship): Ship | null {
+    return this.lastHitBy.get(victim) ?? null;
+  }
+
   /** A ship died (any cause): count the death, credit the last shooter. */
   noteDeath(victim: Ship): void {
     const v = this.entries.get(victim);

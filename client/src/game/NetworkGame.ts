@@ -48,6 +48,7 @@ import { Nebulas } from "./Nebulas";
 import { CapitalShips } from "./CapitalShips";
 import { Starfield } from "./Starfield";
 import { CameraRig } from "./CameraRig";
+import { SpectatorCamera, type SpectateSubject } from "./SpectatorCamera";
 import { buildPostPipeline } from "./PostPipeline";
 import {
   Hud,
@@ -365,6 +366,15 @@ export class NetworkGame {
    * this only times the wait locally. Null while alive.
    */
   private myDeathStartMs: number | null = null;
+
+  /** Death spectate: follows a live shadow while the redeploy clock runs. */
+  private readonly spectator = new SpectatorCamera();
+  /** Killer ship key from our own shipDied event's `by` attribution — kept in
+   *  case the FX event lands BEFORE the alive→dead patch begins the spectate
+   *  (setPreferred covers the after case). Null = environment/unknown. */
+  private myKillerKey: string | null = null;
+  /** Scratch roster rebuilt each spectating frame (held only within the frame). */
+  private readonly spectateRoster: SpectateSubject[] = [];
 
   // ─── Transient FX (Phase 2 event replication) ───
   private readonly sound: SoundSystem;
@@ -1280,7 +1290,47 @@ export class NetworkGame {
       }
     }
     const zoomInput = this.input.state.zoomIn ? 1 : this.input.state.zoomOut ? -1 : 0;
-    this.cameraRig.update(dt, this.camPos, this.camVel, zoomInput);
+    // Death spectate (offline parity — Game.updateViews's dead branch): while
+    // our seat is dead mid-match, follow a live shadow instead of holding at
+    // our last pose. cameraSnapped gates it behind the first own-ship snap so
+    // a joining client never spectates before it has ever seen itself.
+    const phaseNow = (this.net.room.state as unknown as { phase?: string }).phase;
+    if (phaseNow === "playing" && !this.ended && !this.myAlive && this.cameraSnapped) {
+      if (!this.spectator.active) {
+        // camPos still holds our last rendered pose — the wreck position.
+        this.spectator.begin(
+          nowMs,
+          this.camPos,
+          this.myKillerKey !== null
+            ? (this.shadows.get(this.myKillerKey) ?? null)
+            : null,
+        );
+      }
+      // This frame's watchable roster: replicating, live, launched, not us.
+      this.spectateRoster.length = 0;
+      for (const [key, stub] of this.shadows) {
+        if (key === this.myKey || !stub.present || !stub.isAlive || stub.launching)
+          continue;
+        this.spectateRoster.push(stub);
+      }
+      this.spectator.update(
+        dt,
+        nowMs,
+        this.cameraRig,
+        zoomInput,
+        this.input.state,
+        this.spectateRoster,
+      );
+    } else {
+      if (this.spectator.active) {
+        // Respawn edge: hard-cut back to our own ship (a smoothed pan would
+        // streak the whole arena past).
+        this.spectator.end();
+        this.myKillerKey = null;
+        this.cameraRig.snapTo(this.camPos);
+      }
+      this.cameraRig.update(dt, this.camPos, this.camVel, zoomInput);
+    }
     this.starfield.update();
     this.backdrop.update(this.cameraRig.camera.getTarget());
 
@@ -1502,6 +1552,9 @@ export class NetworkGame {
         this.myDeathStartMs = null;
         this.hud.setRespawnCountdown(null, 0);
       }
+      // Who the death-cam is following (null hides the line — alive, or
+      // still lingering on the wreck).
+      this.hud.setSpectating(this.spectator.subjectLabel);
 
       // Capture status (offline parity — Game.updateViews's docked block):
       // the meter itself is server truth riding the StationSchema; the
@@ -1857,6 +1910,15 @@ export class NetworkGame {
           stub.isAlive = false;
         }
         this.recordKill(e);
+        // Our own death: hand the killer to the death-cam so it opens on
+        // them. This event rides the FX queue, so it can land a beat AFTER
+        // the alive→dead patch already began the spectate — setPreferred
+        // covers that window ("" = environment kill → no preference).
+        if (e.ship === this.myKey) {
+          const killer = e.by !== "" ? (this.shadows.get(e.by) ?? null) : null;
+          this.spectator.setPreferred(killer);
+          this.myKillerKey = e.by !== "" ? e.by : null;
+        }
         this.explosions.spawn(this.fxVec);
         this.sound.playExplosion(this.fxVec);
         this.cameraRig.addTrauma(

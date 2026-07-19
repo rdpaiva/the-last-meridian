@@ -133,6 +133,10 @@ export class Hud {
   private lastJumpTenths = -1;
   private readonly respawnRingEl: HTMLElement;
   private readonly respawnRingTextEl: HTMLElement | null;
+  /** "SPECTATING — <callsign>" line under the redeploy ring (death spectate). */
+  private spectateLabelEl: HTMLElement | null = null;
+  /** Last spectate callsign written (write-on-change), null = hidden. */
+  private lastSpectateLabel: string | null = null;
   /** Last countdown tenth written to the respawn ring (write-on-change). */
   private lastRespawnTenths = -1;
 
@@ -210,11 +214,14 @@ export class Hud {
     respawnRing.className = "respawn-ring hidden";
     respawnRing.innerHTML =
       `<span class="respawn-ring-text"></span>` +
-      `<span class="respawn-ring-label">REDEPLOY</span>`;
+      `<span class="respawn-ring-label">REDEPLOY</span>` +
+      `<span class="respawn-ring-spectate hidden"></span>`;
     document.body.appendChild(respawnRing);
     this.respawnRingEl = respawnRing;
     this.respawnRingTextEl =
       respawnRing.querySelector<HTMLElement>(".respawn-ring-text");
+    this.spectateLabelEl =
+      respawnRing.querySelector<HTMLElement>(".respawn-ring-spectate");
 
     // Launch overlay lives outside the debug panel — it's fullscreen-centered.
     const overlay = document.createElement("div");
@@ -663,6 +670,22 @@ export class Hud {
       const sec = tenths / 10;
       this.respawnRingTextEl.textContent =
         sec > 10 ? String(Math.ceil(sec)) : sec.toFixed(1);
+    }
+  }
+
+  /**
+   * Who the death-spectate camera is following, or null to hide the line
+   * (alive, wreck-hold beat, nobody watchable). Rides under the redeploy
+   * ring, so it's only ever visible while the ring is. Write-on-change.
+   */
+  setSpectating(callsign: string | null): void {
+    if (callsign === this.lastSpectateLabel || !this.spectateLabelEl) return;
+    this.lastSpectateLabel = callsign;
+    if (callsign === null) {
+      this.spectateLabelEl.classList.add("hidden");
+    } else {
+      this.spectateLabelEl.textContent = `SPECTATING — ${callsign}`;
+      this.spectateLabelEl.classList.remove("hidden");
     }
   }
 

@@ -244,6 +244,7 @@ client/src/                @space-duel/client — the Babylon view, menus, and e
     FighterMesh.ts         faction-themed procedural fighter mesh + randomFighterSpawn helper
     MissileWarning.ts      player RWR: polls enemy missiles homing on the player; beep w/ proximity tempo ramp + HUD border pulse + radar threat list
     CameraRig.ts           top-down camera, velocity lead, trauma-based shake
+    SpectatorCamera.ts     death spectate: while the redeploy clock runs, the camera follows a live ship (killer first, cycle keys) instead of freezing; fed by Game (sim ships) AND NetworkGame (shadows)
     EngineGlow.ts          core sphere + TrailMesh per ship, thrust-driven; exhaust COLOR is a friend-or-foe channel (faction palette; own ship teal)
     SecondaryThrusters.ts  strafe/reverse puff jets (view)
     DamageFlash.ts         red emissive sphere pulses around player on damage
@@ -312,6 +313,7 @@ The whole game's tuning lives in `shared/src/GameConfig.ts`. Major sections:
 | `missile` | Homing secondary: speed, turnRate, damage range, lock range/cone, mesh + trail dims (rack size is per ship type) |
 | `arena` | Half-width, half-depth |
 | `camera` | Offset, smoothing rate, velocity lead, zoom range/rate |
+| `spectator` | Death spectate (view-only): wreck-linger beat before the camera cuts to a live ship while the redeploy clock runs |
 | `combat` | Fallback hit radius / laser damage, respawn delays (ship HP lives in `shipTypes`) |
 | `jump` | Jump drive: `spoolMs` (matched to `jump-drive.mp3`), `cooldownMs`, `commitMs`, `arrivalTrauma`, + `doctrine` (AI jump-out: per-pilot HP/ammo thresholds, dock-vs-jump range split, flee/blaze caution, finish-the-runner range). Cannon magazines are per ship type (`shipTypes[*].cannonAmmo`) |
 | `service` | Carrier service bubble: `radius` (per launch-bay), `loiterMaxSpeed` gate, HP/cannon/missile refill rates |
