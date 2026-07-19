@@ -135,6 +135,14 @@ class ShadowShip {
    * Friendlies always replicate, so they're absent only before first sight.
    */
   present = false;
+  /**
+   * Wall-clock ms this ship was last fed a rendered ALIVE pose (i.e. its
+   * view was actually depicting it). The jumpFired handler reads this: a
+   * jump home usually drops the ship from replication before the delayed
+   * FX event plays back, so "root enabled" alone would skip the ghosts of
+   * a ship we were watching a tenth of a second ago.
+   */
+  lastDepictedMs = Number.NEGATIVE_INFINITY;
   /** Wall-clock ms the drive started spooling, or null when idle. */
   spoolStartMs: number | null = null;
   /** Pilot identity for the nameplate (patch-fed; slow-changing). */
@@ -1229,6 +1237,7 @@ export class NetworkGame {
         stub.position.copyFrom(this.pose.position);
         stub.rotationY = this.pose.rotationY;
         stub.isAlive = this.pose.isAlive;
+        if (this.pose.isAlive) stub.lastDepictedMs = performance.now();
       }
       if (key === this.myKey) {
         this.camPos.copyFrom(this.pose.position);
@@ -2135,15 +2144,31 @@ export class NetworkGame {
         this.jumpFlashes.spawn(to);
         this.jumpRipple.spawn(from);
         this.jumpRipple.spawn(to);
-        // Spectral hull ghosts (offline parity): snapshot the depicted root
-        // in place for the phase-out streak, and re-pose it at the arrival
-        // for the phase-in. A sensor-hidden jumper has no (enabled) view —
-        // skip rather than leak a ghost of a ship we never depicted.
+        // Spectral hull ghosts (offline parity) — but the SOLO recipe of
+        // snapshotting the root in place doesn't transfer: this event plays
+        // back an interpolation delay after the state patch, so the root has
+        // already popped to the ARRIVAL pose (the departure streak would
+        // stack on the arrival one), and a jump home usually exits our
+        // sensor picture on that very patch — the absence sweep disables the
+        // root before we get here. So pose BOTH ghosts explicitly from the
+        // event, and gate on "depicted within the grace window" instead of
+        // root enablement. A ship we never (recently) depicted still spawns
+        // no ghost — the anti-leak intent of the old isEnabled() gate.
         // Arrival heading = the home carrier's (humans 0, machines π).
         const jumperView = this.views.get(e.ship);
-        if (jumperView?.root.isEnabled()) {
+        const depicted =
+          jumperView !== undefined &&
+          (jumperView.root.isEnabled() ||
+            (stub !== undefined &&
+              performance.now() - stub.lastDepictedMs <
+                GameConfig.jumpFx.ghost.depictedGraceMs));
+        if (jumperView && depicted) {
           const faction = this.meta.get(e.ship)?.faction;
-          this.jumpGhosts.spawnDeparture(jumperView.root);
+          this.jumpGhosts.spawnDeparture(jumperView.root, {
+            x: e.fromX,
+            z: e.fromZ,
+            rotationY: this.departureHeading(e.ship, e.fromX, e.fromZ, e.toX, e.toZ),
+          });
           this.jumpGhosts.spawnArrival(
             jumperView.root,
             e.toX,
@@ -2611,6 +2636,39 @@ export class NetworkGame {
       }
     }
     return false;
+  }
+
+  /**
+   * The jumper's PRE-jump heading for the departure ghost. By jumpFired
+   * playback the rendered pose (and thus the shadow stub of a still-tracked
+   * ship) already popped to the arrival, so read it from history instead:
+   * the interpolation buffer's last sample nearer the departure than the
+   * arrival still carries the real heading. An absence-swept jumper had its
+   * buffer wiped, but its stub froze at the last rendered (pre-jump) pose.
+   * Last resort: smear along the direction of travel.
+   */
+  private departureHeading(
+    shipKey: string,
+    fromX: number,
+    fromZ: number,
+    toX: number,
+    toZ: number,
+  ): number {
+    const buf = this.snaps.get(shipKey);
+    if (buf) {
+      for (let i = buf.length - 1; i >= 0; i--) {
+        const s = buf[i];
+        if (
+          Math.hypot(s.x - fromX, s.z - fromZ) <
+          Math.hypot(s.x - toX, s.z - toZ)
+        ) {
+          return s.rot;
+        }
+      }
+    }
+    const stub = this.shadows.get(shipKey);
+    if (stub && !stub.present) return stub.rotationY;
+    return Math.atan2(toX - fromX, toZ - fromZ);
   }
 
   /** Same as killNearestBolt, for cosmetic missile rounds (wider net — the

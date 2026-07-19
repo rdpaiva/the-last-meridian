@@ -2327,6 +2327,15 @@ export const GameConfig = {
       peakAlpha: 0.6,
       /** Spectral tint (drives emissive through additive blend + bloom). */
       color: { r: 0.55, g: 0.85, b: 1.35 },
+      /**
+       * ONLINE ONLY: how recently (ms) a jumper must have been depicted for
+       * its ghosts to spawn. The jumpFired event plays back an interpolation
+       * delay after the state patch, and a jump home usually exits our sensor
+       * picture on that very patch — the absence sweep hides the view before
+       * the event fires. This window keeps the ghosts for a ship we were just
+       * watching while still skipping one that was never (recently) depicted.
+       */
+      depictedGraceMs: 1000,
     },
   },
 
