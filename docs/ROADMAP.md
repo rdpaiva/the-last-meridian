@@ -402,6 +402,11 @@ and explicitly skipped. Update this when you finish or start work.
 - World-aligned (does NOT rotate with the ship)
 - Disabled default Babylon camera inputs
 - Player zoom via `+`/`-` keys (scales the offset; range/rate in `GameConfig.camera`)
+- Death spectate (2026-07-18): while the redeploy clock runs, the camera
+  lingers on the wreck, then cuts to the killer / nearest live ship;
+  rotate keys + fire cycle the roster; "SPECTATING — <callsign>" HUD line.
+  Offline AND online (client-only — no protocol change). `SpectatorCamera`
+  (docs/SUBSYSTEMS.md), tuned via `GameConfig.spectator`
 
 ### Visuals / FX
 - `GlowLayer` for global bloom on emissive surfaces
@@ -613,6 +618,11 @@ Things that have come up in conversation as good ideas but haven't been
 implemented yet. Roughly ordered by gameplay value.
 
 **Agreed next phases (battle build, continuing from the faction spine):**
+- **Spectator mode, Phase 2** (death spectate SHIPPED — see ✅ Done → Camera):
+  match-end spectate (keep the death-cam running under the victory/defeat
+  banner), a pure observer mode (watch AI vs AI, no player seat — touches the
+  splash flow, so only on request), and true online spectator SEATS (join a
+  match as a non-playing observer — needs a BattleRoom role + protocol bump).
 - **Mothership defenses** — gun turrets DONE (see ✅ Done → "Carrier defense
   turrets"). Still on the table: **missile-launcher turrets** (same sub-emitter
   seam, firing into the per-faction MissileSystem instead of lasers).

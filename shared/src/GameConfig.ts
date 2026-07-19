@@ -1633,6 +1633,22 @@ export const GameConfig = {
   },
 
   /**
+   * Death spectate (CLIENT-ONLY view behavior — the sim never sees it).
+   * While the player is dead and the redeploy clock runs, the camera follows
+   * a live ship instead of freezing on the wreck: your killer first (if
+   * they're still flying), else the nearest live pilot, with A/D + arrows /
+   * Space / left-click cycling through the roster. Same behavior offline
+   * (SpectatorCamera fed by Game) and online (fed by NetworkGame's shadows).
+   */
+  spectator: {
+    /**
+     * How long the camera lingers on your own wreck before cutting to the
+     * spectate subject — the explosion beat. Any cycle input cuts early.
+     */
+    deathHoldMs: 1600,
+  },
+
+  /**
    * Mouse steering (CLIENT-ONLY input — the sim and the wire protocol never
    * see the mouse; it merges into the same InputState the keyboard fills).
    * The cursor sets a DESIRED HEADING: it's unprojected onto the fighter

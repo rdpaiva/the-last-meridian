@@ -671,6 +671,38 @@ Full design + as-built notes: `docs/JUMP-DRIVE-AND-RESUPPLY.md`. Built sim/view-
   camera-mount jolt.
 - Continues updating during hitstop so the freeze-frame trembles.
 
+## SpectatorCamera (death spectate)
+- While the player is dead and the redeploy clock runs, the camera follows a
+  live ship instead of freezing on the wreck. Client-only view behavior —
+  the sim and the wire protocol never see it (`GameConfig.spectator`).
+- **Ownership split:** `SpectatorCamera` owns target selection only. The
+  coordinator (Game offline / NetworkGame online) decides WHEN spectating
+  applies (dead + phase "playing" + match not ended), detects the
+  death/respawn edges (`begin()` / `end()` + `rig.snapTo(own ship)` on the
+  way back), and builds the per-frame roster of watchable ships (live,
+  launched, not the player).
+- **Subjects are adapters:** `SpectateSubject` = `{position, isAlive,
+  callsign}` read live. Offline Game lazily wraps sim Ships (one stable
+  object per ship — roster identity is what cycling and killer-matching
+  compare). Online the replicated `ShadowShip` satisfies the shape directly.
+- **Flow:** linger `deathHoldMs` on the wreck (the explosion beat; any cycle
+  press cuts early) → hard-cut (`snapTo`, not a pan) to the killer if
+  watchable, else the nearest live ship. Rotate keys cycle prev/next, fire
+  key cycles next (all edge-detected — the fire button held while dying must
+  release first). Zoom keys pass through. If the followed ship dies, auto-cut
+  to whoever is nearest to it; if NOBODY is watchable, hold the last framed
+  position frozen — never keep reading a dead subject's position (its respawn
+  teleports it across the map and would streak the camera).
+- **Killer attribution:** offline via `ScoreBoard.lastAttacker()` peeked at
+  the death edge (before `noteDeath` consumes it); online via the `shipDied`
+  FX event's `by` field — which rides the FX queue and can land AFTER the
+  alive→dead patch began the spectate, hence `setPreferred()` (a no-op once
+  a subject is picked).
+- Follow velocity is finite-differenced from the subject's rendered position
+  (shadows have no sim velocity); the rig's lead smoothing absorbs the noise.
+- HUD: "SPECTATING — <callsign>" line under the REDEPLOY ring
+  (`Hud.setSpectating`), hidden during the wreck-hold and while alive.
+
 ## EngineGlow
 - Core sphere + TrailMesh parented to an anchor at the ship's tail.
 - Materials use emissive components > 1.0 for hot bloom.

@@ -2158,6 +2158,24 @@ body {
   text-shadow: 0 0 8px rgba(243, 139, 168, 0.6);
 }
 
+/* Death-spectate line under the REDEPLOY label: who the camera is following.
+   Cooler and dimmer than the warning-red ring — it's information, not alarm. */
+.respawn-ring .respawn-ring-spectate {
+  position: absolute;
+  top: 100%;
+  margin-top: 34px;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  color: #89b4fa;
+  text-shadow: 0 0 8px rgba(137, 180, 250, 0.5);
+}
+
+.respawn-ring .respawn-ring-spectate.hidden {
+  display: none;
+}
+
 .respawn-ring.hidden {
   display: none;
 }
