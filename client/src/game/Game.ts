@@ -2434,11 +2434,23 @@ export class Game {
     const bays = home.getLaunchBayCount();
     const perBay = GameConfig.launch.shipsPerBay;
     const stagger = GameConfig.launch.staggerSec;
+    const spacing = GameConfig.launch.queueSpacing;
+    const fwd = home.getLaunchForward();
     queue.forEach((c, i) => {
       const bayIndex = Math.min(Math.floor(i / perBay), bays - 1);
       c.bayIndex = bayIndex;
       const start = home.getLaunchStartPosition(bayIndex);
-      c.ship.respawn(start.x, start.z, home.rotationY);
+      // Hold each ship at its QUEUE SLOT — nose-to-tail behind the tube mouth
+      // along the launch axis — not at the shared bay point, so a waiting wing
+      // is a visible line on the deck instead of a stack. The catapult run
+      // integrates from wherever the ship holds, so a deeper slot just gets a
+      // slightly longer deck run before it clears the bow.
+      const slot = i - bayIndex * perBay;
+      c.ship.respawn(
+        start.x - fwd.x * spacing * slot,
+        start.z - fwd.z * spacing * slot,
+        home.rotationY,
+      );
       const isPlayer = c === this.playerCombatant;
       c.launch = this.makeLaunchSequence(home, baseHoldSec + i * stagger, isPlayer);
     });

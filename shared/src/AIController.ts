@@ -122,6 +122,34 @@ export class AIController implements ShipController {
   private threatLateral = 0;
   private avoidSteerHeading = 0;
   private avoidStrafeDir = 0;
+  /**
+   * Latched dodge side: -1 = pass obstacles on the left (heading minus the
+   * tangent offset), +1 = right, 0 = no dodge in progress. Chosen on the
+   * first frame of a dodge and HELD for avoidSideHoldSec past the last
+   * threat frame — re-choosing per frame flips the tangent whenever the
+   * pilot aims near an obstacle's center (signed lateral ≈ 0), which was the
+   * full-turn-rate left/right nose wag (worst on "defend" pilots living next
+   * to their carrier's hull circles).
+   */
+  private avoidSide = 0;
+  private avoidSideHoldSec = 0;
+  /**
+   * The rock the current dodge is committed to: on frames where the scan
+   * comes back clear but this rock is still alive and ahead, the dodge keeps
+   * steering its tangent instead of releasing (a boundary graze must not
+   * flip the override per frame). Cleared when the rock falls behind, dies,
+   * or the side latch expires.
+   */
+  private avoidStickyRock: AvoidObstacle | null = null;
+  /** Continuous seconds the avoidance override has owned the ship. */
+  private avoidCommitSec = 0;
+  /**
+   * Stand-down clock after a maxed-out dodge (avoidCommitMaxSec): while
+   * positive, the threat scan is suppressed entirely and the pilot flies its
+   * order — the firing window that stops a carrier's row of hull circles
+   * from capturing a striker on the tangent forever.
+   */
+  private avoidRefractorySec = 0;
 
   private wanderTargetHeading = simRandom() * Math.PI * 2;
   private wanderTimerSec = 0;
@@ -551,7 +579,7 @@ export class AIController implements ShipController {
     // politely pointed away. Runs per-frame AFTER the plan cache, so even the
     // slow-thinking orders (patrol/strike) never coast into a rock between
     // reaction ticks.
-    const avoiding = this.avoidObstacles(self, world, steerHeading);
+    const avoiding = this.avoidObstacles(deltaSeconds, self, world, steerHeading);
     if (avoiding) {
       steerHeading = this.avoidSteerHeading;
       thrust = true;
@@ -770,10 +798,17 @@ export class AIController implements ShipController {
    * the rock relative to the ship's current facing).
    */
   private avoidObstacles(
+    deltaSeconds: number,
     self: Ship,
     world: ControllerWorld,
     steerHeading: number,
   ): boolean {
+    const cfg = GameConfig.ai;
+    // Stand-down window after a maxed-out dodge: fly the order, scan off.
+    if (this.avoidRefractorySec > 0) {
+      this.avoidRefractorySec -= deltaSeconds;
+      return false;
+    }
     // Reset the shared threat scratch, then scan both travel directions.
     // (Reset lives in a helper so TS doesn't narrow threatRock to null here —
     // it can't see scanForThreat mutate the field.)
@@ -786,25 +821,83 @@ export class AIController implements ShipController {
         self, world, self.velocity.x / speed, self.velocity.z / speed,
       );
     }
-    const threat = this.threatRock;
-    if (!threat) return false;
+    let threat = this.threatRock;
+    if (threat) {
+      // Fresh contact: (re)commit the dodge to this rock.
+      this.avoidStickyRock = threat;
+      this.avoidSideHoldSec = cfg.avoidSideHoldSec;
+    } else {
+      this.avoidSideHoldSec -= deltaSeconds;
+      if (this.avoidSideHoldSec <= 0) {
+        // Genuinely clear for the whole hold — release everything.
+        this.avoidSide = 0;
+        this.avoidStickyRock = null;
+        this.avoidCommitSec = 0;
+        return false;
+      }
+      const sticky = this.avoidStickyRock;
+      if (!sticky || !sticky.isAlive) {
+        this.avoidCommitSec = 0;
+        return false;
+      }
+      // Dodge done? Once the rock's center is behind our travel direction the
+      // order takes back over immediately (the side latch stays warm until
+      // the timer runs out, so a following rock is passed the same way).
+      const spd = Math.hypot(self.velocity.x, self.velocity.z);
+      const tx = spd > 1 ? self.velocity.x / spd : Math.sin(self.rotationY);
+      const tz = spd > 1 ? self.velocity.z / spd : Math.cos(self.rotationY);
+      const bx = sticky.position.x - self.position.x;
+      const bz = sticky.position.z - self.position.z;
+      if (bx * tx + bz * tz <= 0) {
+        this.avoidStickyRock = null;
+        this.avoidCommitSec = 0;
+        return false;
+      }
+      // Rock still ahead mid-dodge: stay COMMITTED to its tangent even though
+      // this frame's scan came back clear. A dodge that turns the path off
+      // the rock makes the scan clear, which resumes the order heading, which
+      // points back at the rock — releasing on that boundary graze and
+      // re-engaging next frame is a full-turn-rate sawtooth at ANY threshold
+      // (widening the test just moves the surf line). The override may only
+      // change state on real events: rock passed, rock died, hold expired,
+      // a fresh scan contact — or the commit cap below.
+      threat = sticky;
+    }
 
-    const cfg = GameConfig.ai;
+    // Commit cap: a dodge that has owned the ship this long is being renewed
+    // indefinitely (a carrier hull's ROW of circles re-arms it slice by
+    // slice — "behind us" never comes). Force a stand-down so the pilot gets
+    // a window to actually fly its order (nose onto the hull, shoot), then
+    // let avoidance re-arm and push it back out.
+    this.avoidCommitSec += deltaSeconds;
+    if (this.avoidCommitSec >= cfg.avoidCommitMaxSec) {
+      this.avoidRefractorySec = cfg.avoidRefractorySec;
+      this.avoidCommitSec = 0;
+      this.avoidSide = 0;
+      this.avoidSideHoldSec = 0;
+      this.avoidStickyRock = null;
+      return false;
+    }
+
     const dx = threat.position.x - self.position.x;
     const dz = threat.position.z - self.position.z;
     const dist = Math.hypot(dx, dz) || 1;
     const clear = threat.radius + self.hitRadius + cfg.avoidMargin;
     const angleToRock = Math.atan2(dx, dz);
     const offset = Math.asin(clamp(clear / dist, 0, 1));
-    // Rock right of path → pass left (smaller heading); left → pass right.
-    this.avoidSteerHeading = wrapAngle(
-      this.threatLateral >= 0 ? angleToRock - offset : angleToRock + offset,
-    );
-    // Strafe away from the rock relative to current FACING (strafe jets are
-    // body-relative): rock on the starboard side → strafe left, and vice versa.
-    const rightX = Math.cos(self.rotationY);
-    const rightZ = -Math.sin(self.rotationY);
-    this.avoidStrafeDir = dx * rightX + dz * rightZ >= 0 ? -1 : 1;
+    // Pick the pass side ONCE per dodge (rock right of path → pass left, and
+    // vice versa), then hold it while threats persist. Either side always
+    // clears the obstacle — the latch just stops the per-frame sign flip of
+    // a near-zero lateral from wagging the nose between the two tangents.
+    if (this.avoidSide === 0) {
+      this.avoidSide = this.threatLateral >= 0 ? -1 : 1;
+    }
+    this.avoidSideHoldSec = cfg.avoidSideHoldSec;
+    this.avoidSteerHeading = wrapAngle(angleToRock + this.avoidSide * offset);
+    // Strafe jets back the same plan: passing left puts the rock to starboard
+    // (strafe left, -1) and vice versa — stable, unlike re-deriving the side
+    // from the current facing each frame while the nose is still swinging.
+    this.avoidStrafeDir = this.avoidSide;
     return true;
   }
 
@@ -1256,9 +1349,13 @@ export class AIController implements ShipController {
 
     const jitter = (simRandom() * 2 - 1) * cfg.wanderJitter;
     const naiveTarget = self.rotationY + jitter;
-    this.wanderTargetHeading = wrapAngle(
-      naiveTarget * (1 - leashPull) + angleToAnchor * leashPull,
-    );
+    // Circular blend (unit-vector lerp) — NOT a scalar lerp of the two angles.
+    // rotationY is unwrapped (it accumulates full turns), so a scalar blend
+    // against atan2's [-π, π] anchor angle produced an effectively random
+    // heading once a pilot had looped a few times: the visible "wag side to
+    // side every retarget" weave. blendHeading is 2π-periodic, so the
+    // accumulated turns fall out.
+    this.wanderTargetHeading = this.blendHeading(naiveTarget, angleToAnchor, leashPull);
 
     this.wanderTimerSec = cfg.wanderRetargetSec * (0.6 + simRandom() * 0.8);
   }

@@ -1530,6 +1530,17 @@ export const GameConfig = {
      */
     staggerSec: 0.4,
     /**
+     * Aft spacing (world units) between ships queued in the SAME launch bay
+     * while they wait for their catapult slot. Slot 0 holds at the tube mouth;
+     * each later ship holds this far behind the one ahead, along the launch
+     * axis, so a staged wing reads as a nose-to-tail line on the deck instead
+     * of every ship stacked on a single point (the old behavior: every ship in
+     * a bay block spawned at the SAME getLaunchStartPosition and overlapped
+     * for the whole hold). A deeper slot's catapult run is longer, so this
+     * also spreads the exit cadence by queueSpacing/launchSpeed per slot.
+     */
+    queueSpacing: 10,
+    /**
      * Base launch hold (seconds) when there is NO cinematic seat — i.e.
      * multiplayer rooms. Measured from the moment the first client reports
      * READY (MSG.ready — assets loaded, render loop running); until then the
@@ -2530,6 +2541,39 @@ export const GameConfig = {
     avoidLookahead: 55,
     /** Extra clearance (units) beyond ship + rock radii when passing a rock. */
     avoidMargin: 6,
+    /**
+     * How long (seconds) the chosen dodge SIDE stays latched after the last
+     * frame a threat was seen. Re-choosing the side every frame flips the
+     * tangent left/right whenever the pilot is aimed near an obstacle's
+     * center (the signed lateral offset hovers at zero) — the visible
+     * full-rate nose wag. While the latch holds, every threat is passed on
+     * the same side, so a dodge is one smooth arc; after this long with no
+     * threat the next dodge re-picks the cheaper side.
+     */
+    avoidSideHoldSec: 0.5,
+    /**
+     * Longest CONTINUOUS time a pilot may spend dodging before avoidance is
+     * forced to stand down for avoidRefractorySec. A dodge normally ends
+     * when the rock falls behind the ship — but a carrier hull is a ROW of
+     * big avoidance circles, so a striker working close to one can renew its
+     * dodge slice-by-slice forever, never nosing onto the hull to actually
+     * shoot (the AI-vs-AI battle stalls: fighters die, carriers don't). The
+     * cap turns that permanent capture into a rhythm: arc off for up to this
+     * long, then get a firing window. Open-field rock dodges rarely hit the
+     * cap (a pass at cruise clears in about a second). Tuned together with
+     * avoidRefractorySec against the headless battle: 2.0/0.75 starved
+     * carrier-strike DPS enough to stall the AI-vs-AI match; 1.5/1.25 keeps
+     * strike pressure near the old level while staying wag-free.
+     */
+    avoidCommitMaxSec: 1.5,
+    /**
+     * Avoidance stand-down after a maxed-out dodge (seconds): the pilot
+     * flies its ORDER (e.g. noses onto the carrier hull and fires) with the
+     * threat scan suppressed, then avoidance re-arms and pushes it back out.
+     * Physical keep-outs still protect it from actually ramming anything.
+     * (See avoidCommitMaxSec for how the pair was tuned.)
+     */
+    avoidRefractorySec: 1.25,
 
     /** Range at which a fighter stops wandering and turns toward a target. */
     engagementRange: 35,
@@ -2710,18 +2754,27 @@ export const GameConfig = {
      */
     coverBreakRange: 45,
     /**
-     * Radius around the friendly mothership within which a "defend" wingman
-     * will break off its loiter and engage an enemy fighter. Outside this
-     * radius the defender patrols near the carrier; inside it, it intercepts.
+     * Radius around the friendly mothership (measured from the carrier
+     * CENTER) within which a "defend" wingman will break off its loiter and
+     * engage an enemy fighter. Must reach past where carrier strikers
+     * actually attack from: hull avoidance extends ~152 from center (GLB
+     * carriers) and strikers pound the hull from carrierFireStandoff off its
+     * SURFACE (~210 from center) — 230 covers that ring with margin. The old
+     * 80 was tuned for the small procedural carrier and sat INSIDE the GLB
+     * hull, so defenders could never intercept anyone.
      */
-    defendRadius: 80,
+    defendRadius: 230,
     /**
      * How far a "defend" wingman may drift from the home carrier before it
      * turns back. Within this radius it wanders freely; beyond it, it heads
-     * straight back. Keep below defendRadius so defenders don't loiter so far
-     * out that they miss intruders slipping past.
+     * back toward the carrier. Keep below defendRadius so defenders don't
+     * loiter so far out that they miss intruders slipping past — and keep it
+     * ABOVE the hull's avoidance extent (~152 from center + margins): the old
+     * 50 sat inside the physical hull, so the loiter zone was unreachable and
+     * defenders spent the whole match flying at the hull center fighting the
+     * avoidance override — the full-rate "wag" squiggle.
      */
-    defendOrbitRadius: 50,
+    defendOrbitRadius: 180,
     /**
      * "capture" order (strategic layer M2): a capturing pilot breaks its dock
      * loiter to engage any enemy within this radius of the STATION (not of
