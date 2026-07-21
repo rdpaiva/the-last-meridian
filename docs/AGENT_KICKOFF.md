@@ -16,14 +16,22 @@ editing instead of searching.
 
 ---
 
-**State (2026-07-18)**: `feat/strategic-layer` MERGED to `main`
-(`2a2a11e`, fast-forward, 14 commits) and the repo branch-cleaned — only
-`main` exists locally; `origin/dev` is the off-machine backup. The owner
-reviewed everything and **CLEARED THE QUEUE**: all pending owner-check
-items are closed as accepted ("happy with the way everything is right
-now; if I find something wrong down the road, we'll address it"). Do NOT
-resurrect old check items — anything found later gets filed here fresh,
-from play.
+**State (2026-07-21)**: `main` at `3621cbf` — launch-bay QUEUE staging
+(ships in the same tube no longer stack on one point; they hold
+nose-to-tail via `launch.queueSpacing`) + the AI nose-wag fixes: wander
+now blends headings circularly (`retargetWander` scalar-lerp bug),
+defend rings re-fit OUTSIDE the GLB hulls (orbit 50→180, intercept
+80→230 — the old rings sat inside the ~150u hull-avoidance footprint,
+the source of the full-rate defender wag), and obstacle dodges are
+COMMITTED with a commit-cap + refractory rhythm
+(`ai.avoidCommitMaxSec`/`avoidRefractorySec` — tuned against AI-vs-AI
+battle completion; the old per-frame chatter was accidentally strikers'
+firing time). PROTOCOL_VERSION 27→**28** (GameConfig changed). Typecheck
+green, 52/52 tests, sim baseline recaptured (pinned-seed outcome flip
+verified pre-existing across seeds, not a regression). Prior state: the
+strategic layer merged 2026-07-18 (`2a2a11e`) and the owner **CLEARED
+THE QUEUE** — do NOT resurrect old check items; anything found later
+gets filed here fresh, from play.
 
 **What the game is now**: solo + online fleet-vs-fleet with the full
 strategic layer — capture stations, per-faction Energy with auto upgrade
@@ -35,7 +43,7 @@ catalog (The Eye is the first editor-authored entry), and a 7-card Field
 Manual covering all of it. Feature-by-feature status: `docs/ROADMAP.md`.
 At merge: typecheck green across all workspaces, **52/52 tests green**.
 
-**Deploy state**: PROTOCOL_VERSION is **27**; the LIVE droplet still
+**Deploy state**: PROTOCOL_VERSION is **28**; the LIVE droplet still
 answers **v17** — the strategic layer has never been deployed. The next
 Actions → **"Deploy game"** dispatch (owner clicks; agents' `gh` token
 cannot) ships client + server from one checkout, so the both-halves rule
@@ -82,9 +90,24 @@ recur):
 
 **Work order**:
 
-_Nothing queued (owner cleared the queue 2026-07-18)._ New items come
-from the deploy + friends playtest, or whatever the owner asks for next.
-File them here with anchors as they surface.
+- **Owner playtest: launch queue + AI steering feel** (`3621cbf`).
+  Expected sights: bay queues hold as a nose-to-tail line on deck; defend
+  gunships cruise a wide ~180u orbit and sortie out to ~230u to
+  intercept; carrier strikers fly dodge-in/fire/peel runs. Dials if the
+  feel is off: `GameConfig.ai.defendRadius`/`defendOrbitRadius` (defense
+  reach — orbit must stay OUTSIDE the ~150u hull footprint),
+  `ai.avoidCommitMaxSec`/`avoidRefractorySec` (dodge/fire rhythm —
+  battle-completion-sensitive, see the config comments before touching),
+  `launch.queueSpacing` (deck line spacing). Anchors:
+  `shared/src/AIController.ts` (`avoidObstacles`, `scanForThreat`,
+  `retargetWander`, the `defend` case), `shared/src/GameConfig.ts`
+  (`ai.*` avoidance/defend blocks, `launch.queueSpacing`),
+  `BattleSim.launchFleet` / `Game.launchFleet`. Wobble regression check
+  lives in memory: headless probe measuring reversals/sec (calm ≈ ≤1/s).
+
+Otherwise nothing queued. New items come from the deploy + friends
+playtest, or whatever the owner asks for next. File them here with
+anchors as they surface.
 
 **Rules of the road** (already true in code — don't relearn them):
 
