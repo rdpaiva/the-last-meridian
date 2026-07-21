@@ -57,9 +57,10 @@ export interface LoadoutActions {
  * loadout in the selected mode with one press of Enter (the old quick-play
  * screen, folded into the frame).
  *
- * Layout — every step renders inside a fixed three-row frame so nothing can
+ * Layout — every step renders inside a fixed row frame so nothing can
  * overlap on short laptop screens (the old free-flowing column bug):
  *
+ *   dev banner     "under active development" strip + YouTube link (always on)
  *   header rail    title · step dots (MODE/HANGAR/MISSION) · PILOT chip
  *   stage          the current step's cards; scrolls if it must
  *   footer rail    CONTROLS/REPLAY INTRO/MATCH SETTINGS · BACK + NEXT/LAUNCH · key hint
@@ -522,11 +523,23 @@ export class LoadoutMenu {
     const stage =
       this.step === 1 ? this.stageMode() : this.step === 2 ? this.stageHangar() : this.stageMission();
     this.root.innerHTML = `
+      ${this.devBanner()}
       ${this.railTop()}
       <div class="lo-stage"><div class="lo-stage-inner">${stage}</div></div>
       ${this.rookieCallout()}
       ${this.railBottom()}`;
     this.bind();
+  }
+
+  /** A quiet strip above the header rail flagging the game as in-development
+   *  and pointing players at the YouTube channel. Always shown — unlike the
+   *  rookie callout, this isn't dismissed by any player action. */
+  private devBanner(): string {
+    return `
+      <div class="lo-dev-banner">
+        This game is under active development. Check out our
+        <a href="https://www.youtube.com/@livinginthesky2" target="_blank" rel="noopener noreferrer">YouTube channel</a>.
+      </div>`;
   }
 
   /** A gold strip above the footer rail pointing first-timers at the Field
