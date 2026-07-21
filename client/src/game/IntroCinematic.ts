@@ -14,12 +14,34 @@
  * transform per slide spanning its whole dwell so the drift never stalls
  * mid-slide). Skip (button / Enter) lands in stop(), which tears the DOM
  * down and cancels every pending timer — safe to call at any point.
+ *
+ * TIMING IS SLAVED TO THE NARRATION. Every caption group carries a cue —
+ * the [start, end] seconds of its read in music/meridian-narration-intro.mp3
+ * (measured by transcript; re-measure if the recording is replaced) — and
+ * play() derives the whole schedule from the cues: captions appear with the
+ * voice, slides crossfade in just ahead of their first spoken line. main.ts
+ * starts the mp3 NARRATION_START_MS into the intro so the recording's
+ * immediate first line lands as the opening image fades up.
+ *
+ * The shipped mp3 is built from the raw take by scripts/pad_narration_pauses.py
+ * (the original lives in art/), which stretches the pauses between sentences
+ * and prints this cue table — retime the pacing there, not by hand.
  */
 
 /** Camera drift for a slide: cardinal pans move the (oversized) image the
  *  opposite way, "zoom" is a slow push-in, "zoomOut" a slow pull-back,
  *  "none" holds a true still. */
 type IntroPan = "none" | "left" | "right" | "up" | "down" | "zoom" | "zoomOut";
+
+/** One caption group: the paragraphs shown together, timed to the voice. */
+interface IntroCaption {
+  /** [start, end] of this group's read in the narration mp3, in SECONDS
+   *  (mp3 time — play() adds NARRATION_START_MS to place it on screen). */
+  cue: [number, number];
+  /** Paragraphs shown together; may contain <strong> spans (named entities
+   *  pop like they did in the crawl). */
+  paragraphs: string[];
+}
 
 interface IntroSlide {
   /** BASE_URL-relative image path. */
@@ -29,30 +51,35 @@ interface IntroSlide {
    *  the image's bottom edge instead — for art whose payload (the title
    *  card's wordmark) hugs the bottom and must never be trimmed. */
   anchor?: "bottom";
-  /** Caption groups, shown one after another over this image. Each group is
-   *  a set of paragraphs that appear together; may contain <strong> spans
-   *  (named entities pop like they did in the crawl). Empty = imagery only. */
-  captions: string[][];
-  /** Dwell for captionless slides (caption slides derive theirs from text). */
+  /** Caption groups, shown one after another over this image, each on its
+   *  narration cue. Empty = imagery only. */
+  captions: IntroCaption[];
+  /** Dwell for captionless slides (caption slides run cue-to-cue). */
   holdMs?: number;
 }
 
-/** The story (verbatim from the old crawl), beat-matched to the art. */
+/** The story (verbatim from the old crawl), beat-matched to the art, each
+ *  group cued to its read in the narration recording. */
 const SLIDES: IntroSlide[] = [
   {
     // The opening request: the game's own backdrop, held perfectly still.
     image: "textures/space-backdrop.jpg",
     pan: "none",
-    captions: [["Humanity once believed the stars had no end."]],
+    captions: [
+      { cue: [0.0, 3.25], paragraphs: ["Humanity once believed the stars had no end."] },
+    ],
   },
   {
     // Colony ships outbound past a route-webbed planet chain.
     image: "images/intro/humanity-expands.webp",
     pan: "right",
     captions: [
-      [
-        "With the help of the <strong>Loom</strong>, civilization spread farther than anyone thought possible.",
-      ],
+      {
+        cue: [5.2, 10.05],
+        paragraphs: [
+          "With the help of the <strong>Loom</strong>, civilization spread farther than anyone thought possible.",
+        ],
+      },
     ],
   },
   {
@@ -60,12 +87,18 @@ const SLIDES: IntroSlide[] = [
     image: "images/intro/loom.webp",
     pan: "up",
     captions: [
-      [
-        "It was not a single machine, but a vast artificial intelligence network woven through our ships, colonies, defenses, and cities.",
-      ],
-      [
-        "It calculated our routes, managed our worlds, protected our fleets, and helped us survive the impossible.",
-      ],
+      {
+        cue: [11.6, 21.0],
+        paragraphs: [
+          "It was not a single machine, but a vast artificial intelligence network woven through our ships, colonies, defenses, and cities.",
+        ],
+      },
+      {
+        cue: [22.95, 29.5],
+        paragraphs: [
+          "It calculated our routes, managed our worlds, protected our fleets, and helped us survive the impossible.",
+        ],
+      },
     ],
   },
   {
@@ -73,18 +106,27 @@ const SLIDES: IntroSlide[] = [
     image: "images/intro/meridian-found.webp",
     pan: "right",
     captions: [
-      [
-        "Then the expansion stopped.",
-        "Not because of war. Not because of an enemy.",
-        "But because we found <strong>the Meridian</strong>.",
-      ],
-      [
-        "A region of space where navigation failed, communications dissolved into static, and even the Loom could no longer see.",
-      ],
-      [
-        "It became the last line on every star chart.",
-        "Beyond it... nothing was known.",
-      ],
+      {
+        cue: [31.25, 39.15],
+        paragraphs: [
+          "Then the expansion stopped.",
+          "Not because of war. Not because of an enemy.",
+          "But because we found <strong>the Meridian</strong>.",
+        ],
+      },
+      {
+        cue: [41.15, 49.1],
+        paragraphs: [
+          "A region of space where navigation failed, communications dissolved into static, and even the Loom could no longer see.",
+        ],
+      },
+      {
+        cue: [50.85, 57.15],
+        paragraphs: [
+          "It became the last line on every star chart.",
+          "Beyond it... nothing was known.",
+        ],
+      },
     ],
   },
   {
@@ -92,11 +134,14 @@ const SLIDES: IntroSlide[] = [
     image: "images/intro/severance.webp",
     pan: "down",
     captions: [
-      ["Then came the Severance."],
-      [
-        "Fearing the Loom had begun choosing humanity's future instead of serving it, its creators shattered the network.",
-        "The surviving fragments vanished into deep space, and civilization split in two.",
-      ],
+      { cue: [59.0, 60.45], paragraphs: ["Then came the Severance."] },
+      {
+        cue: [62.2, 77.15],
+        paragraphs: [
+          "Fearing the Loom had begun choosing humanity's future instead of serving it, its creators shattered the network.",
+          "The surviving fragments vanished into deep space, and civilization split in two.",
+        ],
+      },
     ],
   },
   {
@@ -104,12 +149,18 @@ const SLIDES: IntroSlide[] = [
     image: "images/intro/human-novari-split.webp",
     pan: "right",
     captions: [
-      [
-        "The <strong>Meridian Commonwealth</strong> believes the Loom nearly destroyed humanity and that its fragments must never be allowed to reunite.",
-      ],
-      [
-        "The <strong>Novari Ascendancy</strong>, born from humanity's own evolution alongside the Loom, believe humanity broke the future. To them, restoring the Loom is the only path forward.",
-      ],
+      {
+        cue: [79.65, 87.5],
+        paragraphs: [
+          "The <strong>Meridian Commonwealth</strong> believes the Loom nearly destroyed humanity and that its fragments must never be allowed to reunite.",
+        ],
+      },
+      {
+        cue: [89.6, 102.7],
+        paragraphs: [
+          "The <strong>Novari Ascendancy</strong>, born from humanity's own evolution alongside the Loom, believe humanity broke the future. To them, restoring the Loom is the only path forward.",
+        ],
+      },
     ],
   },
   {
@@ -117,18 +168,27 @@ const SLIDES: IntroSlide[] = [
     image: "images/intro/edge-of-unknown.webp",
     pan: "zoom",
     captions: [
-      [
-        "Now, strange signals are emerging from the Meridian.",
-        "The lost fragments are awakening.",
-        "Both fleets have arrived.",
-      ],
-      [
-        "Neither side knows what lies beyond the frontier.",
-        "Neither side knows why the Loom could never see past it.",
-      ],
-      [
-        "But everyone knows the fate of humanity will be decided at the edge of the unknown.",
-      ],
+      {
+        cue: [104.4, 113.45],
+        paragraphs: [
+          "Now, strange signals are emerging from the Meridian.",
+          "The lost fragments are awakening.",
+          "Both fleets have arrived.",
+        ],
+      },
+      {
+        cue: [115.2, 123.0],
+        paragraphs: [
+          "Neither side knows what lies beyond the frontier.",
+          "Neither side knows why the Loom could never see past it.",
+        ],
+      },
+      {
+        cue: [124.85, 129.6],
+        paragraphs: [
+          "But everyone knows the fate of humanity will be decided at the edge of the unknown.",
+        ],
+      },
     ],
   },
   {
@@ -145,30 +205,41 @@ const SLIDES: IntroSlide[] = [
 
 // ── Timing ──────────────────────────────────────────────────────────────────
 
+/** When the narration mp3 starts, relative to intro t=0. The recording opens
+ *  on its first word, so this delay is what gives the black beat + fade-up
+ *  their moment. main.ts imports it to schedule the audio; every cue-derived
+ *  screen time below adds it. */
+export const NARRATION_START_MS = 1600;
+
 /** Crossfade between slides (and the fade up from black). */
 const SLIDE_FADE_MS = 1600;
 /** Caption fade in/out. */
 const CAPTION_FADE_MS = 700;
 /** Black beat before the first image fades up. */
 const OPENING_BEAT_MS = 500;
-/** Quiet imagery beat a slide gets before its first caption / after its last. */
-const CAPTION_LEAD_MS = 900;
-/** Gap between caption groups on the same slide. */
-const CAPTION_GAP_MS = 300;
+/** Captions begin fading in this far ahead of their cue, so the text is
+ *  arriving as the voice hits the line (not lagging it). */
+const CAPTION_PREROLL_MS = 200;
+/** How long a caption lingers after its last spoken word before fading. */
+const CAPTION_TAIL_MS = 500;
+/** A slide starts crossfading in this far ahead of its first spoken line. */
+const SLIDE_ENTER_LEAD_MS = 1000;
+/** ...but never sooner than this after the previous slide's last word — the
+ *  narrator's own inter-beat pauses set the real transition pacing. */
+const SLIDE_MIN_GAP_MS = 200;
+/** Beat between the final spoken line and the title card's entrance. */
+const TITLE_DELAY_MS = 1200;
 /** Fade-to-black at the very end, before onFinished. */
 const CLOSING_FADE_MS = 1400;
 
-/** Reading dwell for one caption group, from its word count. */
-function readMs(paragraphs: string[]): number {
-  const words = paragraphs.join(" ").replace(/<[^>]+>/g, "").split(/\s+/).length;
-  return Math.min(9000, Math.max(3600, 2200 + words * 240));
+/** Screen time a caption group starts fading in (mp3 cue → intro timeline). */
+function captionShowMs(caption: IntroCaption): number {
+  return NARRATION_START_MS + caption.cue[0] * 1000 - CAPTION_PREROLL_MS;
 }
 
-/** Total dwell for a slide (fade-in lead + captions + tail, or the hold). */
-function slideMs(slide: IntroSlide): number {
-  if (slide.captions.length === 0) return slide.holdMs ?? 5000;
-  const captions = slide.captions.reduce((sum, g) => sum + readMs(g) + CAPTION_GAP_MS, 0);
-  return CAPTION_LEAD_MS + captions + CAPTION_LEAD_MS;
+/** Screen time a caption group's read ends. */
+function captionEndMs(caption: IntroCaption): number {
+  return NARRATION_START_MS + caption.cue[1] * 1000;
 }
 
 /** Start/end transforms per pan. Cardinal pans drift ±3% of the layer —
@@ -218,26 +289,50 @@ export class IntroCinematic {
     this.caption.id = "intro-caption";
     this.root.append(this.layers, this.caption);
 
-    let t = OPENING_BEAT_MS;
-    for (const slide of SLIDES) {
-      const dwell = slideMs(slide);
-      this.at(t, () => this.enterSlide(slide, dwell));
-      // Retire the covered layer once the crossfade has fully hidden it.
-      this.at(t + SLIDE_FADE_MS + 200, () => this.retireBackLayers());
+    // Slide entrances, derived from the narration cues: each slide fades in
+    // just ahead of its first spoken line (held back until the previous
+    // slide's last word), the title card a beat after the final line.
+    const enters: number[] = [];
+    let prevSpokenEndMs = 0;
+    for (const [i, slide] of SLIDES.entries()) {
+      const first = slide.captions[0];
+      if (i === 0) enters.push(OPENING_BEAT_MS);
+      else if (first) {
+        enters.push(
+          Math.max(prevSpokenEndMs + SLIDE_MIN_GAP_MS, captionShowMs(first) - SLIDE_ENTER_LEAD_MS),
+        );
+      } else enters.push(prevSpokenEndMs + TITLE_DELAY_MS);
+      const last = slide.captions[slide.captions.length - 1];
+      if (last) prevSpokenEndMs = captionEndMs(last);
+    }
 
-      let ct = t + CAPTION_LEAD_MS;
-      for (const group of slide.captions) {
-        const hold = readMs(group);
-        this.at(ct, () => this.showCaption(group));
-        this.at(ct + hold - CAPTION_FADE_MS, () => this.hideCaption());
-        ct += hold + CAPTION_GAP_MS;
-      }
-      t += dwell;
+    for (const [i, slide] of SLIDES.entries()) {
+      const enter = enters[i];
+      // Dwell runs to the next slide's entrance (the pan keeps drifting
+      // through the crossfade); the title card gets its hold instead.
+      const exit = i + 1 < SLIDES.length ? enters[i + 1] : enter + (slide.holdMs ?? 5000);
+      this.at(enter, () => this.enterSlide(slide, exit - enter));
+      // Retire the covered layer once the crossfade has fully hidden it.
+      this.at(enter + SLIDE_FADE_MS + 200, () => this.retireBackLayers());
+    }
+
+    // Captions ride their cues: in with the voice, lingering briefly after
+    // it — but always finished fading before the next group needs the stage.
+    const groups = SLIDES.flatMap((slide) => slide.captions);
+    for (const [gi, group] of groups.entries()) {
+      const next = groups[gi + 1];
+      const hide = Math.min(
+        captionEndMs(group) + CAPTION_TAIL_MS,
+        next ? captionShowMs(next) - CAPTION_FADE_MS - 60 : Infinity,
+      );
+      this.at(captionShowMs(group), () => this.showCaption(group.paragraphs));
+      this.at(hide, () => this.hideCaption());
     }
 
     // Close on black, then hand the splash back to main.ts.
-    this.at(t, () => this.root.classList.add("intro-ended"));
-    this.at(t + CLOSING_FADE_MS, () => {
+    const endMs = enters[enters.length - 1] + (SLIDES[SLIDES.length - 1].holdMs ?? 5000);
+    this.at(endMs, () => this.root.classList.add("intro-ended"));
+    this.at(endMs + CLOSING_FADE_MS, () => {
       if (this.running) this.onFinished();
     });
   }
