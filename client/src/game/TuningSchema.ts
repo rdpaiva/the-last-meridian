@@ -207,6 +207,8 @@ export const TUNING_SCHEMA: ReadonlyArray<TuningGroup> = [
         "How sharply a missile can turn while chasing. Keep it below a ship's turn rate so a hard juke can still shake it."),
       num("missile.interceptRadius", "Intercept radius", 0, 3, 0.05,
         "How close a laser bolt must pass to shoot a missile down (point defense). Bigger = easier to swat incoming rounds. 0 disables shoot-down."),
+      num("missile.heavyInterceptScale", "Gunship intercept scale", 1, 5, 0.1,
+        "Multiplies the intercept radius for bolts fired by heavy gunships. Their flak swats missiles more reliably — the slow ships' answer to seekers they can't dodge. 1 = no bonus."),
       num("missile.minDamage", "Missile min damage", 0, 200, 5,
         "A missile hit rolls its damage randomly between min and max — this is the low end."),
       num("missile.maxDamage", "Missile max damage", 0, 200, 5,

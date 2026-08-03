@@ -248,7 +248,14 @@ export class LaserSystem {
           bx,
           bz,
         );
-        const r = missile.interceptRadius;
+        // Heavy (gunship) bolts get a widened bubble: point defense is the
+        // slow gunships' missile counterplay (they can't dodge — see
+        // missile.heavyInterceptScale). Fighter bolts keep the precision base
+        // radius; turret flak has no shooter, so it isn't heavy and isn't
+        // scaled.
+        const r = laser.heavy
+          ? missile.interceptRadius * GameConfig.missile.heavyInterceptScale
+          : missile.interceptRadius;
         if (distSq > r * r) continue;
         missile.intercept();
         laser.kill();

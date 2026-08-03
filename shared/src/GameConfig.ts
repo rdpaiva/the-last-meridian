@@ -462,6 +462,18 @@ export const GameConfig = {
      * yours too, incidentally — it doesn't aim at them on purpose).
      */
     interceptRadius: 0.9,
+    /**
+     * Intercept-radius multiplier for bolts fired by a `heavy`-flagged ship
+     * (shipTypes[*].heavy — the gunships). Point defense is the heavy's answer
+     * to missiles: a Breaker/Reaver can't dodge (maxSpeed 16-17 can't generate
+     * the lateral separation the juke escape needs), so instead its flak swats
+     * inbound rounds reliably — get the nose roughly on the missile and one of
+     * the four muzzle streams will pass within the widened bubble. Fighters
+     * keep the precision-shot base radius; the slow gunship rotation (3.2
+     * rad/s) keeps the skill check at "turn to face it in time". Turret flak
+     * is NOT scaled — carrier guns don't aim at missiles anyway.
+     */
+    heavyInterceptScale: 1.8,
     /** Damage is rolled uniformly in [minDamage, maxDamage] per hit. */
     minDamage: 30,
     maxDamage: 50,
