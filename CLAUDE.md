@@ -212,7 +212,7 @@ shared/src/                @space-duel/shared — the SIM + config + AI: everyth
     SimRng.ts              seeded deterministic sim RNG — never Math.random() inside the sim
 
 client/src/                @space-duel/client — the Babylon view, menus, and entry (Vite root)
-  main.ts                  entry: splash state machine — the loadout frame IS the front door (factionSelect); the intro cinematic (IntroCinematic.ts) is a first-run gate between its MODE and HANGAR steps (replayable from the rail); → construct Game (solo) or NetworkGame (online) with the chosen loadout; first-gesture audio unlock + splash music; applies the active Map + Difficulty at launch; handle resize
+  main.ts                  entry: splash state machine — the loadout frame IS the front door (factionSelect); the intro film (IntroCinematic.ts) is a first-run gate between its MODE and HANGAR steps (replayable from the rail); → construct Game (solo) or NetworkGame (online) with the chosen loadout; first-gesture audio unlock + splash music; applies the active Map + Difficulty at launch; handle resize
   style.css                full-viewport canvas + HUD + splash/overlay styling
   net/
     NetClient.ts           Colyseus client wrapper: quickMatch/joinById/createMatch + the #join=<roomId> invite-hash helpers
@@ -231,7 +231,7 @@ client/src/                @space-duel/client — the Babylon view, menus, and e
     FieldManual.ts         the "hit the ground running" guide: a self-paced card deck (one gameplay concept per card — flight, weapons, carrier ops + Meridian Drive, ship roles, terrain, stations/Energy/shields, HUD/sensors) opened from the loadout footer link, or the gold ROOKIE PILOTS callout strip (LoadoutMenu.rookieCallout) that shows until the manual is first opened (lastMeridian_guideSeen). ALL text lives in buildCards() — edit/add lines there; timing numbers interpolate live from GameConfig. Visuals are game-rendered (ShipPreview thumbnails, HUD-color specimens, inline SVG) — no art assets
     Maps.ts                client shim over the SHARED arena catalog (shared/Maps.ts): selection persistence (lastMeridian_map) + the SOLO applyMap that wires ConfigOverrides precedence in. Online the ROOM owns the arena: the creator's pick rides JoinOptions, BattleRoom applies it server-side, clients apply the replicated BattleState.mapId before building NetworkGame
     Difficulty.ts          ENEMY-skill presets (easy/normal/hard): applyDifficulty writes ai.*/commander.* knobs at launch; persists (lastMeridian_difficulty); player's own wing unaffected
-    IntroCinematic.ts      the story intro as a cinematic slideshow (data-state="intro"): full-screen images/intro/* art w/ Ken Burns drifts + caption beats (the story text lives HERE); stop() = skip-safe teardown
+    IntroCinematic.ts      the story intro as ONE full-screen film (data-state="intro"): the self-hosted videos/meridian-primer.mp4, carrying its own picture, score, and voiceover (so no narration track to sync — main.ts just fades the menu music out under it). Self-hosted, NOT a YouTube embed: same-origin <video> plays with sound (the intro is always entered from a user gesture), stays ad-free/unbranded, and gives exact skip/end control. Every failure path (missing file, decode error, blocked autoplay) falls through to onFinished so the splash never strands on black; stop() = skip-safe teardown. Master + re-encode recipe: art/video/README.md
     ShipPreview.ts         standalone Babylon engine for the splash: rotating selected-ship GLB turntable + cached ship-card thumbnails (also feeds the Field Manual; disposed at launch)
     TuningSchema.ts        CURATED declarative tuning surface (~70 gameplay knobs w/ label+bounds+step) — the match-settings GUI renders from this; add an entry = expose a knob
     ConfigOverrides.ts     sparse {dot-path: value} override map (lastMeridian_tuning) written into the live GameConfig at startup; schema-clamped; JSON export/import
@@ -488,7 +488,7 @@ for one, do it. Otherwise: don't.
   added 2026-07-07 — `GamepadSteering`, left stick = desired heading on the
   same `InputState.turn` channel, no parallel path).
 - **A complex menu system**. The splash flow (the three-step loadout frame
-  as the front door, the intro cinematic as a first-run gate, one-press CONTINUE
+  as the front door, the intro film as a first-run gate, one-press CONTINUE
   for returning players, the Field Manual gameplay-guide card deck) is the
   deliberate ceiling — keyboard-first, saved choice, Enter back into play. TWO
   sanctioned exceptions, both dev/admin tooling (see `docs/SUBSYSTEMS.md`):

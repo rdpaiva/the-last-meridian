@@ -2,7 +2,7 @@
 /* The splash is a state machine driven by main.ts via data-state on #splash:
      factionSelect  the loadout frame (the front door): mode + callsign →
                     hangar → mission; returning players get CONTINUE on step 1
-     intro          the cinematic story slideshow + Skip Intro (first-run
+     intro          the full-screen story film + Skip Intro (first-run
                     gate between MODE and HANGAR, or Replay Intro)
      settings       the match-settings tuning overlay
    Every state-dependent element is hidden by default and revealed by a
@@ -59,12 +59,11 @@
 }
 
 /* ── Intro cinematic (data-state="intro") ── */
-/* IntroCinematic.ts builds the slideshow into #intro-cinematic: stacked
-   .intro-slide layers (newest on top crossfades in over the old one) inside
-   #intro-layers, and one #intro-caption that fades story lines in and out
-   over the lower third. All motion is inline CSS transitions the class sets
-   per slide (opacity crossfade + one long linear transform drift); the
-   rules here are the static dress. */
+/* IntroCinematic.ts builds one full-screen <video> (the self-hosted story
+   film, sound and all) into #intro-cinematic, plus a #intro-status line for
+   buffering / click-for-sound. The film fades up on its first painted frame
+   and fades to black at the end (.intro-ended) before main.ts advances the
+   splash — the two transitions below are that whole dress. */
 
 #intro-cinematic {
   display: none;
@@ -78,93 +77,54 @@
   display: block;
 }
 
-#intro-layers {
+/* Letterboxed, never cropped: a cinematic is composed to its frame, so
+   `contain` against the black root beats filling the viewport. */
+#intro-video {
   position: absolute;
   inset: 0;
-  /* The whole show fades to black at the end (intro-ended, set by the
-     class) before main.ts advances the splash. */
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  opacity: 0;
   transition: opacity 1.4s ease;
 }
 
-#intro-cinematic.intro-ended #intro-layers {
-  opacity: 0;
-}
-
-/* One slide image. Oversized by 8% per side so the ±3% pan drift can never
-   pull an edge into the frame; IntroCinematic sets background-image and the
-   transition/transform inline. */
-.intro-slide {
-  position: absolute;
-  inset: -8%;
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  opacity: 0;
-  will-change: transform, opacity;
-}
-
-/* A slide that never translates (true stills and the zooms, which stay at
-   scale ≥ 1) needs no pan headroom — full-bleed exactly, so crop anchors
-   like center-bottom land on the real viewport edge. */
-.intro-slide.still {
-  inset: 0;
-}
-
-/* Bottom-anchored crop (the title card): any excess height is trimmed from
-   the top only, so the wordmark along the bottom always survives. */
-.intro-slide.anchor-bottom {
-  background-position: center bottom;
-}
-
-/* Legibility scrim under the captions — imagery stays untouched up top. */
-#intro-cinematic::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    to top,
-    rgba(2, 3, 8, 0.62) 0%,
-    rgba(2, 3, 8, 0.30) 20%,
-    transparent 42%
-  );
-  pointer-events: none;
-}
-
-#intro-caption {
-  position: absolute;
-  left: 12%;
-  right: 12%;
-  bottom: 11%;
-  z-index: 2; /* above the scrim */
-  text-align: center;
-  opacity: 0;
-  transition: opacity 0.7s ease;
-}
-
-#intro-caption.visible {
+#intro-video.visible {
   opacity: 1;
 }
 
-#intro-caption p {
-  margin: 0 0 0.85em;
-  font-size: clamp(15px, 1.55vw, 21px);
-  line-height: 1.6;
-  color: rgba(222, 229, 247, 0.94);
-  letter-spacing: 0.05em;
-  text-shadow:
-    0 2px 16px rgba(0, 0, 0, 0.95),
-    0 0 3px rgba(0, 0, 0, 0.85);
+/* The closing fade to black, set by IntroCinematic before onFinished. */
+#intro-cinematic.intro-ended #intro-video {
+  opacity: 0;
 }
 
-#intro-caption p:last-child {
-  margin-bottom: 0;
+/* Buffering ("LOADING…") and the muted-autoplay fallback's
+   "CLICK FOR SOUND" — the film's only overlay, and normally never seen. */
+#intro-status {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 13%;
+  z-index: 2;
+  text-align: center;
+  font-size: 13px;
+  letter-spacing: 0.22em;
+  color: rgba(222, 229, 247, 0.8);
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.95);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
 }
 
-/* Named entities (the Loom, the Meridian, the factions) pop softly gold
-   against the cool body text — present, not loud. */
-#intro-caption strong {
-  color: #e9cf9b;
-  font-weight: 600;
+#intro-status.visible {
+  opacity: 1;
+}
+
+/* Click-to-unmute makes the whole frame the target (the status line says so
+   — it's the one state where the film itself is interactive). */
+#intro-cinematic.intro-muted {
+  cursor: pointer;
 }
 
 /* ── Intro footer rail ── */

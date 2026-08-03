@@ -1,7 +1,7 @@
 import { Game, RESTART_FLAG } from "./game/Game";
 import { NetworkGame } from "./game/NetworkGame";
 import { NetClient, inviteRoomId, clearInviteHash } from "./net/NetClient";
-import { IntroCinematic, NARRATION_START_MS } from "./game/IntroCinematic";
+import { IntroCinematic } from "./game/IntroCinematic";
 import { LoadoutMenu, type LaunchMode } from "./game/LoadoutMenu";
 import { ShipPreview } from "./game/ShipPreview";
 import { SettingsMenu } from "./game/SettingsMenu";
@@ -34,10 +34,10 @@ import {
  *                 mission setup → launch. Returning players get a gold
  *                 CONTINUE CTA (Enter) on step 1 that relaunches the saved
  *                 loadout immediately — the old quick-play screen, folded in.
- *   intro         The cinematic story slideshow (IntroCinematic.ts): the
- *                 story beats over drifting full-screen art, ending on the
- *                 title poster. First-timers hit it as a gate between MODE
- *                 and HANGAR; it's replayable via the loadout's footer rail.
+ *   intro         The story film (IntroCinematic.ts): one self-hosted
+ *                 full-screen video carrying its own score and voiceover.
+ *                 First-timers hit it as a gate between MODE and HANGAR;
+ *                 it's replayable via the loadout's footer rail.
  *
  * Audio unlock rides the first pointer/key gesture on the splash (browsers
  * require a user gesture before an AudioContext may run).
@@ -84,15 +84,16 @@ splash.style.setProperty(
 // the SFX do. The AudioContext is created inside a button-click handler so
 // the user gesture lets it start in the "running" state.
 const musicUrl = `${import.meta.env.BASE_URL}music/Last Stand in Deep Space.mp3`;
-const narrationUrl = `${import.meta.env.BASE_URL}music/meridian-narration-intro.mp3`;
-/** Music level, and the level it ducks to while the intro narration speaks. */
+/** Music level, and the level it fades to while the intro film plays — the
+ *  film carries its own score and voiceover, so the menu track gets out of
+ *  the way entirely rather than merely ducking under a voice. */
 const MUSIC_GAIN = 0.45;
-const MUSIC_DUCKED_GAIN = 0.32;
+const MUSIC_INTRO_GAIN = 0;
 let musicCtx: AudioContext | null = null;
 let musicSource: AudioBufferSourceNode | null = null;
 let musicGain: GainNode | null = null;
-/** Kept after decode so the track can be restarted from the top (the intro
- *  cinematic re-cues it) without re-fetching. */
+/** Kept after decode so the track can be restarted from the top without
+ *  re-fetching. */
 let musicBuffer: AudioBuffer | null = null;
 
 async function startSplashMusic(): Promise<void> {
@@ -102,7 +103,6 @@ async function startSplashMusic(): Promise<void> {
     musicGain = musicCtx.createGain();
     musicGain.gain.value = MUSIC_GAIN;
     musicGain.connect(musicCtx.destination);
-    void loadNarration(); // fetched/decoded alongside the music, never blocking it
     const data = await fetch(musicUrl).then((r) => r.arrayBuffer());
     const buffer = await musicCtx.decodeAudioData(data);
     // Bail if the splash was already dismissed while the mp3 was decoding.
@@ -116,8 +116,7 @@ async function startSplashMusic(): Promise<void> {
 
 /** (Re)start the splash track from its first beat. A BufferSourceNode is
  *  one-shot, so restarting means swapping in a fresh source over the kept
- *  buffer. No-op until the mp3 has decoded — in that case the track is
- *  about to start from the top anyway. */
+ *  buffer. No-op until the mp3 has decoded. */
 function playMusicFromTop(): void {
   if (!musicCtx || !musicBuffer || !musicGain) return;
   try { musicSource?.stop(); } catch { /* not started / already stopped */ }
@@ -129,86 +128,21 @@ function playMusicFromTop(): void {
 }
 
 function stopSplashMusic(): void {
-  stopNarration();
   try { musicSource?.stop(); } catch { /* already stopped */ }
   void musicCtx?.close();
   musicCtx = null;
   musicSource = null;
   musicGain = null;
   musicBuffer = null;
-  narrationBuffer = null;
-  narrationGain = null;
 }
 
-// ── Intro narration ────────────────────────────────────────────────────────
-// The story cinematic's voiceover, overlaid on the (ducked) splash track.
-// Playback is anchored to the moment the intro state was entered: if the mp3
-// finishes decoding after the slideshow has already started (the first-run
-// Enter press kicks off both), the narration joins at the elapsed offset so
-// the read stays in step with the slides instead of drifting late.
-let narrationBuffer: AudioBuffer | null = null;
-let narrationSource: AudioBufferSourceNode | null = null;
-let narrationGain: GainNode | null = null;
-/** performance.now() at intro entry; null whenever the intro isn't active. */
-let introStartedAtMs: number | null = null;
-
-async function loadNarration(): Promise<void> {
-  if (narrationBuffer) return;
-  try {
-    const data = await fetch(narrationUrl).then((r) => r.arrayBuffer());
-    if (!musicCtx) return; // splash dismissed while fetching
-    narrationBuffer = await musicCtx.decodeAudioData(data);
-    playNarration(); // no-op unless the intro is already running
-  } catch {
-    // Narration is non-essential; the intro plays fine without it.
-  }
-}
-
-/** Start (or restart) the narration on the cinematic's timeline — the mp3
- *  belongs NARRATION_START_MS into the intro (IntroCinematic's caption cues
- *  are all relative to that anchor). Scheduled ahead on the audio clock when
- *  the intro just began; joined at the elapsed offset when the decode landed
- *  late. No-op until both the decode and the intro state are in place —
- *  whichever lands second calls this. */
-function playNarration(): void {
-  if (!musicCtx || !narrationBuffer || introStartedAtMs === null) return;
-  stopNarrationSource();
-  const offsetSec =
-    (performance.now() - introStartedAtMs - NARRATION_START_MS) / 1000;
-  if (offsetSec >= narrationBuffer.duration) return;
-  if (!narrationGain) {
-    narrationGain = musicCtx.createGain();
-    narrationGain.gain.value = 1;
-    narrationGain.connect(musicCtx.destination);
-  }
-  narrationSource = musicCtx.createBufferSource();
-  narrationSource.buffer = narrationBuffer;
-  narrationSource.connect(narrationGain);
-  // Natural end (the title card outlasts the voice) brings the music back up.
-  narrationSource.onended = () => duckMusic(false);
-  if (offsetSec >= 0) narrationSource.start(0, offsetSec);
-  else narrationSource.start(musicCtx.currentTime - offsetSec, 0);
-  duckMusic(true);
-}
-
-/** Silence the voice and restore the music — leaving the intro in any way. */
-function stopNarration(): void {
-  introStartedAtMs = null;
-  stopNarrationSource();
-  duckMusic(false);
-}
-
-function stopNarrationSource(): void {
-  if (!narrationSource) return;
-  narrationSource.onended = null; // manual stop: duck state is handled by the caller
-  try { narrationSource.stop(); } catch { /* not started / already stopped */ }
-  narrationSource = null;
-}
-
-function duckMusic(duck: boolean): void {
+/** Fade the menu track out for the intro film (and back in when it's over).
+ *  A fade, not a stop: the BufferSourceNode keeps running underneath, so
+ *  leaving the intro is a fade-up, not a restart mid-track. */
+function silenceMusicForIntro(silence: boolean): void {
   if (!musicCtx || !musicGain) return;
   musicGain.gain.setTargetAtTime(
-    duck ? MUSIC_DUCKED_GAIN : MUSIC_GAIN,
+    silence ? MUSIC_INTRO_GAIN : MUSIC_GAIN,
     musicCtx.currentTime,
     0.4,
   );
@@ -421,9 +355,9 @@ type SplashState = "intro" | "factionSelect" | "settings" | "mapEditor";
 let state: SplashState = "factionSelect";
 let settings: SettingsMenu | null = null;
 let mapEditor: MapEditor | null = null;
-/** The story slideshow. Built lazily on first intro entry; finished()
- *  advances the splash (guarded — stop() cancels the timeline, so this can
- *  only fire while the intro is actually the active state). */
+/** The story film. Built lazily on first intro entry; finished() advances
+ *  the splash (guarded — stop() cancels its timers, so this can only fire
+ *  while the intro is actually the active state). */
 let cinematic: IntroCinematic | null = null;
 /** Where BACK/Esc returns to from the settings overlay. */
 let settingsReturn: SplashState = "factionSelect";
@@ -439,6 +373,7 @@ function updateSettingsBadge(): void {
 }
 
 function setState(next: SplashState): void {
+  const wasIntro = state === "intro";
   state = next;
   splash!.dataset.state = next;
 
@@ -446,14 +381,9 @@ function setState(next: SplashState): void {
     case "intro":
       if (!cinematic) cinematic = new IntroCinematic(introRoot!, finishIntro);
       cinematic.play();
-      // The intro and the track open together. (First-run entry rides an
-      // Enter press, whose gestureUnlock is still fetching the mp3 — then
-      // this is a no-op and the decode callback starts it from the top.)
-      playMusicFromTop();
-      // The voiceover is anchored here; if its decode is still in flight it
-      // joins at the elapsed offset when it lands (see playNarration).
-      introStartedAtMs = performance.now();
-      playNarration();
+      // The film brings its own score and voiceover — the menu track fades
+      // out under it rather than playing against it.
+      silenceMusicForIntro(true);
       break;
     case "factionSelect":
       // Built lazily on first entry; both survive return visits (intro,
@@ -513,15 +443,17 @@ function setState(next: SplashState): void {
       break;
   }
   if (next !== "factionSelect") preview?.stop();
-  // Leaving the intro tears the slideshow down (cancels its timeline) and
-  // silences the voiceover; a return visit rebuilds both from the top.
+  // Leaving the intro tears the player down (pauses and releases the video);
+  // a return visit rebuilds it and plays from the first frame. The menu track
+  // fades back up only for a real intro exit — every other transition leaves
+  // the level alone.
   if (next !== "intro") {
     cinematic?.stop();
-    stopNarration();
+    if (wasIntro) silenceMusicForIntro(false);
   }
 }
 
-/** Intro over (slideshow finished or skipped): back to the loadout —
+/** Intro over (film finished or skipped): back to the loadout —
  *  advancing into the hangar when the intro was the first-run MODE → HANGAR
  *  gate. */
 function finishIntro(): void {
@@ -584,11 +516,11 @@ if (restartMode && restartMode !== "online") {
       if (e.code === "Escape") setState("factionSelect");
       return;
     }
-    // Don't trap keyboard users in the slideshow — Enter skips ahead.
+    // Don't trap keyboard users in the film — Enter skips ahead.
     // factionSelect's keys (Enter included) are owned by LoadoutMenu; its
     // handler runs first and preventDefault()s the Enter that STARTED the
     // intro (the step-1 advance), so that same keystroke must not also skip
-    // the slideshow it just started.
+    // the film it just started.
     if (state === "intro" && e.code === "Enter" && !e.defaultPrevented) finishIntro();
   });
 

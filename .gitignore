@@ -20,6 +20,13 @@ npm-debug.log*
 # Blender auto-backups (the .blend sources in art/ ARE tracked)
 *.blend1
 
+# Video MASTERS — the intro film's near-lossless render is ~644 MB and git
+# keeps every byte forever. The shipped web encode
+# (client/public/videos/meridian-primer.mp4) IS tracked; re-derive it with the
+# ffmpeg line in art/video/README.md (tracked) if the master ever changes.
+art/video/*.mp4
+art/video/*.mov
+
 # Python bytecode cache (from scripts/ helpers run via Blender MCP)
 __pycache__/
 
