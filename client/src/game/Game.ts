@@ -990,6 +990,14 @@ export class Game {
       ),
     );
 
+    // Preload each carrier's burned-out wreck GLB (hidden under its root) so
+    // the death swap is an instant toggle inside the death barrage. Fire-and-
+    // forget: nothing at match start depends on it, and a carrier can't
+    // realistically die before the load lands.
+    for (const f of ["humans", "machines"] as Faction[]) {
+      void this.mothershipViews[f].prepareWreck();
+    }
+
     // Swap each wreck's placeholder blocks for its battle-damaged GLB (per
     // source faction). Falls back to the procedural placeholder if the file is
     // missing/fails. Not gated on launches — wrecks don't launch.
@@ -2078,6 +2086,10 @@ export class Game {
     this.mothershipViews.machines.syncTurrets();
     this.mothershipViews.humans.syncSubsystems();
     this.mothershipViews.machines.syncSubsystems();
+    // Death-wreck swap + staggered deck-fire ignition (latched internally;
+    // a no-op while both carriers live).
+    this.mothershipViews.humans.syncWreck(nowMs);
+    this.mothershipViews.machines.syncWreck(nowMs);
     // Capture stations: retint beacons/rings from ownership + capture state.
     for (const sv of this.stationViews) sv.update(nowMs);
     this.factionLaserViews.humans.update();

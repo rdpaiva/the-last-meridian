@@ -1440,6 +1440,27 @@ export const GameConfig = {
     /** Hitstop (ms) at the moment of destruction. */
     deathHitstopMs: 140,
 
+    // --- Death wreck (VIEW only). When a carrier dies, MothershipView swaps
+    // the live model for the faction's burned-out wreck GLB (the same
+    // hulk.model file the map hazards use — identical geometry + correction,
+    // so it lands exactly on the carrier's footprint) under cover of the death
+    // barrage, then ignites persistent deck fires (BurnFX) scattered across
+    // the hull rectangles. The sim/server are untouched: the swap keys off
+    // Mothership.isAlive, so online it replays off the replicated carrier HP.
+    deathWreck: {
+      /** Persistent BurnFX deck fires scattered across the hull footprint. */
+      fireCount: 6,
+      /** BurnFX spatial-scale band; each fire rolls a size inside it
+       *  (1 = the destroyed-hangar-bay burn size). */
+      fireScaleMin: 0.9,
+      fireScaleMax: 1.6,
+      /** Carrier-LOCAL deck height (Y) the fires sit at. */
+      fireY: 10,
+      /** Window (seconds) over which the fires catch one by one after the
+       *  death blast — the burn spreads instead of igniting as one stamp. */
+      igniteStaggerSec: 2.5,
+    },
+
     // --- Surface detail (purely cosmetic: decks, windows, bridge glass). ---
     /**
      * Warm amber porthole glow. Faction-NEUTRAL on purpose — windows read as

@@ -611,7 +611,12 @@ export class NetworkGame {
     for (const f of ["humans", "machines"] as Faction[]) {
       const file = GameConfig.mothership.model.file[f];
       if (file) {
-        void carriers[f].applyModel(file).then(() => carriers[f].applyTurretModel());
+        void carriers[f]
+          .applyModel(file)
+          .then(() => carriers[f].applyTurretModel())
+          // Preload the burned-out wreck GLB (hidden) so the death swap in
+          // syncWreck is an instant toggle inside the death barrage.
+          .then(() => carriers[f].prepareWreck());
       }
     }
 
@@ -1435,6 +1440,11 @@ export class NetworkGame {
       this.applySubsystemHp(this.carrierSims.machines, state.machinesMothership);
       this.carrierViews.humans.syncSubsystems();
       this.carrierViews.machines.syncSubsystems();
+      // Death-wreck swap + staggered deck fires: the mirrored carrier sims
+      // read the replicated HP just above, so isAlive replays here exactly
+      // like offline (latched internally; a no-op while both carriers live).
+      this.carrierViews.humans.syncWreck(nowMs);
+      this.carrierViews.machines.syncWreck(nowMs);
       this.hud.setSubsystems(
         this.carrierSims.humans.subsystems,
         this.carrierSims.machines.subsystems,

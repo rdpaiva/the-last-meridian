@@ -417,6 +417,20 @@ state paragraphs of that date).
   `NetworkGame.applySubsystemHp`). Turret HP is NOT replicated — the
   mirror turrets die via the `turretDestroyed` NetEvent (nearest-match)
   and revive on `upgradeUnlocked(turretOverdrive)`.
+- **Death wreck (VIEW only, `GameConfig.mothership.deathWreck`):** when a
+  carrier dies, `MothershipView.syncWreck` (called per frame beside
+  `syncTurrets`/`syncSubsystems` in BOTH loops) latches on `sim.isAlive`
+  going false: it hides every live child of the carrier root (model,
+  turrets, bay mounts) and reveals the faction's burned-out wreck GLB —
+  `GameConfig.hulk.model`, the SAME file + correction the map hulk hazards
+  use, so it lands exactly on the carrier footprint — then ignites
+  `fireCount` persistent `BurnFX` deck fires at area-weighted random points
+  inside `hullRects`, staggered over `igniteStaggerSec` so the burn spreads.
+  The wreck is PRELOADED disabled at boot (`prepareWreck`, fire-and-forget)
+  so the swap is an instant toggle under the death-barrage explosions — no
+  mid-spectacle fetch. Degrades gracefully: a missing/failed wreck GLB keeps
+  the live model visible (never an empty hole) and only the fires play.
+  Sim/server untouched; online it replays off the replicated carrier HP.
 
 ## Radar
 - Player-centered, **north-up** circular minimap on its own canvas

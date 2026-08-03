@@ -20,6 +20,7 @@ import { TurretView } from "./TurretView";
 import { includeInGlow } from "../GlowInclude";
 import { SubsystemView } from "./SubsystemView";
 import type { ExplosionSystem } from "../ExplosionSystem";
+import type { BurnFX } from "../BurnFX";
 
 /**
  * Procedural BSG-style carrier/battleship (Galactica silhouette) — the VIEW
@@ -82,6 +83,26 @@ export class MothershipView {
    * each on death.
    */
   private readonly subsystemViews: SubsystemView[] = [];
+
+  /** FX system, stored for the death-wreck deck fires (setExplosions). */
+  private explosions: ExplosionSystem | null = null;
+
+  /**
+   * The faction's burned-out wreck GLB, preloaded DISABLED under `root` by
+   * prepareWreck() so the death swap is an instant toggle (no mid-spectacle
+   * fetch). Null until loaded — and stays null if the file is missing/fails,
+   * in which case the swap degrades to fires on the intact model.
+   */
+  private wreckRoot: TransformNode | null = null;
+
+  /** Latch: the death swap + fire scheduling ran (fires once per match). */
+  private wreckShown = false;
+
+  /** Every deck-fire BurnFX created at death (disposed with the view). */
+  private readonly fires: BurnFX[] = [];
+
+  /** Fires waiting on their staggered ignition time (ascending atMs). */
+  private readonly pendingFires: { fx: BurnFX; pos: Vector3; atMs: number }[] = [];
 
   constructor(scene: Scene, glowLayer: GlowLayer, sim: Mothership) {
     this.scene = scene;
@@ -172,6 +193,7 @@ export class MothershipView {
    * carrier views are built earlier in both loops.
    */
   setExplosions(explosions: ExplosionSystem): void {
+    this.explosions = explosions;
     for (const v of this.subsystemViews) v.setExplosions(explosions);
     for (const v of this.turretViews) v.setExplosions(explosions);
   }
@@ -239,8 +261,138 @@ export class MothershipView {
   }
 
 
+  /**
+   * Preload this faction's burned-out wreck GLB — GameConfig.hulk.model, the
+   * SAME file + correction the map hulk hazards use, so it lands exactly on
+   * the live carrier's footprint (both models come from one Blender pipeline
+   * with matching rotY/scale). Parked DISABLED under `root`; ember/breach
+   * meshes are registered with the GlowLayer up front (they don't render
+   * until enabled). Loading now means the death swap in syncWreck() is an
+   * instant toggle inside the explosion barrage, not a mid-spectacle fetch.
+   * A null/missing/failed file leaves `wreckRoot` null and the swap degrades
+   * gracefully (fires on the intact model). Always resolves; never rejects.
+   * Call once, after construction (Game.start / NetworkGame boot).
+   */
+  async prepareWreck(): Promise<void> {
+    const cfg = GameConfig.hulk.model;
+    const file = cfg.file[this.sim.faction];
+    if (!file) return;
+    try {
+      // NOTE: trailing slash on rootUrl is required for SceneLoader.
+      const result = await SceneLoader.ImportMeshAsync(
+        "",
+        `${import.meta.env.BASE_URL}models/`,
+        file,
+        this.scene,
+      );
+      const wreck = new TransformNode(`ms_wreck_${this.sim.faction}`, this.scene);
+      const gltfRoot = result.transformNodes.find((n) => n.name === "__root__");
+      if (gltfRoot) {
+        gltfRoot.parent = wreck;
+      } else {
+        for (const m of result.meshes) {
+          if (m.parent === null) m.parent = wreck;
+        }
+      }
+      wreck.rotation.set(cfg.rotX, cfg.rotY, cfg.rotZ);
+      wreck.scaling.setAll(cfg.scale);
+      wreck.parent = this.root;
+      wreck.setEnabled(false);
+
+      // Bloom only the glowing-damage meshes (HulkView's ember recipe) so the
+      // wreck reads as a dead hull with hot fractures, not a lit ship.
+      const tags = GameConfig.hulk.emberTags;
+      for (const m of result.meshes) {
+        const nm = m.name.toLowerCase();
+        if (tags.some((t) => nm.includes(t))) {
+          includeInGlow(this.glowLayer, m as Mesh);
+        }
+      }
+      this.wreckRoot = wreck;
+    } catch (err) {
+      console.warn(
+        `[MothershipView] Failed to load /models/${file} — the death swap ` +
+          `will keep the live carrier model.`,
+        err,
+      );
+    }
+  }
+
+  /**
+   * The death spectacle's aftermath: on the first frame the sim carrier reads
+   * dead, hide the live model (procedural or GLB, turrets and bay mounts
+   * included — they're all children of `root`) and reveal the preloaded
+   * wreck, then ignite the scheduled deck fires as their staggered times come
+   * due. Called every view frame beside syncTurrets/syncSubsystems — offline
+   * from Game.updateViews, online from NetworkGame.tick, where the mirrored
+   * carrier sim's replicated HP makes isAlive replay identically. If the
+   * wreck GLB never loaded, the live model stays visible and only the fires
+   * play (never an empty hole where the carrier was).
+   */
+  syncWreck(nowMs: number): void {
+    if (!this.wreckShown) {
+      if (this.sim.isAlive) return;
+      this.wreckShown = true;
+      if (this.wreckRoot) {
+        for (const child of this.root.getChildren()) {
+          if (child !== this.wreckRoot) child.setEnabled(false);
+        }
+        this.wreckRoot.setEnabled(true);
+      }
+      this.scheduleFires(nowMs);
+    }
+    while (this.pendingFires.length > 0 && this.pendingFires[0].atMs <= nowMs) {
+      const f = this.pendingFires.shift()!;
+      f.fx.start(f.pos);
+    }
+  }
+
+  /**
+   * Roll the deck-fire sites — area-weighted random points inside the hull
+   * rectangles (GameConfig.mothership.hullRects), so fires land on actual
+   * hull and never float in the pod gaps — and their staggered ignition
+   * times. World positions are computed once; carriers never move. Runs once
+   * at death, so the allocations here are fine.
+   */
+  private scheduleFires(nowMs: number): void {
+    if (!this.explosions) return;
+    const cfg = GameConfig.mothership.deathWreck;
+    const rects = GameConfig.mothership.hullRects[this.sim.faction];
+    if (!rects || rects.length === 0) return;
+    const areas = rects.map((r) => r.halfWidth * 2 * (r.z1 - r.z0));
+    const totalArea = areas.reduce((a, b) => a + b, 0);
+    this.root.computeWorldMatrix(true);
+    const world = this.root.getWorldMatrix();
+    for (let i = 0; i < cfg.fireCount; i++) {
+      let roll = Math.random() * totalArea;
+      let rect = rects[rects.length - 1];
+      for (let j = 0; j < rects.length; j++) {
+        roll -= areas[j];
+        if (roll <= 0) {
+          rect = rects[j];
+          break;
+        }
+      }
+      const local = new Vector3(
+        (Math.random() * 2 - 1) * rect.halfWidth,
+        cfg.fireY,
+        rect.z0 + Math.random() * (rect.z1 - rect.z0),
+      );
+      const scale =
+        cfg.fireScaleMin + Math.random() * (cfg.fireScaleMax - cfg.fireScaleMin);
+      const fx = this.explosions.createBurnFX(scale);
+      this.fires.push(fx);
+      this.pendingFires.push({
+        fx,
+        pos: Vector3.TransformCoordinates(local, world),
+        atMs: nowMs + (i / cfg.fireCount) * cfg.igniteStaggerSec * 1000,
+      });
+    }
+  }
+
   /** Tear down the scene nodes (match end). */
   dispose(): void {
+    for (const f of this.fires) f.dispose();
     this.root.dispose(false, true);
   }
 
