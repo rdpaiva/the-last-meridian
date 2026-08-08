@@ -238,8 +238,8 @@ export const TUNING_SCHEMA: ReadonlyArray<TuningGroup> = [
   {
     title: "AI & Commander",
     entries: [
-      num("ai.engagementRange", "Engagement range", 10, 150, 1,
-        "How close an enemy must get before an AI pilot stops cruising and turns in to attack."),
+      num("ai.engagementRange", "Engagement range", 10, 220, 1,
+        "How close a tracked enemy must be before an AI pilot stops cruising and turns in to attack. Capped by sensor range — no track, no pursuit."),
       num("ai.fireRange", "AI fire range", 5, 100, 1,
         "How close an AI pilot closes before pulling the trigger."),
       num("ai.fireConeAngle", "AI fire cone", 0.05, 0.8, 0.01,

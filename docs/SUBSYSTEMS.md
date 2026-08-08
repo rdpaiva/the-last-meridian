@@ -261,6 +261,39 @@ friendly-fire-free without per-bolt faction checks.
 - **Fair play:** the commander reads only its faction's `ControllerWorld` —
   the same sensor picture its pilots fly on. Break contact and the commander
   is as blind as the fleet.
+- **Leader failover (2026-08-08):** each think, `world.leader` is re-pointed
+  at the senior LIVE striker (else a live escort). Without it, the lead
+  striker dying dropped every escort into lone-wolf fallback for its whole
+  respawn window. An escort promoted to leader reads `leader === self` in
+  its own cover order and prosecutes as the spearhead while the others cover
+  it (the `AIController` cover/hunt branches guard against forming on
+  yourself).
+
+## WingCommander (player-side wing doctrine, 2026-08-08)
+- The FleetCommander's small sibling for the PLAYER's faction — before it,
+  the wing flew its static WingPlan orders forever and went brain-dead the
+  moment the player died. Same think cadence and alarm knobs
+  (`commander.thinkIntervalSec` / `defendAlertRadius` / `defendHoldThinks` /
+  `defendCount` — doctrine is symmetric by nature). Draws NO RNG, so wiring
+  it in never shifts the seeded sim stream (the determinism contract).
+- **Roles from the configured orders:** pilots whose WingPlan order is
+  `defend` are permanent carrier **guards**; the rest are **escorts**.
+- **Leader failover:** player alive → `world.leader` = player, escorts fly
+  `cover` as configured. Player dead → the senior live un-scrambled escort
+  becomes acting leader (it prosecutes via the `leader === self` rule; the
+  rest of the wing covers IT — the wing hunts as a pack instead of
+  scattering). Snaps back on the think after the player relaunches.
+- **Carrier scramble:** same alarm as the enemy fleet's (hull+hangar HP drop
+  since last think, or a contact inside `defendAlertRadius` on the faction's
+  own picture) → up to `defendCount` escorts, nearest the carrier first, are
+  pulled onto `defend` until the alert has been quiet `defendHoldThinks`
+  thinks.
+- Wired in `Game.start` (solo) and `tests/sim/HeadlessBattle.ts` (harness
+  parity); `BattleSim.addCommander` takes any `{ update(nowMs) }`.
+- **Dead-leader fallback (AIController):** even with no commander, a
+  cover/formation pilot whose leader is gone now chases the nearest contact
+  anywhere on the sensor picture (hunt behavior) instead of the old patrol
+  wander — the between-thinks safety net.
 
 ## Mothership (the objective)
 - Implements `DamageTarget`, but weapons never test the carrier itself —
@@ -655,6 +688,18 @@ Full design + as-built notes: `docs/JUMP-DRIVE-AND-RESUPPLY.md`. Built sim/view-
   pilot from the seeded sim RNG (constructor body — fixed draw order vs. the harness);
   `retreating` latches on low HP **or** ammo; `retreatMovement` docks (close) or flees
   (far, cautious) / blazes (hotshot); `nearestSpoolingOpponent` drives "finish the runner".
+- **Dock geometry (2026-08-08, two stuck-ship bugs' worth of invariants):** the dock
+  approach steers for the NEAREST bay's `getJumpArrivalPosition` — never the raw bay
+  staging coordinate, which sits INSIDE the hull colliders (aiming there pinned pilots
+  against the keep-out face, hovering unserviced forever), and never a fixed bay (bay 0
+  can sit across the hull from the approach; the beeline parks the ship motionless on
+  the wrong face — thrust exactly cancelled by the bump). Braking keys on
+  `serviceZoneContains`, not distance-to-aim-point. Own-carrier avoidance circles
+  (tagged `AvoidObstacle.carrierFaction`) are skipped ONLY on final approach (within
+  2×`service.radius` of the dock point): further out they must stay live to walk the
+  pilot AROUND the hull; suppressed there they'd let it beeline into a face, and live
+  up close they'd blockade the service bubble with full-thrust dodges (speed never
+  drops under the loiter gate). The physical keep-out bump protects it throughout.
 - **View:** `Game.advanceSim`'s per-combatant loop runs jump + service for every ship and
   emits `jumpSpoolStarted`/`jumpFired`(carries from/to)/`jumpCancelled` on the `SimEventBus`;
   `Game.wireSimEventFeedback` turns those into audio, HUD ring (`Hud.setJumpSpool`), radar
@@ -716,6 +761,26 @@ Full design + as-built notes: `docs/JUMP-DRIVE-AND-RESUPPLY.md`. Built sim/view-
   (shadows have no sim velocity); the rig's lead smoothing absorbs the noise.
 - HUD: "SPECTATING — <callsign>" line under the REDEPLOY ring
   (`Hud.setSpectating`), hidden during the wreck-hold and while alive.
+- **OBSERVE mode (2026-08-08):** the solo MISSION step's Deployment row
+  (FLY / OBSERVE, `LoadoutMenu.spectateSelected` — deliberately NOT
+  persisted, so CONTINUE/quick-play always fly normally) launches Game with
+  `{spectate: true}`: the player's seat gets an `AIController({order:
+  "strike"})` (the harness stand-in pattern) and the SpectatorCamera owns
+  the camera from frame one — establishing beat on the friendly carrier,
+  then the usual cut/cycle flow over a roster that INCLUDES the AI-flown
+  seat. First-person cues (full-volume audio, heavy trauma/hitstop, RWR,
+  damage flash, jump camera-snap) are gated off via `Game.isHumanSeat()` —
+  structural identity checks (respawn wiring, state flip, trail resets)
+  still compare `=== playerShip` directly. The HUD stat cluster follows the
+  SPECTATED ship: hp/ammo/pos/vel/sig from its sim, kills/score from
+  `ScoreBoard.rowFor`, per-ship service state (`Combatant.serviceState`,
+  written for every ship each step), the jump-spool ring, and the `cmd` row
+  (`Hud.setCommand` — the pilot's current AI order, tagged `· RTB` while
+  `AIController.isRetreating`; hidden outside OBSERVE). The cluster hides
+  during wide shots (no subject); the callsign line uses the standalone
+  `Hud.setObserving` element — the in-ring `setSpectating` label is only
+  visible while the REDEPLOY ring is, and an observer has no redeploy
+  clock.
 
 ## EngineGlow
 - Core sphere + TrailMesh parented to an anchor at the ship's tail.

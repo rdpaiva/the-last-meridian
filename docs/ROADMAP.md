@@ -75,6 +75,24 @@ and explicitly skipped. Update this when you finish or start work.
   `defend`). Roles (`self`/`other`/`gunship`) map to concrete catalog types
   given your pick — a static type list can't say "the same ship the player
   chose". The counts are the "Your Wing" rows in match settings.
+- **Wing doctrine — `WingCommander` (2026-08-08):** the wing's configured
+  orders are now a baseline the shared `WingCommander` re-evaluates every
+  `commander.thinkIntervalSec` (the FleetCommander's sibling, same alarm
+  knobs, zero RNG): leader failover on the player's death (senior live
+  escort becomes acting leader and prosecutes; the wing covers IT — a pack,
+  not a scatter), carrier scramble (up to `commander.defendCount` escorts
+  pulled to `defend` while the home carrier is threatened), everything
+  snapping back when the player relaunches. Enemy side got the matching
+  leader failover in FleetCommander. Same session: `ai.engagementRange`
+  35→140 (patrol pilots now prosecute contacts their sensors actually show —
+  the old knife-fight value read as aimless meandering; Difficulty presets
+  rescaled 100/140/180), the `defend` order flies a deterministic CAP
+  RACETRACK around the carrier (`ai.defendOrbitBand`; the old wander-jitter
+  pointed into the hull half the time and fought the avoidance override —
+  the "drunken defender" squiggle), and the retreat-dock geometry was fixed
+  twice (nearest-bay jump-arrival aim point + final-approach-only avoidance
+  suppression — see SUBSYSTEMS "Jump drive… Dock geometry" for the
+  invariants).
 - **Standing orders** (`AIController` `AIOrder`, static per-wingman, no command UI
   yet — multiplayer would re-issue them): `cover` (escort the leader in a slot,
   break to engage threats within `ai.coverBreakRange` of the leader, reform),
@@ -181,6 +199,15 @@ and explicitly skipped. Update this when you finish or start work.
   own faction's sensor picture. `AIController.setOrder()` is the seam.
 
 ### Loadout menu & progression (Phase 6)
+- **OBSERVE mode — AI-vs-AI exhibition (2026-08-08)** — the solo MISSION
+  step's Deployment row (FLY / OBSERVE; per-launch, never persisted): an AI
+  flies the player's seat and the match starts in the spectator camera —
+  cycle every ship on both sides, with the HUD stat cluster tracking whoever
+  the camera follows (hp/ammo/sig, per-ship `servicing`/`docked` state, jump
+  spool, kills/score from the leaderboard row, and the `cmd` row showing the
+  pilot's live AI order with an `· RTB` tag while retreating). Built as the
+  observability lens for AI-doctrine work; first-person cues gate off via
+  `Game.isHumanSeat()`. See SUBSYSTEMS → "SpectatorCamera → OBSERVE mode".
 - **Splash loadout select** — pick a side (Commonwealth / Novari) and a ship
   (that faction's fighter or gunship) on card UI with stat bars read from
   `GameConfig.shipTypes`. Keyboard-driven, saved to localStorage, restart

@@ -70,6 +70,18 @@ export class FleetCommander {
     for (const p of this.strikers) p.ai.setOrder("strike");
     for (const p of this.escorts) p.ai.setOrder("cover");
 
+    // Leader failover: escorts fly "cover" on world.leader, so keep it
+    // pointed at a LIVE ship — the senior surviving striker, else a
+    // surviving escort (who then reads leader === self and prosecutes as
+    // the spearhead while the others cover it). Without this, the lead
+    // striker dying dropped every escort to lone-wolf fallback for its
+    // whole respawn window. Snaps back the think after the striker relaunches.
+    const lead =
+      this.strikers.find((p) => p.ship.isAlive) ??
+      this.escorts.find((p) => p.ship.isAlive) ??
+      null;
+    this.world.leader = lead ? lead.ship : null;
+
     // --- Is the home carrier threatened? ---
     const home = this.world.homeMothership;
     let alert = false;

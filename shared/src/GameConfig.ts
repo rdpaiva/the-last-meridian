@@ -2870,8 +2870,16 @@ export const GameConfig = {
      */
     avoidRefractorySec: 1.25,
 
-    /** Range at which a fighter stops wandering and turns toward a target. */
-    engagementRange: 35,
+    /**
+     * Range at which a fighter stops wandering and turns toward a target.
+     * Sized against the SENSOR picture, not gun range: fighters track
+     * contacts out to sensors.shipRange (220), and a patrol pilot should
+     * prosecute a contact its own radar shows instead of flying past it
+     * (the old 35 was knife-fight scale — pilots ignored enemies their
+     * faction had tracked for a minute, which read as aimless meandering).
+     * Keep below shipRange so breaking radar contact still breaks pursuit.
+     */
+    engagementRange: 140,
     /** Range below which a fighter will fire when its cone is on target. */
     fireRange: 26,
     /** Half-angle of the fire cone (rad). 0.22 ≈ 12.6°. */
@@ -3070,6 +3078,18 @@ export const GameConfig = {
      * avoidance override — the full-rate "wag" squiggle.
      */
     defendOrbitRadius: 180,
+    /**
+     * Radial band (world units) over which a "defend" pilot's CAP-orbit
+     * heading blends from pure ring-tangent (on the ring) toward radially
+     * in/out (off the ring). Defenders fly a RACETRACK around the carrier at
+     * defendOrbitRadius — tangent heading plus a radial correction
+     * proportional to how far off the ring they are — instead of the old
+     * random wander, whose headings pointed into the hull half the time and
+     * left defenders permanently fighting the avoidance override (the
+     * drunken squiggle). Beyond defendOrbitRadius + 2×this band the pilot
+     * just flies straight back to the carrier.
+     */
+    defendOrbitBand: 60,
     /**
      * "capture" order (strategic layer M2): a capturing pilot breaks its dock
      * loiter to engage any enemy within this radius of the STATION (not of

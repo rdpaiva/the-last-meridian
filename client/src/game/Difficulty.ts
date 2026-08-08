@@ -45,7 +45,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
     blurb: "Green pilots. Slow to react, hold their fire, hunt you in ones.",
     knobs: {
       "ai.reactionSec": 0.55,
-      "ai.engagementRange": 30,
+      "ai.engagementRange": 100,
       "ai.fireRange": 22,
       "ai.fireConeAngle": 0.14,
       "ai.missileCooldownSec": 14,
@@ -60,7 +60,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
     blurb: "A fair fight. Competent enemies that press but won't overwhelm you.",
     knobs: {
       "ai.reactionSec": 0.4,
-      "ai.engagementRange": 33,
+      "ai.engagementRange": 140,
       "ai.fireRange": 24,
       "ai.fireConeAngle": 0.19,
       "ai.missileCooldownSec": 9,
@@ -75,7 +75,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
     blurb: "Ace squadrons. Fast reflexes, accurate guns, missiles and packs on you.",
     knobs: {
       "ai.reactionSec": 0.22,
-      "ai.engagementRange": 38,
+      "ai.engagementRange": 180,
       "ai.fireRange": 28,
       "ai.fireConeAngle": 0.26,
       "ai.missileCooldownSec": 6,

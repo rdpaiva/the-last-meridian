@@ -326,6 +326,9 @@ export class Mothership implements DamageTarget {
           get isAlive() {
             return owner.isAlive;
           },
+          // Lets a pilot docking at its OWN carrier skip these circles
+          // (AIController retreat-dock; see AvoidObstacle.carrierFaction).
+          carrierFaction: owner.faction,
         });
       }
     }

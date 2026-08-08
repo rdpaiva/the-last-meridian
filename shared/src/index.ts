@@ -21,6 +21,7 @@ export * from "./Maps";
 // AI + awareness
 export * from "./AIController";
 export * from "./FleetCommander";
+export * from "./WingCommander";
 export * from "./SensorSystem";
 export * from "./ShipController";
 export * from "./NetworkController";

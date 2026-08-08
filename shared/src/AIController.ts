@@ -226,6 +226,34 @@ export class AIController implements ShipController {
   private readonly ammoJumpFrac: number;
   /** Latched once the pilot commits to RTB for service; released when serviced. */
   private retreating = false;
+  /**
+   * True only on the FINAL dock approach (within a couple of service radii
+   * of the dock point). Gates the obstacle-avoidance pass: the pilot skips
+   * its OWN carrier's hull circles there (it is deliberately maneuvering at
+   * the hull; the physical keep-out still protects it) — without this the
+   * oversized circles override the approach with full-thrust tangent dodges
+   * and the ship orbits its carrier forever, never slowing below the
+   * service loiter gate. It must NOT cover the whole dock phase: with the
+   * circles off, a pilot whose dock point lies across the hull beelines
+   * into the near face and the keep-out cancels its thrust exactly — a
+   * ship parked motionless against the wall. Outside the final approach
+   * the circles stay live and walk the pilot AROUND the hull to the dock
+   * side. Rocks/wrecks/walls stay avoided throughout.
+   */
+  private dockingHome = false;
+  /**
+   * Cached dock aim point — the NEAREST bay's JUMP-ARRIVAL position
+   * (outboard of the hull colliders, guaranteed inside the service bubble),
+   * NOT the raw bay staging coordinate, which sits INSIDE the hull:
+   * steering there pressed the pilot against the keep-out face forever
+   * (the "hovers at the carrier, never repairs" bug). Nearest bay matters
+   * too — always docking at bay 0 sent pilots approaching from the other
+   * side on a beeline through the hull. Computed once per dock phase
+   * (dockPointSet latch) — the carrier is static.
+   */
+  private readonly dockPoint = { x: 0, z: 0 };
+  /** Latch: dockPoint holds this dock phase's chosen bay (cleared on release). */
+  private dockPointSet = false;
 
   // --- Dogfight stalemate breaker (GameConfig.ai → "Stalemate breaker") ---
   /** Accumulated seconds of sustained orbit against the current aim target. */
@@ -264,6 +292,13 @@ export class AIController implements ShipController {
   /** The pilot's current standing order (FleetCommander reads before re-tasking). */
   get currentOrder(): AIOrder {
     return this.order;
+  }
+
+  /** True while committed to going home for service — the retreat overrides
+   *  the standing order's movement, so status displays (the OBSERVE HUD's
+   *  command line) tag it alongside the order. */
+  get isRetreating(): boolean {
+    return this.retreating;
   }
 
   /**
@@ -388,7 +423,7 @@ export class AIController implements ShipController {
           steerHeading = this.headingTo(self, prey.position.x, prey.position.z);
           aim = prey;
           pursuit = true;
-        } else if (world.leader && world.leader.isAlive) {
+        } else if (world.leader && world.leader.isAlive && world.leader !== self) {
           // No prey: loiter on the leader with the formation servo instead of
           // charging its position and looping back. Station-keep on the escort
           // slot (trailing the leader) so it eases into place and HOLDS there,
@@ -409,12 +444,25 @@ export class AIController implements ShipController {
 
       case "cover":
       case "formation": {
-        const leader = world.leader;
+        // A commander may re-point world.leader at a surviving wingman while
+        // the real leader is down — never form on yourself.
+        const leader = world.leader === self ? null : world.leader;
         if (!leader || !leader.isAlive) {
-          // No one to form on — fall back to the patrol behavior.
-          steerHeading = this.patrol(deltaSeconds, self, world);
-          aim = this.nearestLiveOpponent(self, world, cfg.engagementRange);
-          pursuit = aim !== null;
+          // Leader down and no stand-in: PROSECUTE the fight instead of
+          // drifting. Chase the nearest contact anywhere on the sensor
+          // picture (hunt behavior — the "avenge the leader" beat); with an
+          // empty picture, fall back to the patrol wander toward the
+          // objective. The old patrol fallback only engaged inside
+          // engagementRange, so a wing whose leader died went visibly
+          // aimless for the whole respawn window.
+          const prey = this.nearestLiveOpponent(self, world, Infinity);
+          if (prey) {
+            steerHeading = this.headingTo(self, prey.position.x, prey.position.z);
+            aim = prey;
+            pursuit = true;
+          } else {
+            steerHeading = this.patrol(deltaSeconds, self, world);
+          }
           break;
         }
         // "cover" breaks formation to engage a threat near the LEADER.
@@ -451,17 +499,38 @@ export class AIController implements ShipController {
           aim = intruder;
           pursuit = true;
         } else {
-          const distFromHome = Math.hypot(
-            self.position.x - homeX,
-            self.position.z - homeZ,
-          );
-          if (distFromHome > cfg.defendOrbitRadius) {
-            // Drifted too far — head straight back to the carrier.
+          // No intruder: fly a CAP racetrack around the carrier instead of
+          // wandering. Heading = the orbit tangent at defendOrbitRadius plus
+          // a radial correction proportional to ring error (saturating over
+          // defendOrbitBand), so the pilot spirals onto the ring and then
+          // circles it. Every defender orbits the SAME direction, so multiple
+          // guards follow each other around the ring rather than meeting
+          // head-on. Deterministic and never aimed at the hull — the old
+          // random wander pointed into the carrier half the time and left
+          // defenders permanently fighting the avoidance override.
+          const dx = self.position.x - homeX;
+          const dz = self.position.z - homeZ;
+          const dist = Math.hypot(dx, dz);
+          if (dist > cfg.defendOrbitRadius + cfg.defendOrbitBand * 2) {
+            // Way off station — just fly straight back to the carrier.
             steerHeading = this.headingTo(self, homeX, homeZ);
-          } else {
-            // Within orbit — wander freely, leashed to home.
-            steerHeading = this.wander(deltaSeconds, self, world, homeX, homeZ);
+          } else if (dist > 1) {
+            const rx = dx / dist; // radial out (carrier → self)
+            const rz = dz / dist;
+            // Counter-clockwise tangent (viewed from +Y, the top-down camera).
+            const tx = rz;
+            const tz = -rx;
+            // Signed ring error → radial blend: outside the ring pulls
+            // inward (negative k), inside pushes outward.
+            const k = clamp(
+              (cfg.defendOrbitRadius - dist) / cfg.defendOrbitBand,
+              -1,
+              1,
+            );
+            steerHeading = Math.atan2(tx + rx * k, tz + rz * k);
           }
+          // dist <= 1 (sitting on the carrier center, e.g. first frames out
+          // of the bay): hold heading; the launch catapult resolves it.
         }
         break;
       }
@@ -541,6 +610,10 @@ export class AIController implements ShipController {
     // otherwise, peel off to press a detected, spooling RUNNER.
     if (this.thinkRetreat(self, world)) {
       out.jumpPressed = true; // EDGE: arm the spool (never re-pressed mid-spool)
+    }
+    if (!this.retreating) {
+      this.dockingHome = false;
+      this.dockPointSet = false;
     }
     if (this.retreating) {
       const r = this.retreatMovement(self, world);
@@ -836,7 +909,14 @@ export class AIController implements ShipController {
         return false;
       }
       const sticky = this.avoidStickyRock;
-      if (!sticky || !sticky.isAlive) {
+      if (
+        !sticky ||
+        !sticky.isAlive ||
+        // A dodge latched onto our own carrier before the dock phase engaged
+        // releases the moment we're docking (same rule as the scan skip).
+        (this.dockingHome && sticky.carrierFaction === self.faction)
+      ) {
+        this.avoidStickyRock = null;
         this.avoidCommitSec = 0;
         return false;
       }
@@ -923,6 +1003,9 @@ export class AIController implements ShipController {
     const cfg = GameConfig.ai;
     for (const rock of world.obstacles) {
       if (!rock.isAlive) continue;
+      // Docking for service: our own carrier's hull circles are the
+      // destination, not a hazard (see AvoidObstacle.carrierFaction).
+      if (this.dockingHome && rock.carrierFaction === self.faction) continue;
       const dx = rock.position.x - self.position.x;
       const dz = rock.position.z - self.position.z;
       const along = dx * dirX + dz * dirZ; // distance ahead along the path
@@ -1250,22 +1333,53 @@ export class AIController implements ShipController {
     );
 
     if (dist <= d.dockRange) {
-      // DOCK: steer for the bow bay (inside the service bubble, clear of the
-      // hull center) and brake once there so the loiter gate refuels us.
-      const bay = home.getLaunchStartPosition(0);
-      const toBay = Math.hypot(
-        self.position.x - bay.x,
-        self.position.z - bay.z,
+      // DOCK: steer for the NEAREST bay's jump-arrival point — OUTBOARD of
+      // the hull colliders and guaranteed inside the service bubble (the raw
+      // bay staging coordinate sits INSIDE the hull; aiming there pinned
+      // pilots against the keep-out face, hovering unserviced forever).
+      // Nearest bay, not bay 0: a fixed bay can sit across the hull from the
+      // approach and the beeline parks the pilot on the wrong face.
+      if (!this.dockPointSet) {
+        let bestSq = Infinity;
+        const bayCount = home.getLaunchBayCount();
+        for (let i = 0; i < bayCount; i++) {
+          const p = home.getJumpArrivalPosition(i);
+          const dx = p.x - self.position.x;
+          const dz = p.z - self.position.z;
+          const dSq = dx * dx + dz * dz;
+          if (dSq < bestSq) {
+            bestSq = dSq;
+            this.dockPoint.x = p.x;
+            this.dockPoint.z = p.z;
+          }
+        }
+        this.dockPointSet = true;
+      }
+      // Own-carrier avoidance is suppressed only on the FINAL approach —
+      // close enough that the dock point is on our side of the hull and the
+      // circles would just block the doorway. Further out they stay live and
+      // steer us AROUND the hull toward the dock side (see dockingHome doc).
+      const toDock = Math.hypot(
+        this.dockPoint.x - self.position.x,
+        this.dockPoint.z - self.position.z,
       );
-      const inBubble = toBay <= GameConfig.service.radius * 0.6;
+      this.dockingHome = toDock <= GameConfig.service.radius * 2;
+      // Brake on the SERVICE ZONE itself, not on proximity to the aim point:
+      // the zone is what actually repairs us, and stopping short of it (the
+      // old fixed-distance gate) left the pilot parked just outside, docked
+      // in spirit only.
+      const inZone = home.serviceZoneContains(self.position.x, self.position.z);
       return {
-        heading: this.headingTo(self, bay.x, bay.z),
-        thrust: !inBubble,
-        reverse: inBubble && self.speed > GameConfig.service.loiterMaxSpeed,
+        heading: this.headingTo(self, this.dockPoint.x, this.dockPoint.z),
+        thrust: !inZone,
+        reverse: inZone && self.speed > GameConfig.service.loiterMaxSpeed,
         strafeDir: 0,
         aim: oppo,
       };
     }
+    // Beyond dock range — back to flee/spool rules; re-pick the bay next time.
+    this.dockingHome = false;
+    this.dockPointSet = false;
 
     // FAR. A hotshot keeps swinging while it spools — leave the attack plan.
     const cautious = this.caution >= d.fleeCautionThreshold;

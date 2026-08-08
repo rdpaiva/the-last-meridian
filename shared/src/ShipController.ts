@@ -1,4 +1,5 @@
 import type { InputState } from "./types";
+import type { Faction } from "./Faction";
 import type { Ship } from "./sim/Ship";
 import type { Mothership } from "./sim/Mothership";
 import type { SensorContact } from "./SensorSystem";
@@ -14,6 +15,16 @@ export interface AvoidObstacle {
   position: { x: number; z: number };
   radius: number;
   isAlive: boolean;
+  /**
+   * Set on a carrier's hull avoidance circles: the faction that OWNS the
+   * carrier. A pilot deliberately docking at its own carrier for service
+   * skips these (the physical keep-out bump still protects it) — otherwise
+   * the deliberately-oversized circles override the dock approach with
+   * full-thrust tangent dodges forever and the pilot can never slow into
+   * the service bubble. Absent on rocks/wrecks/walls/storms, which stay
+   * avoided even while docking.
+   */
+  carrierFaction?: Faction;
 }
 
 /**

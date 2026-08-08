@@ -70,6 +70,13 @@ export class SpectatorCamera {
     return this.isActive && this.subject !== null ? this.subject.callsign : null;
   }
 
+  /** The subject being followed right now (null while lingering on a wreck /
+   *  inactive). OBSERVE mode maps this back to a sim Ship to drive the HUD
+   *  stat cluster for whoever the camera is on. */
+  get currentSubject(): SpectateSubject | null {
+    return this.isActive ? this.subject : null;
+  }
+
   /** The player died: start the wreck-hold beat at their death position. */
   begin(nowMs: number, deathPosition: Vector3, killer: SpectateSubject | null): void {
     this.isActive = true;

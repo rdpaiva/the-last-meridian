@@ -6,7 +6,6 @@ import { opposing, type Faction } from "../Faction";
 import { Ship, type ShipTypeConfig } from "./Ship";
 import { AIController } from "../AIController";
 import type { ShipController, ControllerWorld, AvoidObstacle } from "../ShipController";
-import { FleetCommander } from "../FleetCommander";
 import { SensorSystem } from "../SensorSystem";
 import { Mothership } from "./Mothership";
 import { LaserSystem } from "./LaserSystem";
@@ -90,7 +89,7 @@ export class BattleSim {
   readonly worldByFaction: Record<Faction, ControllerWorld>;
 
   readonly combatants: SimCombatant[] = [];
-  private readonly commanders: FleetCommander[] = [];
+  private readonly commanders: Array<{ update(nowMs: number): void }> = [];
 
   /** Placed wrecks (map hazards) — empty unless the active map has them. */
   private readonly hulks: Hulk[] = [];
@@ -304,8 +303,9 @@ export class BattleSim {
     return entry;
   }
 
-  /** Register a fleet commander (its faction's doctrine); ticked in `advance`. */
-  addCommander(commander: FleetCommander): void {
+  /** Register a faction doctrine brain (FleetCommander for an AI fleet,
+   *  WingCommander for a player-style wing); ticked in `advance`. */
+  addCommander(commander: { update(nowMs: number): void }): void {
     this.commanders.push(commander);
   }
 

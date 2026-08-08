@@ -271,7 +271,7 @@ const MAX_STAT = {
   missiles: Math.max(...ALL_IDS.map((id) => GameConfig.shipTypes[id].missileAmmo)),
 };
 
-type Row = "mode" | "faction" | "ship" | "difficulty" | "map";
+type Row = "mode" | "faction" | "ship" | "difficulty" | "map" | "role";
 
 /** The three loadout steps; the header rail's dots mirror them. */
 type Step = 1 | 2 | 3;
@@ -286,6 +286,14 @@ export class LoadoutMenu {
   private difficulty: DifficultyId;
   /** The arena selection — a concrete map (pinned) or "random" (re-rolls). */
   private mapSelection: MapId;
+  /**
+   * Solo deployment role: fly the lead fighter, or hand the seat to an AI
+   * and OBSERVE the whole battle from the spectator camera (an AI-vs-AI
+   * exhibition — handy for watching fleet doctrine play out). Deliberately
+   * NOT persisted: a saved "observer" would make CONTINUE/quick-play launch
+   * into a match you can't fly, so every session starts back in the cockpit.
+   */
+  private spectate = false;
   /** Which page of the loadout is showing. */
   private step: Step = 1;
   /** Which row ←/→ act on; ↑/↓ move between them. */
@@ -315,6 +323,11 @@ export class LoadoutMenu {
 
   get loadout(): PlayerLoadout {
     return { faction: this.faction, shipType: this.shipType };
+  }
+
+  /** Whether the pilot chose OBSERVE on the mission step (solo only). */
+  get spectateSelected(): boolean {
+    return this.spectate;
   }
 
   /**
@@ -358,7 +371,7 @@ export class LoadoutMenu {
   private rows(): readonly Row[] {
     if (this.step === 1) return ["mode"];
     if (this.step === 2) return ["faction", "ship"];
-    if (this.mode === "solo") return ["difficulty", "map"];
+    if (this.mode === "solo") return ["difficulty", "map", "role"];
     return inviteRoomId() ? [] : ["map"];
   }
 
@@ -435,6 +448,9 @@ export class LoadoutMenu {
             (DIFFICULTY_ORDER.indexOf(this.difficulty) + dir + DIFFICULTY_ORDER.length) %
             DIFFICULTY_ORDER.length;
           this.difficulty = DIFFICULTY_ORDER[idx];
+        } else if (this.activeRow === "role") {
+          // Two roles — either arrow toggles. (Not persisted; see field doc.)
+          this.spectate = !this.spectate;
         } else {
           const idx =
             (MAP_OPTIONS.indexOf(this.mapSelection) + dir + MAP_OPTIONS.length) %
@@ -725,11 +741,17 @@ export class LoadoutMenu {
         <div class="mission-summary">${FACTION_THEME[this.faction].fullName} · ${info.name} ${info.role}</div>`;
     }
     const diffCards = DIFFICULTY_ORDER.map((id) => this.diffCard(id)).join("");
+    const roleCards = [
+      this.roleCard(false, "FLY", "Take the stick — lead your wing from the cockpit."),
+      this.roleCard(true, "OBSERVE", "Hand the seat to an AI and spectate the whole battle."),
+    ].join("");
     return `
       <div class="loadout-heading">Mission setup</div>
       <div class="loadout-subheading">Difficulty</div>
       <div class="loadout-row${this.activeRow === "difficulty" ? " active" : ""}" id="loadout-difficulty">${diffCards}</div>
-      ${mapRow}`;
+      ${mapRow}
+      <div class="loadout-subheading">Deployment</div>
+      <div class="loadout-row${this.activeRow === "role" ? " active" : ""}" id="loadout-role">${roleCards}</div>`;
   }
 
   /** Re-bind every handler after a render (innerHTML wipes the old ones). */
@@ -760,6 +782,13 @@ export class LoadoutMenu {
         this.activeRow = "difficulty";
         this.difficulty = el.dataset.diff as DifficultyId;
         this.saveAndRender();
+      });
+    }
+    for (const el of this.root.querySelectorAll<HTMLElement>(".role-card")) {
+      el.addEventListener("click", () => {
+        this.activeRow = "role";
+        this.spectate = el.dataset.role === "observe";
+        this.render(); // not persisted — plain re-render
       });
     }
     for (const el of this.root.querySelectorAll<HTMLElement>(".map-card")) {
@@ -884,6 +913,17 @@ export class LoadoutMenu {
       <div class="loadout-card diff-card${sel}" data-diff="${id}">
         <div class="card-title">${d.name.toUpperCase()}</div>
         <div class="card-blurb">${d.blurb}</div>
+      </div>`;
+  }
+
+  /** Deployment card (solo mission step): fly the seat yourself, or hand it
+   *  to an AI and observe. Reuses the diff-card look. */
+  private roleCard(observe: boolean, title: string, blurb: string): string {
+    const sel = observe === this.spectate ? " selected" : "";
+    return `
+      <div class="loadout-card diff-card role-card${sel}" data-role="${observe ? "observe" : "fly"}">
+        <div class="card-title">${title}</div>
+        <div class="card-blurb">${blurb}</div>
       </div>`;
   }
 

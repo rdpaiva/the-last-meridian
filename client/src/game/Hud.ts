@@ -92,6 +92,11 @@ export class Hud {
   private readonly cannonEl: HTMLElement | null;
   private readonly missilesEl: HTMLElement | null;
   private readonly dockEl: HTMLElement | null;
+  /** OBSERVE mode's AI-command row ("cmd STRIKE · RTB"); hidden otherwise. */
+  private readonly cmdRowEl: HTMLElement | null;
+  private readonly cmdEl: HTMLElement | null;
+  /** Last command text written (write-on-change), null = row hidden. */
+  private lastCmd: string | null = null;
   private readonly lockEl: HTMLElement | null;
   private readonly sigEl: HTMLElement | null;
   private readonly warnEl: HTMLElement | null;
@@ -137,6 +142,10 @@ export class Hud {
   private spectateLabelEl: HTMLElement | null = null;
   /** Last spectate callsign written (write-on-change), null = hidden. */
   private lastSpectateLabel: string | null = null;
+  /** OBSERVE mode's standalone spectate line (no redeploy ring to ride under). */
+  private readonly observerLabelEl: HTMLElement;
+  /** Last observer callsign written (write-on-change), null = hidden. */
+  private lastObserverLabel: string | null = null;
   /** Last countdown tenth written to the respawn ring (write-on-change). */
   private lastRespawnTenths = -1;
 
@@ -156,6 +165,7 @@ export class Hud {
       <div><span class="label">cannon</span><span id="hud-cannon">0</span></div>
       <div><span class="label">missiles</span><span id="hud-missiles">0</span></div>
       <div><span class="label">dock</span><span id="hud-dock">---</span></div>
+      <div id="hud-cmd-row" style="display:none"><span class="label">cmd</span><span id="hud-cmd">---</span></div>
       <div><span class="label">lock</span><span id="hud-lock">---</span></div>
       <div><span class="label">sig</span><span id="hud-sig">---</span></div>
       <div><span class="label">warn</span><span id="hud-warn">---</span></div>
@@ -172,6 +182,8 @@ export class Hud {
     this.cannonEl = root.querySelector<HTMLElement>("#hud-cannon");
     this.missilesEl = root.querySelector<HTMLElement>("#hud-missiles");
     this.dockEl = root.querySelector<HTMLElement>("#hud-dock");
+    this.cmdRowEl = root.querySelector<HTMLElement>("#hud-cmd-row");
+    this.cmdEl = root.querySelector<HTMLElement>("#hud-cmd");
     this.lockEl = root.querySelector<HTMLElement>("#hud-lock");
     this.sigEl = root.querySelector<HTMLElement>("#hud-sig");
     this.warnEl = root.querySelector<HTMLElement>("#hud-warn");
@@ -222,6 +234,15 @@ export class Hud {
       respawnRing.querySelector<HTMLElement>(".respawn-ring-text");
     this.spectateLabelEl =
       respawnRing.querySelector<HTMLElement>(".respawn-ring-spectate");
+
+    // OBSERVE mode's standalone spectate line (setObserving) — the in-ring
+    // label above only shows while the redeploy ring does, and an observer
+    // has no redeploy clock.
+    const observer = document.createElement("div");
+    observer.id = "observer-label";
+    observer.className = "hidden";
+    document.body.appendChild(observer);
+    this.observerLabelEl = observer;
 
     // Launch overlay lives outside the debug panel — it's fullscreen-centered.
     const overlay = document.createElement("div");
@@ -686,6 +707,36 @@ export class Hud {
     } else {
       this.spectateLabelEl.textContent = `SPECTATING — ${callsign}`;
       this.spectateLabelEl.classList.remove("hidden");
+    }
+  }
+
+  /**
+   * OBSERVE mode: the followed pilot's current AI command ("STRIKE",
+   * "COVER · RTB", …), or null to hide the row entirely — it stays hidden
+   * in normal play, where the seat has no standing order to show.
+   * Write-on-change.
+   */
+  setCommand(text: string | null): void {
+    if (text === this.lastCmd) return;
+    this.lastCmd = text;
+    if (this.cmdRowEl) this.cmdRowEl.style.display = text === null ? "none" : "";
+    if (this.cmdEl && text !== null) this.cmdEl.textContent = text;
+  }
+
+  /**
+   * OBSERVE mode: who the camera is following, or null to hide the line.
+   * The standalone sibling of setSpectating — that label rides under the
+   * redeploy ring (only visible while the ring is), but an observer has no
+   * redeploy clock, so this one owns its own fixed element. Write-on-change.
+   */
+  setObserving(callsign: string | null): void {
+    if (callsign === this.lastObserverLabel) return;
+    this.lastObserverLabel = callsign;
+    if (callsign === null) {
+      this.observerLabelEl.classList.add("hidden");
+    } else {
+      this.observerLabelEl.textContent = `SPECTATING — ${callsign}`;
+      this.observerLabelEl.classList.remove("hidden");
     }
   }
 

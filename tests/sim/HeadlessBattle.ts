@@ -30,6 +30,7 @@ import { opposing, type Faction } from "../../shared/src/Faction";
 import { Ship } from "../../shared/src/sim/Ship";
 import { AIController, type AIOrder } from "../../shared/src/AIController";
 import { FleetCommander, type CommandedPilot } from "../../shared/src/FleetCommander";
+import { WingCommander } from "../../shared/src/WingCommander";
 import { BattleSim } from "../../shared/src/sim/BattleSim";
 import { resolveWingPlan } from "../../shared/src/WingPlan";
 
@@ -125,11 +126,13 @@ export class HeadlessBattle {
     // Resolve the wing exactly as Game does — same shared helper.
     const wcfg = GameConfig.player.wingmen;
     const wingPlan = resolveWingPlan(this.playerFaction, playerTypeId);
+    const wingPilots: CommandedPilot[] = [];
     for (let i = 0; i < wingPlan.length; i++) {
       const ship = this.sim.spawnShip(this.playerFaction, GameConfig.shipTypes[wingPlan[i].typeId], {
         respawnDelayMs: GameConfig.combat.enemyRespawnDelayMs,
       });
       const controller = new AIController({ order: wingPlan[i].order, slot: wcfg.formationSlot(i) });
+      wingPilots.push({ ship, ai: controller });
       this.sim.addCombatant({ ship, controller });
     }
 
@@ -140,6 +143,15 @@ export class HeadlessBattle {
       cinematic: true,
     });
     this.sim.setLeader(this.playerFaction, standInShip);
+    // Player-side wing doctrine, exactly as Game wires it (leader failover +
+    // carrier scramble). Draws no RNG, so the determinism contract holds.
+    this.sim.addCommander(
+      new WingCommander(
+        standInShip,
+        wingPilots,
+        this.sim.worldByFaction[this.playerFaction],
+      ),
+    );
 
     // --- Enemy fleet: strike / cover / patrol split + commander ---
     const enemyFleet = GameConfig.fleets[this.enemyFaction];

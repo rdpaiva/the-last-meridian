@@ -16,8 +16,44 @@ editing instead of searching.
 
 ---
 
-**State (2026-08-05)**: TERRAIN WALLS + The Canyon, now PLANETSIDE (one
-uncommitted batch on top of `3621cbf`). NEW: the per-map ENVIRONMENT THEME
+**State (2026-08-08)**: AI FLEET DOCTRINE + OBSERVE MODE, one commit on
+top of `3fc9b0c` (the owner's commit of the 2026-08-05 terrain-walls/
+planetside batch below). PROTOCOL_VERSION 29→**30** (GameConfig changed:
+`ai.engagementRange`, new `ai.defendOrbitBand`). The doctrine batch, in
+play-fix order:
+`ai.engagementRange` 35→**140** (sized against the SENSOR picture — the
+old knife-fight value made patrol pilots fly past contacts their radar
+tracked for a minute = the "aimless meandering" report; Difficulty presets
+rescaled 100/140/180, TuningSchema slider max 220); the `defend` order
+flies a deterministic CCW **CAP racetrack** at `defendOrbitRadius`
+(`ai.defendOrbitBand` blend — the old wander-jitter aimed into the hull
+half the time and fought the avoidance override, the "weird defender
+pattern"); **leader failover** both sides (FleetCommander re-points
+`world.leader` to the senior live striker; cover/hunt guard against
+`leader === self`, and a leaderless cover pilot now PROSECUTES the nearest
+contact instead of patrol-wandering); NEW `shared/src/WingCommander.ts` —
+player-side doctrine (leader failover on player death: senior escort
+spearheads, the wing packs on it; carrier-defense scramble on the enemy
+commander's alarm rules; zero RNG = determinism-safe; wired in Game.start
+AND tests/sim/HeadlessBattle.ts, `BattleSim.addCommander` widened to
+`{update(nowMs)}`); **retreat-dock geometry fixed twice** off owner
+screenshots (dock at the NEAREST bay's `getJumpArrivalPosition`, never the
+in-hull staging point, never fixed bay 0; brake on `serviceZoneContains`;
+own-carrier avoidance circles — now tagged `AvoidObstacle.carrierFaction`
+— skipped ONLY within 2×`service.radius` of the dock point; full
+invariants in SUBSYSTEMS → "Jump drive… Dock geometry"); and **OBSERVE
+mode** (solo MISSION → Deployment FLY/OBSERVE, never persisted): AI flies
+the seat, SpectatorCamera from frame one, HUD cluster follows the watched
+ship (per-ship `Combatant.serviceState`, `ScoreBoard.rowFor`,
+`Hud.setCommand` cmd row w/ `· RTB` tag, standalone `Hud.setObserving`
+label), first-person cues gated by `Game.isHumanSeat()`. Typecheck green,
+**61/61 tests**, smoke baseline RECAPTURED 3× this session (AI-behavior
+changes; pinned summary swung 11k-defeat → 37k-victory → 12k-defeat across
+the fixes — the pin is chaotic per seed, a determinism check, NOT a
+balance metric). Dial deliberately left alone: `ai.coverBreakRange` 45
+(escorts stay tight on a live player). Prior batch (2026-08-05, committed
+by the owner as `3fc9b0c`): TERRAIN WALLS + The Canyon, now PLANETSIDE
+(on top of `3621cbf`). NEW: the per-map ENVIRONMENT THEME
 (`MapConfig.environment` → `GameConfig.scenery.environment`, view-only,
 written by applyMapConfig) — The Canyon opts into `"planet"`:
 `client/src/game/PlanetTerrain.ts` (procedural flat-shaded value-noise
@@ -79,7 +115,7 @@ catalog (The Eye is the first editor-authored entry), and a 7-card Field
 Manual covering all of it. Feature-by-feature status: `docs/ROADMAP.md`.
 At merge: typecheck green across all workspaces, **52/52 tests green**.
 
-**Deploy state**: PROTOCOL_VERSION is **28**; the LIVE droplet still
+**Deploy state**: PROTOCOL_VERSION is **30**; the LIVE droplet still
 answers **v17** — the strategic layer has never been deployed. The next
 Actions → **"Deploy game"** dispatch (owner clicks; agents' `gh` token
 cannot) ships client + server from one checkout, so the both-halves rule
@@ -171,20 +207,32 @@ recur):
   `resolveWallCollisions` in `Game.ts`/`BattleSim.ts`,
   `tests/sim/wallKeepOut.test.ts` (the canyon-battle invariant).
 
-- **Owner playtest: launch queue + AI steering feel** (`3621cbf`).
-  Expected sights: bay queues hold as a nose-to-tail line on deck; defend
-  gunships cruise a wide ~180u orbit and sortie out to ~230u to
-  intercept; carrier strikers fly dodge-in/fire/peel runs. Dials if the
-  feel is off: `GameConfig.ai.defendRadius`/`defendOrbitRadius` (defense
-  reach — orbit must stay OUTSIDE the ~150u hull footprint),
-  `ai.avoidCommitMaxSec`/`avoidRefractorySec` (dodge/fire rhythm —
-  battle-completion-sensitive, see the config comments before touching),
-  `launch.queueSpacing` (deck line spacing). Anchors:
-  `shared/src/AIController.ts` (`avoidObstacles`, `scanForThreat`,
-  `retargetWander`, the `defend` case), `shared/src/GameConfig.ts`
-  (`ai.*` avoidance/defend blocks, `launch.queueSpacing`),
-  `BattleSim.launchFleet` / `Game.launchFleet`. Wobble regression check
-  lives in memory: headless probe measuring reversals/sec (calm ≈ ≤1/s).
+- **Owner playtest: fleet doctrine + OBSERVE mode** (this commit — the
+  best lens is OBSERVE itself: solo MISSION step → Deployment → OBSERVE;
+  rotate keys / fire cycle ships, HUD tracks the watched pilot). Expected
+  sights: patrol/pool pilots turning in on contacts out to ~140u instead
+  of drifting past; defend gunships flying a clean counter-clockwise
+  racetrack at ~180u (no hull-hugging squiggle); on the leader's death the
+  wing packing up behind a spearhead escort and prosecuting (not
+  scattering to wander); escorts scrambling home when the carrier takes
+  fire, releasing ~8s after it stops; damaged pilots tagging `· RTB` on
+  the cmd row, docking at a bay mouth (`dock` row `servicing` → `docked`),
+  then returning to the front — NO ship parked motionless against a hull.
+  Dials if the feel is off: `ai.engagementRange` (per-difficulty
+  100/140/180 in `client/src/game/Difficulty.ts` — the GameConfig default
+  only bites when no preset applies), `ai.defendOrbitRadius`/
+  `defendOrbitBand` (CAP ring), `commander.defendCount`/`defendHoldThinks`
+  (scramble size/stickiness), `ai.coverBreakRange` 45 (raise toward
+  70–90 for more aggressive escorts — deliberately left tight),
+  `fleets.*.strikeCount` vs the defense knobs if matches run long.
+  Anchors: `shared/src/WingCommander.ts` (whole doctrine),
+  `shared/src/AIController.ts` (the `defend` case = CAP orbit;
+  `retreatMovement` dock branch + `dockingHome`/`dockPoint`;
+  `scanForThreat`'s carrierFaction skip; the cover dead-leader fallback),
+  `shared/src/FleetCommander.ts` (leader failover), `Game.ts`
+  (`isHumanSeat`, the spectate camera + HUD blocks in `updateViews`),
+  `client/src/game/LoadoutMenu.ts` (the role row),
+  `Hud.setCommand`/`setObserving`.
 
 Otherwise nothing queued. New items come from the deploy + friends
 playtest, or whatever the owner asks for next. File them here with

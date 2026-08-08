@@ -2179,6 +2179,29 @@ body {
   display: none;
 }
 
+/* OBSERVE mode's standalone "SPECTATING — CALLSIGN" line (Hud.setObserving):
+   the in-ring spectate label above only shows while the redeploy ring does,
+   but an observer has no redeploy clock — this one lives on its own near the
+   bottom of the screen, same typography as the ring's line. */
+#observer-label {
+  position: fixed;
+  left: 50%;
+  bottom: 56px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  color: #89b4fa;
+  text-shadow: 0 0 8px rgba(137, 180, 250, 0.5);
+  pointer-events: none;
+  user-select: none;
+}
+
+#observer-label.hidden {
+  display: none;
+}
+
 .respawn-ring.hidden {
   display: none;
 }

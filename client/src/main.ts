@@ -251,7 +251,12 @@ function startGame(mode: LaunchMode): void {
   }
   applyActiveDifficulty();
   splash!.classList.add("hidden");
-  game = new Game(canvas!, hudRoot!, loadout);
+  // OBSERVE deployment (mission step): AI flies the seat, camera spectates.
+  // Menu-only and never persisted — the quick-play/restart path (no menu)
+  // always launches a normal cockpit match.
+  game = new Game(canvas!, hudRoot!, loadout, {
+    spectate: menu?.spectateSelected ?? false,
+  });
   void game.start();
 }
 

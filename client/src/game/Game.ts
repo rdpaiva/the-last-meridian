@@ -72,7 +72,7 @@ import { AIController } from "@space-duel/shared";
 import { loadPilotName, type PlayerLoadout } from "./Loadout";
 import { ScoreBoard } from "./ScoreBoard";
 import { SensorSystem } from "@space-duel/shared";
-import { FleetCommander, type CommandedPilot } from "@space-duel/shared";
+import { FleetCommander, WingCommander, type CommandedPilot } from "@space-duel/shared";
 import type { ShipController, ControllerWorld, AvoidObstacle } from "@space-duel/shared";
 import { buildFighterMesh } from "./FighterMesh";
 import type { DamageTarget, InputState } from "@space-duel/shared";
@@ -119,6 +119,13 @@ interface Combatant {
    * by the carrier; a lit glow bleeds through the hull via the GlowLayer).
    */
   lastInput: InputState | null;
+  /**
+   * Carrier-service state from the last sim step: "servicing" while the
+   * bubble is actively refilling this ship, "docked" once it's topped up,
+   * null when out of the bubble (or too fast). Written for every ship each
+   * step — the player HUD's dock line and the spectate HUD both read it.
+   */
+  serviceState: "servicing" | "docked" | null;
 }
 
 /**
@@ -245,6 +252,13 @@ export class Game {
   private readonly lightning: LightningSystem;
   /** Runtime re-tasking for the ENEMY fleet (built with it in start()). */
   private fleetCommander: FleetCommander | null = null;
+  /** Player-side wing doctrine: leader failover + carrier scramble (WingCommander.ts). */
+  private wingCommander: WingCommander | null = null;
+  /** AI-exhibition mode: the player's seat is AI-flown, the camera spectates. */
+  private readonly spectateMode: boolean;
+  /** The HUD text-cluster root — OBSERVE mode toggles it per-frame to track
+   *  whether the camera is following a ship (stats) or holding a wide shot. */
+  private readonly hudRoot: HTMLDivElement;
   /** Per-faction read-only world view handed to that faction's controllers. */
   private readonly worldByFaction: Record<Faction, ControllerWorld>;
   /**
@@ -338,7 +352,18 @@ export class Game {
     canvas: HTMLCanvasElement,
     hudRoot: HTMLDivElement,
     loadout?: PlayerLoadout,
+    opts?: {
+      /**
+       * AI-exhibition mode ("OBSERVE" on the mission step): the player's seat
+       * is flown by an AIController and the camera lives in the spectator
+       * from the first frame — a full AI-vs-AI battle to watch. Per-launch
+       * only (never persisted), so CONTINUE/quick-play always fly normally.
+       */
+      spectate?: boolean;
+    },
   ) {
+    this.spectateMode = opts?.spectate ?? false;
+    this.hudRoot = hudRoot;
     this.engine = new Engine(
       canvas,
       true,
@@ -669,6 +694,10 @@ export class Game {
     buildPostPipeline(this.scene, this.cameraRig.camera);
     this.starfield = planetside ? null : new Starfield(this.scene, this.cameraRig.camera);
     this.hud = new Hud(hudRoot);
+    // OBSERVE mode: hide the seat-centric HUD text cluster (hp/ammo/sig/…) —
+    // the overlays that still apply (carrier bars, toasts, end banner,
+    // spectate label) live outside hudRoot and keep running.
+    if (this.spectateMode) hudRoot.style.display = "none";
     this.radar = new Radar(this.viewFlipped);
     this.nameplates = new Nameplates(this.scene, this.cameraRig.camera, hudRoot);
     this.missileWarning = new MissileWarning(this.sound, this.hud);
@@ -792,6 +821,7 @@ export class Game {
     // DIFFERENT type ("other"/"gunship" roles) is built like an enemy fleet
     // clone of that type instead (config muzzles, derived rear glow).
     const wcfg = GameConfig.player.wingmen;
+    const wingPilots: CommandedPilot[] = [];
     for (let i = 0; i < wingPlan.length; i++) {
       const typeId = wingPlan[i].typeId;
       let ship: Ship;
@@ -860,7 +890,8 @@ export class Game {
         order: wingPlan[i].order,
         slot: wcfg.formationSlot(i),
       });
-      this.combatants.push({ ship, view, controller, launch: null, bayIndex: 0, lastInput: null });
+      wingPilots.push({ ship, ai: controller });
+      this.combatants.push({ ship, view, controller, launch: null, bayIndex: 0, lastInput: null, serviceState: null });
       this.aiDamageFlashes.set(ship, new DamageFlash(this.scene, view.root, this.glowLayer, new Color3(2.5, 1.5, 0.2)));
       // Wing callsigns: deterministic per (faction, seat index) — the same
       // scheme the server names its AI seats with (Callsigns.ts).
@@ -888,15 +919,29 @@ export class Game {
     this.playerCombatant = {
       ship: this.playerShip,
       view: playerShipView,
-      controller: this.playerController,
+      // OBSERVE mode: an AI flies the seat (the harness's stand-in pattern —
+      // it leads the wing on "strike" like the enemy's lead heavy). The
+      // keyboard then only drives the spectator camera.
+      controller: this.spectateMode
+        ? new AIController({ order: "strike" })
+        : this.playerController,
       launch: null,
       bayIndex: 0,
       lastInput: null,
+      serviceState: null,
     };
     this.combatants.push(this.playerCombatant);
 
     // The player ship is the wing leader its faction's wingmen form on.
     this.worldByFaction[this.playerFaction].leader = this.playerShip;
+    // Wing doctrine: keeps the leader pointer live across the player's
+    // deaths (senior escort becomes the acting leader) and scrambles
+    // escorts to "defend" while the home carrier is under threat.
+    this.wingCommander = new WingCommander(
+      this.playerShip,
+      wingPilots,
+      this.worldByFaction[this.playerFaction],
+    );
 
     // Enemy AI fleet, composed from the opposing faction's fleet default.
     // Initial orders implement the FleetCommander's role split: the first
@@ -937,6 +982,7 @@ export class Game {
           launch: null,
           bayIndex: 0,
           lastInput: null,
+          serviceState: null,
         });
         // GLB enemies have no emissive engine of their own, so give them an
         // EngineGlow at their rear so they read in combat. Procedural fighters
@@ -1092,21 +1138,21 @@ export class Game {
     // Fire SFX — player fire is full-volume (no position); everyone else is
     // spatial, attenuating with distance from the player/listener.
     this.events.on("shipFiredLaser", ({ ship }) => {
-      const isPlayer = ship === this.playerShip;
+      const isPlayer = this.isHumanSeat(ship);
       this.sound.playFireSound(
         ship.fireSound,
         isPlayer ? undefined : ship.position,
       );
     });
     this.events.on("missileFired", ({ ship }) => {
-      const isPlayer = ship === this.playerShip;
+      const isPlayer = this.isHumanSeat(ship);
       this.sound.playMissileLaunch(isPlayer ? undefined : ship.position);
     });
 
     // Catapult fire: the player's launch is full-volume trauma; everyone
     // else's scales with distance (a far enemy catapult barely registers).
     this.events.on("shipLaunched", ({ ship }) => {
-      const isPlayer = ship === this.playerShip;
+      const isPlayer = this.isHumanSeat(ship);
       this.cameraRig.addTrauma(
         isPlayer
           ? GameConfig.launch.launchTrauma
@@ -1117,7 +1163,7 @@ export class Game {
     // Ram: the player gets the heavy cue (trauma + hit SFX). The per-hit
     // damage flash is parked (see onLaserHit), so an AI ram has no extra cue.
     this.events.on("shipRammedAsteroid", ({ ship }) => {
-      if (ship === this.playerShip) {
+      if (this.isHumanSeat(ship)) {
         this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
         this.sound.playHit(ship.position);
       }
@@ -1125,7 +1171,7 @@ export class Game {
 
     // Wreck scrape: same ram-weight cue as the asteroid bump.
     this.events.on("shipRammedHulk", ({ ship }) => {
-      if (ship === this.playerShip) {
+      if (this.isHumanSeat(ship)) {
         this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
         this.sound.playHit(ship.position);
       }
@@ -1133,7 +1179,7 @@ export class Game {
 
     // Terrain-wall scrape: same ram-weight cue.
     this.events.on("shipRammedWall", ({ ship }) => {
-      if (ship === this.playerShip) {
+      if (this.isHumanSeat(ship)) {
         this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
         this.sound.playHit(ship.position);
       }
@@ -1145,7 +1191,7 @@ export class Game {
     this.events.on("stormZap", ({ ship }) => {
       this.lightning.strike(ship.position);
       this.explosions.spawnSpark(ship.position);
-      if (ship === this.playerShip) {
+      if (this.isHumanSeat(ship)) {
         this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
         this.sound.playHit(ship.position);
       }
@@ -1153,7 +1199,7 @@ export class Game {
 
     // Ship death: explosion + sound + (distance-scaled for AI) trauma/hitstop.
     this.events.on("shipDied", ({ ship }) => {
-      const isPlayer = ship === this.playerShip;
+      const isPlayer = this.isHumanSeat(ship);
       // Death spectate opens on the killer: peek the attribution BEFORE
       // noteDeath consumes it. Null for turret/asteroid/storm deaths.
       if (isPlayer) this.playerKiller = this.scoreBoard.lastAttacker(ship);
@@ -1288,7 +1334,7 @@ export class Game {
       // spatially (the "runner charging" telegraph — distinct from the RWR).
       this.sound.startJumpDrive(
         ship,
-        ship === this.playerShip ? null : ship.position,
+        this.isHumanSeat(ship) ? null : ship.position,
       );
     });
     this.events.on("jumpCancelled", ({ ship }) => {
@@ -1318,8 +1364,12 @@ export class Game {
       this.sound.releaseJumpDrive(ship);
       if (ship === this.playerShip) {
         this.engineGlow?.resetTrails();
-        this.cameraRig.snapTo(ship.position);
-        this.cameraRig.addTrauma(GameConfig.jump.arrivalTrauma);
+        // Camera rides the jump only when a human is in the seat — in
+        // OBSERVE mode the spectator owns the camera.
+        if (!this.spectateMode) {
+          this.cameraRig.snapTo(ship.position);
+          this.cameraRig.addTrauma(GameConfig.jump.arrivalTrauma);
+        }
       } else {
         this.aiVisuals.get(ship)?.glow?.resetTrails();
       }
@@ -1337,6 +1387,19 @@ export class Game {
   }
 
   /**
+   * True when `ship` is the HUMAN-flown player ship — the seat that earns
+   * first-person feedback (full-volume audio, heavy trauma/hitstop, RWR,
+   * death-spectate attribution). In OBSERVE mode the seat is AI-flown, so
+   * nothing qualifies and every cue falls back to the spatial/scaled path.
+   * Structural identity checks (respawn wiring, state transitions, engine
+   * glow resets) still compare against playerShip directly — those concern
+   * the SHIP, not who is flying it.
+   */
+  private isHumanSeat(ship: unknown): boolean {
+    return !this.spectateMode && ship !== null && ship === this.playerShip;
+  }
+
+  /**
    * A laser struck `target`; scale feedback to the hit (and to who fired).
    * `shooter` is the firing SHIP — "is this the local pilot's shot" is
    * derived here by comparing against the local player ship, so attribution
@@ -1347,7 +1410,7 @@ export class Game {
     shooter: Ship | null,
     position: Vector3,
   ): void {
-    const fromPlayer = shooter !== null && shooter === this.playerShip;
+    const fromPlayer = this.isHumanSeat(shooter);
     // Leaderboard attribution: remember the last shooter to land a hit on
     // each ship (any faction); shipDied consumes it.
     this.scoreBoard.noteHit(target, shooter);
@@ -1376,7 +1439,7 @@ export class Game {
     // ship on every hit) is intentionally parked — impacts now read via the
     // spark burst + sound + camera shake. The DamageFlash system is still
     // built/updated; re-add the trigger() calls here and below to restore it.
-    if (target === this.playerShip) {
+    if (this.isHumanSeat(target)) {
       // The player's own ship took a hit — the heavy feedback.
       this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
       this.applyHitstop(GameConfig.hitstop.playerLaserHitMs);
@@ -1411,7 +1474,7 @@ export class Game {
     struck: DamageTarget | null,
     shooter: Ship | null,
   ): void {
-    const fromPlayer = shooter !== null && shooter === this.playerShip;
+    const fromPlayer = this.isHumanSeat(shooter);
     this.scoreBoard.noteHit(struck, shooter);
     this.explosions.spawn(pos);
     this.sound.playExplosion(pos);
@@ -1419,7 +1482,7 @@ export class Game {
     if (struck instanceof MothershipSection && struck.owner.shieldsUp) {
       this.shieldHitFlashes.spawn(pos, struck.owner.faction);
     }
-    if (struck !== null && struck === this.playerShip) {
+    if (this.isHumanSeat(struck)) {
       this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerMissileHit);
       this.applyHitstop(GameConfig.hitstop.playerMissileHitMs);
       return;
@@ -1940,6 +2003,8 @@ export class Game {
 
     // Enemy fleet doctrine: re-task the dynamic pool (throttled internally).
     this.fleetCommander?.update(nowMs);
+    // Player-side wing doctrine: leader failover + carrier scramble.
+    this.wingCommander?.update(nowMs);
 
     for (const c of this.combatants) {
       const ship = c.ship;
@@ -2064,6 +2129,7 @@ export class Game {
             ? "servicing"
             : "docked"
           : null;
+        c.serviceState = state;
         if (isPlayer) this.playerServiceState = state;
       }
     }
@@ -2250,7 +2316,54 @@ export class Game {
     // --- Animations that continue THROUGH hitstop ---
     const zoomInput =
       (this.input.state.zoomIn ? 1 : 0) - (this.input.state.zoomOut ? 1 : 0);
-    if (this.playerShip && this.playerShip.isAlive) {
+    if (this.spectateMode && this.playerShip && this.state !== "victory" && this.state !== "defeat") {
+      // OBSERVE mode: the spectator owns the camera from the first frame.
+      // Opens on the friendly carrier deck (the seat's launch position) for
+      // an establishing beat, then cuts to the nearest live ship; the usual
+      // cycle keys walk the roster — which here includes the AI-flown seat.
+      if (!this.spectator.active) {
+        this.spectator.begin(nowMs, this.playerShip.position, null);
+      }
+      this.spectateRoster.length = 0;
+      for (const c of this.combatants) {
+        if (!c.ship.isAlive || c.launch !== null) continue;
+        this.spectateRoster.push(this.subjectFor(c.ship));
+      }
+      this.spectator.update(
+        deltaSeconds,
+        nowMs,
+        this.cameraRig,
+        zoomInput,
+        this.input.state,
+        this.spectateRoster,
+      );
+      this.starfield?.update();
+      this.backdrop?.update(this.cameraRig.camera.getTarget());
+      // The AI-flown seat's exhaust rides its emitted input, exactly like a
+      // wingman's (the seat has the standalone player glow, not an aiVisuals
+      // entry, so it's driven here rather than in the aiVisuals loop).
+      if (!inHitstop && simStepRan) {
+        const li = this.playerCombatant?.lastInput ?? null;
+        if (li === null) {
+          this.engineGlow?.hide();
+          this.secondaryThrusters?.update(deltaSeconds, false, false, false);
+        } else {
+          const alive = this.playerShip.isAlive;
+          this.engineGlow?.update(
+            deltaSeconds,
+            this.playerShip.speed,
+            this.playerShip.maxSpeed,
+            alive && li.thrust,
+          );
+          this.secondaryThrusters?.update(
+            deltaSeconds,
+            alive && li.reverse,
+            alive && li.strafeLeft,
+            alive && li.strafeRight,
+          );
+        }
+      }
+    } else if (!this.spectateMode && this.playerShip && this.playerShip.isAlive) {
       if (this.spectator.active) {
         // Respawn edge: hard-cut from the spectate subject back to our own
         // catapult (a smoothed pan would streak the whole arena past).
@@ -2336,6 +2449,7 @@ export class Game {
     // paused). Passing player = null outside live play — launch countdown,
     // end screens, death gaps — forces it quiet, fading any active pulse.
     const rwrActive =
+      !this.spectateMode && // OBSERVE mode: nobody's in the seat to warn
       this.state === "playing" &&
       this.playerShip !== null &&
       this.playerShip.isAlive;
@@ -2347,7 +2461,66 @@ export class Game {
     );
 
     // HUD.
-    if (this.playerShip) {
+    if (this.spectateMode) {
+      // OBSERVE mode: the stat cluster tracks whoever the camera follows —
+      // hp/ammo/sig/service state read from THAT ship's sim, kills/score
+      // from its leaderboard row — so you can watch a wounded pilot dock,
+      // refill, and sortie again. The cluster hides during the establishing
+      // shot and wreck-holds (no subject); the spectate label names the ship.
+      const subject = this.spectator.currentSubject;
+      let followed: Combatant | null = null;
+      if (subject) {
+        for (const c of this.combatants) {
+          if (this.spectateSubjects.get(c.ship) === subject) {
+            followed = c;
+            break;
+          }
+        }
+      }
+      this.hudRoot.style.display = followed ? "" : "none";
+      if (followed) {
+        const ship = followed.ship;
+        // The signature cue is asked of the FOLLOWED ship's enemy — the same
+        // DETECTED/HIDDEN/NO TRACK line its own pilot would see.
+        const signature = this.sensors.isTracked(opposing(ship.faction), ship)
+          ? "detected"
+          : this.sensors.isConcealed(ship.position)
+            ? "hidden"
+            : "untracked";
+        const row = this.scoreBoard.rowFor(ship);
+        this.hud.update(
+          ship,
+          nowMs,
+          false, // lock is a first-person cue — meaningless from outside
+          this.cameraRig.currentZoom,
+          signature,
+          row?.kills ?? 0,
+          0, // wing kills are a player-seat notion
+          row?.score ?? 0,
+          0, // no persistent best for a spectated pilot
+        );
+        this.hud.setServiceStatus(followed.serviceState);
+        this.hud.setJumpSpool(
+          ship.isSpoolingJump ? ship.jumpSpoolProgress : null,
+        );
+        // The pilot's current AI command — every observed ship is AI-flown,
+        // but guard anyway (controller is the ShipController interface).
+        const ai =
+          followed.controller instanceof AIController
+            ? followed.controller
+            : null;
+        this.hud.setCommand(
+          ai
+            ? ai.currentOrder.toUpperCase() + (ai.isRetreating ? " · RTB" : "")
+            : null,
+        );
+      }
+      this.hud.setObserving(
+        this.state === "playing" || this.state === "launching"
+          ? this.spectator.subjectLabel
+          : null,
+      );
+    } else if (this.playerShip) {
       // The stealth cue asks the ENEMY's sensor picture about the player.
       const signature = this.sensors.isTracked(this.enemyFaction, this.playerShip)
         ? "detected"
@@ -2565,7 +2738,13 @@ export class Game {
         home.rotationY,
       );
       const isPlayer = c === this.playerCombatant;
-      c.launch = this.makeLaunchSequence(home, baseHoldSec + i * stagger, isPlayer);
+      // OBSERVE mode skips the cinematic countdown overlay/zoom — the camera
+      // is in the spectator, not on this seat (launch cadence is unchanged).
+      c.launch = this.makeLaunchSequence(
+        home,
+        baseHoldSec + i * stagger,
+        isPlayer && !this.spectateMode,
+      );
     });
   }
 

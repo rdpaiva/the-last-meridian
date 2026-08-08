@@ -77,4 +77,9 @@ export class ScoreBoard {
   rows(): ScoreRow[] {
     return [...this.entries.values()].sort(compareScoreRows);
   }
+
+  /** One pilot's live row (the spectate HUD reads the followed ship's tally). */
+  rowFor(ship: Ship): ScoreRow | null {
+    return this.entries.get(ship) ?? null;
+  }
 }
