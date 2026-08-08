@@ -38,6 +38,7 @@ export * from "./sim/MothershipSection";
 export * from "./sim/MothershipSubsystem";
 export * from "./sim/Hulk";
 export * from "./sim/HulkSection";
+export * from "./sim/Wall";
 export * from "./sim/AsteroidSim";
 export * from "./sim/AsteroidFieldSim";
 export * from "./sim/BattleSim";

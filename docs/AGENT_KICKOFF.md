@@ -16,7 +16,43 @@ editing instead of searching.
 
 ---
 
-**State (2026-07-21)**: `main` at `3621cbf` — launch-bay QUEUE staging
+**State (2026-08-05)**: TERRAIN WALLS + The Canyon, now PLANETSIDE (one
+uncommitted batch on top of `3621cbf`). NEW: the per-map ENVIRONMENT THEME
+(`MapConfig.environment` → `GameConfig.scenery.environment`, view-only,
+written by applyMapConfig) — The Canyon opts into `"planet"`:
+`client/src/game/PlanetTerrain.ts` (procedural flat-shaded value-noise
+heightfield far below the flight plane; ground swells to meet the wall
+feet from the same WallHazard spec; height-banded dusk palette) replaces
+the whole deep-space stack (Backdrop/Starfield/Nebulas/CapitalShips —
+`starfield`/`backdrop` are now nullable in BOTH coordinators), plus scene
+retints (`planet.clearColor`, warm `planet.hemiGround`). Knobs:
+`GameConfig.planet` (KEEP THE PALETTE DUSK-DARK — glow FX are tuned
+against black space). GOTCHA fixed twice-over in the views, worth
+remembering: Babylon's front face is COUNTER-clockwise in the (x-right,
+z-up) plane seen from +Y (the CreateGround convention). Both WallView and
+PlanetTerrain originally wound clockwise — the terrain was back-face-culled
+(invisible from above) and the walls, double-sided so they still rendered,
+got reversed normals from ComputeNormals/flat-shading (sun lit their
+INSIDES → the owner's "near-black walls" report). Winding flipped in both;
+walls also keep a dim self-light for the steepest faces (`walls.emissive`,
+diffuse 0.38→0.45). Base feature: the `wall` map-hazard kind:
+`shared/src/sim/Wall.ts` (capsule chains: chunked `segments` feed
+weapons+AI circles, FULL `edges` feed the ship keep-out — bump against
+chunks nudges wall-huggers at seams, test-proven), `GameConfig.walls`,
+`bumpShipOutOfWallSegment` (BattleSim, shared solo/server/prediction),
+`shipRammedWall` SimEvent, `WallView` procedural canyon ridge, radar
+polylines, wired into Game/BattleSim/NetworkGame. `theCanyon` rebuilt
+from the storm-prototype onto real walls (normal-offset S-curve; lane
+narrowed 220→**80** on 2026-08-05, `walls.chunkLength` 24→12 to match,
+and the space-only furniture stripped — no asteroids, no stealth nebula,
+no capture stations (Energy layer inert on this map); storms stay as
+planetside thunderheads). Proofs:
+`tests/sim/wallKeepOut.test.ts` (geometry + scrape cadence + a 30Hz
+seeded canyon battle: keep-out invariant + fleets actually fight). PROTOCOL_VERSION 28→**29** (GameConfig changed). Typecheck
+green, **61/61 tests**, smoke baseline untouched (stock config has no
+walls). Docs: SUBSYSTEMS → "Terrain walls", ROADMAP Done + phase-2
+backlog (editor wall brush / derelict-trench theme / maze needs
+waypoints). Prior state: `main` at `3621cbf` — launch-bay QUEUE staging
 (ships in the same tube no longer stack on one point; they hold
 nose-to-tail via `launch.queueSpacing`) + the AI nose-wag fixes: wander
 now blends headings circularly (`retargetWander` scalar-lerp bug),
@@ -89,6 +125,51 @@ recur):
   in `docs/PHASE1_OPEN_ISSUES.md`.
 
 **Work order**:
+
+- **Owner playtest: The Canyon on real walls, planetside**. Expected
+  sights: a dusk desert landscape scrolling far below with real parallax
+  (no stars/space backdrop/capital ships on this map), canyon ridges
+  rising OUT of the terrain (ground swells to the wall feet — no floating
+  ribbon), BOTH CARRIERS inside widened trench chambers (walls continue to
+  z=±1200 behind them, so normal play never exposes a canyon mouth), readable
+  wall faces (the new self-light), AI threading the
+  bends and breaking around the bend rocks, bolts/missiles dying on
+  walls, wall polylines on the radar, scrape damage + trauma cue on a
+  graze. TEXTURES (owner-owned art): SEAMLESS tileable images at
+  `client/public/textures/planet-surface.jpg` (ground — owner has it, looks
+  good) and `client/public/textures/canyon-wall.jpg` (wall rock faces) — they
+  apply automatically;
+  until a file lands that surface renders in its plain fallback color
+  (deliberate, never black). Wall-texture dials: `walls.texture.tileSize`
+  (kept at the planet tile's 260-unit world scale) and `walls.texture.tint`
+  (brightness). Wall-vs-ground integration is structural: mesa walls are
+  ASYMMETRIC CUT BANKS — a trench-facing rock ribbon joins a rim cap that
+  uses the planet tile, its world-planar UVs, and PlanetTerrain's exact FBM
+  height sample. The symmetric stacked slabs remain only as the non-mesa /
+  free-standing fallback. `planet.hemiSky` (warm dusty override
+  of the blue space fill) remains the master warm/cool knob for the
+  near-vertical faces. Iterate LIVE in a solo match via the dev-console
+  hook `__tuneWalls({ texture: {...} })` (rebuilds views in place; shallow
+  merge — pass nested objects complete), then commit the dialed values into
+  GameConfig. Planet dials:
+  `GameConfig.planet` —
+  `texture.tint` for ground brightness/warmth (DARKEN if bolts/trails wash
+  out — never touch FX), `texture.tileSize` for ground busy-ness,
+  `baseY`/`amplitude` for depth feel, `wallBlend` for how wide the ground
+  shoulders the walls, `clearColor`/`hemiGround` for the scene tint
+  (`texture.file: ""` = the old faceted procedural look). Wall dials if
+  the feel is off:
+  `GameConfig.walls.chunkLength` DOWN if AI balks at bends (steering
+  circles hug tighter), lane width via the `theCanyon` polylines
+  (`shared/src/Maps.ts` — comments carry the offset math),
+  `walls.height`/`belowDepth`/`ringSpacing` for the look,
+  `walls.diffuse`/`walls.emissive` for face brightness (the emissive floor
+  keeps the steep faces readable under the top-down lights — raise it if
+  they still read too dark, but keep it well below diffuse or the facets
+  flatten), `walls.collisionDamage` for scrape sting. Anchors:
+  `shared/src/sim/Wall.ts`, `client/src/game/view/WallView.ts`,
+  `resolveWallCollisions` in `Game.ts`/`BattleSim.ts`,
+  `tests/sim/wallKeepOut.test.ts` (the canyon-battle invariant).
 
 - **Owner playtest: launch queue + AI steering feel** (`3621cbf`).
   Expected sights: bay queues hold as a nose-to-tail line on deck; defend

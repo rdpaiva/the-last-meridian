@@ -827,6 +827,109 @@ tradeoff). Zones default empty; maps place them via `MapConfig.stormZones`
   mesh/material per bolt, disposed on expiry (JumpFlash lifecycle pattern);
   Math.random throughout (view-only — the sim RNG stays the sim's).
 
+## Terrain walls (Wall / WallSegment / WallView)
+Hard terrain for corridor maps — canyon flanks, trench sides, future maze
+ribs. A `wall` map hazard (`WallHazard`: polyline + width + view-only height,
+defaults in `GameConfig.walls`) rides the existing `MapConfig.hazards`
+channel; stock config places none, so the headless baseline is untouched.
+First shipped map: **The Canyon** (`theCanyon`, `shared/src/Maps.ts`).
+
+- **Sim** (`shared/src/sim/Wall.ts`): `Wall` expands the polyline into
+  CAPSULE colliders at TWO granularities from one spec, and which list a
+  consumer uses is a correctness decision, not a style one:
+  - `segments` — short chunks (`walls.chunkLength`) implementing both
+    `DamageTarget` (indestructible cover: takeDamage no-op, EXACT convex
+    `surfaceRadiusToward`, so the swept weapon loops resolve the true
+    silhouette like the asteroid ellipsoids) and `AvoidObstacle`. Chunking
+    is what makes lanes between walls flyable: a chunk's steering circle
+    (chunkLength/2 + width/2) hugs the wall face, where one full-wall circle
+    would swallow the corridor — the classic long-obstacle failure.
+    `chunkLength` DOWN = tighter AI hugging; it's the first knob if pilots
+    balk at narrow bends.
+  - `edges` — the full un-chunked polyline edges, used ONLY for the ship
+    keep-out (`bumpShipOutOfWallSegment` in BattleSim, shared by solo Game,
+    the server, and the networked client's prediction). Bumping against
+    chunks is WRONG: a ship straddling a chunk seam sits inside the
+    neighbor's end-cap sphere, whose radial push has an along-wall component
+    — a sideways nudge at every seam while wall-hugging (caught by
+    `tests/sim/wallKeepOut.test.ts`). The capsule push-out (radial from the
+    closest core-segment point = the true surface normal at any aspect
+    ratio) needs no HulkSection-style slab logic and never flings.
+  - Scrape damage: the hulk pattern verbatim — `walls.collisionDamage` on a
+    per-ship `bumpCooldownSec`, `shipRammedWall` SimEvent for the FX cue.
+    Walls do NOT occlude sensors (v1 decision): concealment stays the
+    nebula/storm zones' job — lay a nebula along a lane for that.
+- **View** (`client/src/game/view/WallView.ts`): a wall with `mesa` becomes an
+  ASYMMETRIC CUT BANK, not a freestanding rounded ridge. Its trench-facing
+  rock ribbon stays just outside the capsule face through the y=0 flight
+  plane, terraces inward near the crest, then a separate ground-textured rim
+  ribbon lands on the raised mesa. The rim uses PlanetTerrain's exact FBM
+  height sample and identical world-planar UV projection, so it neither
+  floats/clips nor changes texture direction at the join. The rock face uses
+  path-distance/world-height UVs, preserving horizontal strata without
+  wrapping the image over a tube. Face + rim share one low-frequency wander/
+  crest field; the old independently drifting tier seams are gone. A wall
+  without `mesa` retains `walls.tiers` as the free-standing ridge fallback.
+  All materials remain diffuse, matte, double-sided, frozen, never bloomed,
+  with missing-file and texture-less fallbacks. Both halves read the same
+  `WallHazard`, so mesh and collider cannot desync.
+- **Radar**: wall polylines stroke at true world thickness (`plotWalls`),
+  clipped to the dish rather than rim-clamped — clamping a vertex would fold
+  the line along the rim.
+- **Not yet**: MapEditor wall brush (walls are hand-authored in Maps.ts for
+  now), a "derelict trench" greeble+strip-light visual theme as an
+  alternative to the rock ridge, and waypoint/lane navigation — the
+  prerequisite for true MAZE layouts (reactive avoidance handles corridors,
+  not dead ends; see the ROADMAP backlog entry).
+
+## Planet environment (PlanetTerrain / scenery.environment)
+Per-map environment THEME, view-only. `MapConfig.environment` (omitted =
+`"space"`) is written by `applyMapConfig` into `GameConfig.scenery
+.environment`; both coordinators read the flag at construction. The Canyon
+is the first `"planet"` map.
+
+- **"space"** (stock): the deep-space stack exactly as before — Backdrop
+  layer, Starfield, scenery Nebulas, CapitalShips.
+- **"planet"** (`client/src/game/PlanetTerrain.ts`, knobs in
+  `GameConfig.planet`): the space stack is SKIPPED (Game/NetworkGame hold
+  `starfield`/`backdrop` as null and guard the two tick call sites) and a
+  landscape builds instead — a low-relief value-noise heightfield far below
+  the flight plane (`baseY` −80). It's WORLD geometry, which is the whole
+  point: real parallax under the camera, where the space Backdrop is a
+  screen-space blit with none. Near a terrain WALL the TRENCH-side ground
+  swells up to `wallFootY` (blend over `wallBlend`) to meet the ridge skirt;
+  on a wall's MESA side (`WallHazard.mesa` = "left"/"right" relative to the
+  polyline's point order) the ground instead rises to `planet.mesaTopY`
+  (trench-RIM height, above the flight plane, + `mesaAmplitude` noise) and
+  stays there — the TRENCH topology: the wall is the carved edge between a
+  high plateau (ground tile) and the lane floor (ground tile), with the
+  canyon-rock faces between and the flight plane down inside. The rim ramp
+  is centered on the wall core and spans ±halfWidth (hidden inside the slab
+  footprint); past a wall TIP it widens by `mesaTipSoften` × overshoot so
+  the headland sinks away as a slope instead of a naked cliff. Wall
+  footprints come from the same `GameConfig.hazards` spec the sim reads, so
+  the seam can't desync. KNOWN TRADE-OFF: the sim is 2D, so ships flying an
+  outboard go-around route pass visually through mesa ground that sits
+  above the flight plane — `mesaTopY` is the dial if that reads badly. SURFACE: the owner-authored seamless tile
+  (`planet.texture.file` under `client/public/textures/`, world-planar UVs
+  at `tileSize` units/repeat) on DIFFUSE under the scene lights — never
+  emissive (gotcha #9 white-out) — smooth-shaded, brightness/warmth via
+  `texture.tint`. Failure paths never go black: a missing/broken file falls
+  back to plain `paletteHigh` sand (self-heals when the file lands);
+  `texture.file: ""` opts into the texture-less faceted mode (flat facets +
+  height-banded palette + per-face jitter). The scene retints too:
+  `planet.clearColor` replaces `scene.clearColor`, `planet.hemiGround`
+  replaces the hemispheric ground fill (warm sand bounce on ship
+  undersides). Storm clouds, combat nebulas, the Arena grid, and the IBL
+  environment texture are untouched.
+- **CONTRAST BUDGET gotcha**: all glow FX are tuned against near-black
+  space. The planet palette must stay dusk-dark — if bolts/trails read
+  washed out on a planet map, DARKEN `GameConfig.planet` colors, don't
+  touch the FX.
+- **Not yet**: scattered mesa/outcrop meshes beyond the heightfield noise, a
+  MapEditor environment toggle (drafts test-fly as "space"), more themes
+  (ocean, ice, derelict-hull surface).
+
 ## Splash flow (loadout front door / intro gate)
 - `main.ts` owns a small state machine; the current state lives in
   `data-state` on `#splash` and ALL visibility is CSS keyed off that

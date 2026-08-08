@@ -15,6 +15,7 @@ import { AsteroidFieldSim } from "./AsteroidFieldSim";
 import type { AsteroidSim } from "./AsteroidSim";
 import { Hulk } from "./Hulk";
 import type { HulkSection, PlanarPushOut } from "./HulkSection";
+import { Wall, type WallSegment } from "./Wall";
 import type { MothershipSection } from "./MothershipSection";
 import type { DamageTarget, InputState } from "../types";
 import { SimEventBus } from "./SimEvents";
@@ -93,6 +94,8 @@ export class BattleSim {
 
   /** Placed wrecks (map hazards) — empty unless the active map has them. */
   private readonly hulks: Hulk[] = [];
+  /** Placed terrain walls (map hazards) — empty unless the map has them. */
+  private readonly walls: Wall[] = [];
   /** Combined weapon line-of-sight cover (rocks + wreck circles), rebuilt each
    *  step. Held BY REFERENCE by the weapon systems. */
   private readonly weaponObstacles: DamageTarget[] = [];
@@ -105,6 +108,8 @@ export class BattleSim {
   private readonly lastBumpMs = new Map<Ship, number>();
   /** Per-ship wreck-scrape damage cooldown (own clock — separate knob from rocks). */
   private readonly lastHulkBumpMs = new Map<Ship, number>();
+  /** Per-ship wall-scrape damage cooldown (walls.bumpCooldownSec). */
+  private readonly lastWallBumpMs = new Map<Ship, number>();
 
   /** The seat whose launch-clear flips launching → playing (the cinematic one). */
   private primaryLaunch: SimCombatant | null = null;
@@ -148,9 +153,10 @@ export class BattleSim {
       ],
     );
 
-    // Placed wrecks (inert under stock config).
+    // Placed wrecks + terrain walls (inert under stock config).
     for (const hazard of GameConfig.hazards) {
       if (hazard.kind === "hulk") this.hulks.push(new Hulk(hazard));
+      else if (hazard.kind === "wall") this.walls.push(new Wall(hazard));
     }
 
     this.asteroids.onShatter = (position, radius) =>
@@ -541,6 +547,7 @@ export class BattleSim {
     this.resolveAsteroidCollisions(nowMs);
     this.resolveMothershipCollisions();
     this.resolveHulkCollisions(nowMs);
+    this.resolveWallCollisions(nowMs);
     this.resolveStormZaps(nowMs);
 
     // Strategic layer: capture/energy (station maps only) + declarative
@@ -621,6 +628,11 @@ export class BattleSim {
     for (const hulk of this.hulks) {
       for (const section of hulk.sections) this.aiObstacles.push(section);
     }
+    // Wall chunks: short capsules whose steering circles hug the wall face,
+    // so pilots thread the lanes between walls instead of refusing them.
+    for (const wall of this.walls) {
+      for (const seg of wall.segments) this.aiObstacles.push(seg);
+    }
     // Storm keep-outs: pilots route around the banks instead of eating zaps.
     for (const o of this.storms.obstacles) this.aiObstacles.push(o);
   }
@@ -630,6 +642,9 @@ export class BattleSim {
     for (const rock of this.asteroids.obstacles) this.weaponObstacles.push(rock);
     for (const hulk of this.hulks) {
       for (const section of hulk.sections) this.weaponObstacles.push(section);
+    }
+    for (const wall of this.walls) {
+      for (const seg of wall.segments) this.weaponObstacles.push(seg);
     }
   }
 
@@ -702,6 +717,34 @@ export class BattleSim {
         this.lastHulkBumpMs.set(ship, nowMs);
         ship.takeDamage(cfg.collisionDamage, nowMs);
         this.events.emit("shipRammedHulk", { ship });
+      }
+    }
+  }
+
+  /** Keep ships out of every terrain wall: capsule bump off each chunk (the
+   *  hulk resolver shape) + scrape damage on a per-ship cooldown. */
+  private resolveWallCollisions(nowMs: number): void {
+    if (this.walls.length === 0) return;
+    const cfg = GameConfig.walls;
+    const bumpCooldownMs = cfg.bumpCooldownSec * 1000;
+    for (const c of this.combatants) {
+      const ship = c.ship;
+      if (!ship.isAlive) continue;
+      if (c.launch && !c.launch.isComplete) continue;
+      let scraped = false;
+      for (const wall of this.walls) {
+        // Full edges, not chunks — chunk seams nudge a wall-hugging ship
+        // sideways (see the WallSegment keep-out doc).
+        for (const seg of wall.edges) {
+          if (bumpShipOutOfWallSegment(ship, seg)) scraped = true;
+        }
+      }
+      if (!scraped) continue;
+      const last = this.lastWallBumpMs.get(ship) ?? -Infinity;
+      if (nowMs - last >= bumpCooldownMs) {
+        this.lastWallBumpMs.set(ship, nowMs);
+        ship.takeDamage(cfg.collisionDamage, nowMs);
+        this.events.emit("shipRammedWall", { ship });
       }
     }
   }
@@ -927,6 +970,36 @@ export function bumpShipOutOfHulkSection(ship: Ship, section: HulkSection): bool
   if (vn < 0) {
     ship.velocity.x -= vn * hulkPush.nx;
     ship.velocity.z -= vn * hulkPush.nz;
+  }
+  return true;
+}
+
+/** Scratch for the wall bump's push-out (no per-frame allocation). */
+const wallPush: PlanarPushOut = { nx: 0, nz: 0, dist: 0 };
+
+/**
+ * Push a ship out of a terrain-wall capsule chunk and cancel the velocity
+ * component into the face. The capsule's push normal is the radial from the
+ * closest core-segment point — the true nearest-surface direction, so there's
+ * no long-thin fling case to special-case (see WallSegment.computePushOutXZ).
+ * GEOMETRY ONLY; scrape damage/cooldown stay in resolveWallCollisions.
+ * Exported for solo Game and the networked client's prediction, like
+ * bumpShipOutOfHulkSection.
+ */
+export function bumpShipOutOfWallSegment(ship: Ship, seg: WallSegment): boolean {
+  const dx = ship.position.x - seg.position.x;
+  const dz = ship.position.z - seg.position.z;
+  const bound = ship.hitRadius + seg.hitRadius;
+  if (dx * dx + dz * dz >= bound * bound) return false;
+  if (!seg.computePushOutXZ(ship.position.x, ship.position.z, ship.hitRadius, wallPush)) {
+    return false;
+  }
+  ship.position.x += wallPush.nx * wallPush.dist;
+  ship.position.z += wallPush.nz * wallPush.dist;
+  const vn = ship.velocity.x * wallPush.nx + ship.velocity.z * wallPush.nz;
+  if (vn < 0) {
+    ship.velocity.x -= vn * wallPush.nx;
+    ship.velocity.z -= vn * wallPush.nz;
   }
   return true;
 }

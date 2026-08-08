@@ -205,6 +205,7 @@ shared/src/                @space-duel/shared — the SIM + config + AI: everyth
     AsteroidFieldSim.ts    rock collection: spawn/drift/wrap + shatter-into-chunks; exposes obstacles[] (held by reference by the weapon systems for cover)
     Hulk.ts                wreck hazard: a dead carrier's hull as terrain (map "hulk" hazards)
     HulkSection.ts         the wreck's world-space collision rectangles (HulkSection ≈ MothershipSection for hulks)
+    Wall.ts                terrain-wall hazard (map "wall" hazards, e.g. The Canyon): static capsule-chain collider from a polyline — chunked capsules feed weapons+AI circles, FULL edges feed the ship keep-out (docs/SUBSYSTEMS.md → "Terrain walls")
     CombatNebulaZones.ts   the gameplay stealth-cloud ZONE footprints (ConcealmentZone) — feeds SensorSystem; visuals live client-side
     StormZones.ts          ion-storm ZONE footprints (GameConfig.storms.zones → world circles; same contract as CombatNebulaZones)
     StormSystem.ts         ion-storm damage sim: per-ship zap cadence (tryZap; ram-cooldown pattern) + concealment zones + AI keep-out obstacles; zones empty unless the map places storms
@@ -258,6 +259,7 @@ client/src/                @space-duel/client — the Babylon view, menus, and e
     MusicSystem.ts         in-game background music: shuffled playlist cycling (GameConfig.music)
     Starfield.ts           camera-locked wrapping parallax field (thin-instanced)
     Nebulas.ts             alpha-blended cloud quads from PNG textures (scenery, not gameplay)
+    PlanetTerrain.ts       the "planet" environment's landscape (scenery.environment, per-map): textured heightfield below the flight plane, replaces the space stack; exports the cosmetic FBM sampler WallView uses to land canyon rims on the mesa
     Backdrop.ts            full-screen deep-space background Layer (2D blit)
     CapitalShips.ts        3 procedural destroyer composites in deep background
     Hud.ts                 DOM HUD: HP cue + sig (DETECTED/HIDDEN/NO TRACK) + kills/score + mothership bars + victory/defeat banner + scoreboard
@@ -270,7 +272,8 @@ client/src/                @space-duel/client — the Babylon view, menus, and e
       ShipView / LaserSystemView / MissileSystemView / MothershipView /
       TurretView (dead guns burn + un-stump on T3 revive) /
       SubsystemView (hangar-bay damage FX: fire-palette spark bursts, NO marker geometry) /
-      StationView / AsteroidView / AsteroidFieldView / HulkView
+      StationView / AsteroidView / AsteroidFieldView / HulkView /
+      WallView (mesa-aware asymmetric canyon cut bank from the wall's own spec; free-standing ridge fallback)
 
 server/src/                @space-duel/server — Colyseus authoritative server (docs/MULTIPLAYER.md)
   index.ts                 server entry: registers BattleRoom, listens (dev: npm run server)
@@ -307,6 +310,8 @@ The whole game's tuning lives in `shared/src/GameConfig.ts`. Major sections:
 | `energy` | The auto upgrade ladder: thresholds 100/250/500 → `fasterRespawn` / `sensorBoost` / `turretOverdrive` (one-shot turret revive + persistent full-hp fire buff — `overdriveCooldownScale`/`overdriveDamageScale`) |
 | `debug` | Dev/test only: `godSpeedMultiplier` for the Backquote god-mode toggle (player invuln + boost) |
 | `storms` | Ion storms (sim): map-placed `zones` (empty by default), `zapDamage`/`zapIntervalSec` cadence, AI `avoidanceMargin`. Storms also conceal like nebulas |
+| `walls` | Terrain walls (the `wall` map-hazard kind): default `width`/`height`, `chunkLength` (AI lane-hugging granularity — turn DOWN if pilots balk at narrow bends), scrape `collisionDamage`/`bumpCooldownSec`, + the WallView ridge recipe (`belowDepth`, jitter, tint) and `texture` (owner-authored seamless rock tile on DIFFUSE — planet.texture contract). Stock config places none |
+| `planet` | The "planet" environment theme (per-map via `MapConfig.environment` → `scenery.environment`; The Canyon opts in): PlanetTerrain heightfield knobs (extent/low relief/wall-foot swell) + `texture` (owner-authored seamless ground tile on DIFFUSE — `file`/`tileSize`/`tint`, the brightness dial; missing file = plain-sand fallback, `""` = faceted procedural mode), scene retints (`clearColor`, `hemiGround`). View-only; if glow FX wash out, darken `texture.tint` |
 | `stormFx` | Ion storm VIEW: cloud tint/flicker (`shimmerAmplitude`, `popBoost`) + procedural `bolt` knobs (cadence, width, jaggedness, color) |
 | `player.wingmen` | The wing as ROLE COUNTS (`composition: { self, other, gunship }`, default 2/2/2), resolved against the runtime loadout by the shared `resolveWingPlan` (WingPlan.ts): `self`/`other` escorts fly `cover` on your wing, `gunship`s fly `defend` at your carrier. Also `formationSlot()`, the expanding-V slot generator. These counts are the "Your Wing" rows in match settings |
 | `laser` | Bolt speed/lifetime/geometry (shared across both factions; per-bolt damage comes from the firing ship's type). Bolt COLOR is per faction (`FACTION_THEME.laserEmissive`) with a heavy-gunship tint (`laserHeavyEmissive`, selected by the shipType's `heavy` flag → `Laser.heavy` → `LaserSystemView`) and a shared orange turret-flak tint |
@@ -389,7 +394,16 @@ commit; don't sprinkle magic numbers across files.**
     Inspector recipe below and live DevTools debugging
     (`window.__BABYLON_SCENE__.getMeshByName(...)`). Don't remove it.
 
-12. **Blank scene but HUD still shows? Check `GameConfig.camera.nearClip`
+12. **Hand-built `VertexData` meshes: front face = COUNTER-clockwise in the
+    (x-right, z-up) plane viewed from +Y** (match Babylon's CreateGround
+    winding). Wind clockwise and an up-facing surface is back-face-culled —
+    invisible from the top-down camera; on a double-sided material it still
+    renders but `ComputeNormals`/flat-shading follow the winding, so the
+    normals point the wrong way and the sun lights the INSIDE (mesh reads
+    near-black). Bit both WallView (dark walls) and PlanetTerrain
+    (invisible landscape) in one feature.
+
+13. **Blank scene but HUD still shows? Check `GameConfig.camera.nearClip`
     / `farClip` first.** `CameraRig` reads them straight into
     `camera.minZ` / `camera.maxZ`. If either field is missing from the
     config, the value becomes `undefined`, the frustum collapses, and the

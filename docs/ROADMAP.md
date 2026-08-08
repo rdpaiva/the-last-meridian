@@ -540,6 +540,42 @@ and explicitly skipped. Update this when you finish or start work.
   MERGED to `main` 2026-07-18 (`2a2a11e`) and owner-accepted. M3 (the Loom
   event) moved to the backlog below.
 
+### Terrain walls + The Canyon (2026-08-03)
+- **`wall` hazard kind** (`shared/src/sim/Wall.ts` + `GameConfig.walls` +
+  `WallHazard` in the `MapConfig.hazards` channel): static capsule-chain
+  terrain walls — indestructible weapon cover (exact convex
+  `surfaceRadiusToward`, zero weapon-system changes), AI steering via short
+  wall-hugging chunk circles (`walls.chunkLength` — the lane-width knob),
+  seam-free ship keep-out against the FULL polyline edges
+  (`bumpShipOutOfWallSegment`, shared by solo/server/prediction) with
+  hulk-pattern scrape damage (`shipRammedWall`). Wired into all three
+  coordinators; radar strokes wall polylines at true thickness.
+- **`WallView`**: procedural canyon ridge (asteroid recipe extruded — flat
+  facets, smooth pre-flat-shading noise, per-face tint, matte, extends
+  `belowDepth` under the flight plane). Mesh and collider build from the
+  same spec, so they can never desync.
+- **The Canyon** (`theCanyon`): first hard-wall map — a normal-offset
+  S-curve lane (220 wide) carrier to carrier, storms pushed outboard (one
+  per open quarter, so the go-around costs hull while the lane is
+  zap-free), zero-drift rock cover, all three stations in the lane.
+  Replaces the storm-walled feel-prototype that validated corridor combat.
+- **Proofs** (`tests/sim/wallKeepOut.test.ts`): capsule geometry exactness,
+  the no-fling end-graze, chunk granularity, scrape cadence, and a 2-minute
+  seeded canyon battle at the 30Hz SERVER tick asserting no live ship ever
+  ends a tick inside a wall AND that the fleets actually meet and fight
+  (the AI-not-stalled check). Pinned smoke baseline untouched (stock config
+  has no walls). Details: `docs/SUBSYSTEMS.md` → "Terrain walls".
+- **Planet environment** (2026-08-05): per-map environment theme
+  (`MapConfig.environment` → `scenery.environment`, view-only) — The
+  Canyon is now PLANETSIDE: `PlanetTerrain` (procedural flat-shaded
+  value-noise heightfield far below the flight plane, real world-space
+  parallax, ground swells up to meet the wall feet) replaces the whole
+  deep-space stack (Backdrop/Starfield/Nebulas/CapitalShips), with dusk
+  scene retints (`planet.clearColor`, warm `planet.hemiGround` bounce).
+  Knobs in `GameConfig.planet`; palette deliberately dusk-dark (glow FX
+  are tuned against black space). Details: `docs/SUBSYSTEMS.md` → "Planet
+  environment".
+
 ### Dev/test tooling
 - **Map editor** (2026-07-08, admin authoring tool): splash screen
   (`MapEditor.ts`, loadout footer link) — top-down canvas, brush-paints
@@ -664,6 +700,27 @@ implemented yet. Roughly ordered by gameplay value.
   temporary sensor-omniscience "Loom Resonance" buff (protocol bump
   required). The last unshipped milestone of `docs/strategic-layer-plan.md`;
   moved here 2026-07-18 when the owner cleared the queue post-merge.
+- **Trench / maze maps, phase 2** (the wall PRIMITIVE + The Canyon SHIPPED
+  2026-08-03 — see ✅ Done → "Terrain walls"). Still on the table:
+  - **MapEditor wall brush** — paint/edit wall polylines in the editor
+    (walls are hand-authored `MapConfig.hazards` entries for now).
+  - **"Derelict trench" visual theme** — a second WallView style for
+    Death-Star-superstructure maps: the CapitalShips greeble recipe
+    (thin-instanced panel/rib boxes) + emissive strip lights / window rows
+    bloomed by the GlowLayer, instead of the rock ridge. Escalation if
+    facets aren't enough: a small tileable trim texture on DIFFUSE under
+    lighting, never emissive (gotcha #9 white-out). Blender stays for hero
+    PROPS placed along walls via map data (snapped antenna, dead
+    emplacement, rock arch — the wreck pipeline), owner-authored.
+  - **True MAZE layouts** — blocked on navigation, not collision: reactive
+    avoidance threads corridors but gets trapped in dead ends; a maze needs
+    waypoint/lane-graph pathfinding (a real feature, scope it separately).
+    Formation flights could also collapse to single-file in narrow lanes.
+  - **More environment themes** (the theme SEAM shipped 2026-08-05 —
+    `MapConfig.environment` + PlanetTerrain; see ✅ Done): mesa/outcrop
+    scatter meshes on the planet heightfield, a MapEditor environment
+    toggle (drafts test-fly as "space" today), ocean/ice/derelict-hull
+    surface variants.
 - **Combo multiplier** — quick consecutive kills build a score multiplier.
   (Base kills/score + localStorage best landed in Phase 6.)
 - **Wave system** — replace single respawning enemy with escalating

@@ -5,6 +5,7 @@ import type { Missile } from "@space-duel/shared";
 import { opposing, type Faction } from "@space-duel/shared";
 import { GameConfig } from "@space-duel/shared";
 import type { SensorContact, ConcealmentZone } from "@space-duel/shared";
+import type { Wall } from "@space-duel/shared";
 
 /**
  * What the radar needs to draw one capture station — structurally satisfied
@@ -108,6 +109,9 @@ export class Radar {
      *  client-side copies both qualify. Always drawn (strategic beacons,
      *  not sensor-gated), owner-colored, blinking while contested. */
     stations: ReadonlyArray<StationBlip>,
+    /** Terrain walls (map hazards; empty on wall-free maps). Drawn as solid
+     *  ridge lines — terrain, always shown (pre-briefed like the carriers). */
+    walls: ReadonlyArray<Wall>,
     nowMs: number,
     /**
      * Ships flown by a HUMAN pilot right now (multiplayer honesty rule:
@@ -144,6 +148,10 @@ export class Radar {
     for (const zone of stormZones) {
       this.plotStormZone(zone, player);
     }
+
+    // Terrain walls (under the movers, over the gas): solid ridge polylines
+    // so the canyon reads on the dish exactly where the world walls stand.
+    if (walls.length > 0) this.plotWalls(walls, player);
 
     // Asteroids (terrain — drawn under the contacts). In-range only; clamping
     // ambient rocks to the rim would clutter the bearing to real contacts.
@@ -360,6 +368,40 @@ export class Radar {
   }
 
   /** Faint violet disc marking a nebula concealment zone. In-range only. */
+  /**
+   * Stroke each wall polyline at its true world thickness, clipped to the
+   * dish. Unlike the blip plots this must NOT rim-clamp points (a clamped
+   * vertex would fold the line along the rim), so it projects raw and lets a
+   * circular clip cut the overhang.
+   */
+  private plotWalls(walls: ReadonlyArray<Wall>, player: Ship): void {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(this.center, this.center, this.radiusPx, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    for (const wall of walls) {
+      ctx.beginPath();
+      let first = true;
+      for (const p of wall.spec.points) {
+        const px = (p.x - player.position.x) * this.scale * this.viewSign;
+        const py = -(p.z - player.position.z) * this.scale * this.viewSign;
+        if (first) {
+          ctx.moveTo(this.center + px, this.center + py);
+          first = false;
+        } else {
+          ctx.lineTo(this.center + px, this.center + py);
+        }
+      }
+      ctx.lineWidth = Math.max(1.5, wall.width * this.scale);
+      ctx.strokeStyle = "rgba(150, 128, 110, 0.4)";
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   private plotZone(zone: ConcealmentZone, player: Ship): void {
     const { x, y, offEdge } = this.project(
       zone.x - player.position.x,

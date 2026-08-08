@@ -42,7 +42,8 @@ export type ConcreteMapId =
   | "nebulaVeil"
   | "theWreck"
   | "theTempest"
-  | "theEye";
+  | "theEye"
+  | "theCanyon";
 
 type NebulaZone = { xFrac: number; zFrac: number; radius: number };
 type FleetComposition = {
@@ -60,6 +61,14 @@ export interface MapConfig {
   /** Carrier spacing along Z. Overrides mothership.playerZ / enemyZ.
    *  Tighter = brawl; wider = a long approach where the jump drive matters. */
   carrierZ: { player: number; enemy: number };
+
+  /**
+   * Environment THEME (view-only; the sim never reads it). Omitted = "space"
+   * (the deep-space backdrop stack). "planet" = low-level flight over a
+   * procedural landscape (PlanetTerrain; knobs in GameConfig.planet) — the
+   * client skips the space stack and retints the scene to match.
+   */
+  environment?: "space" | "planet";
 
   /** Asteroid field for this map. `count: 0` disables the field. Omitted
    *  fields keep their GameConfig.asteroids default.
@@ -263,6 +272,124 @@ export const MAPS: Record<ConcreteMapId, MapConfig> = {
       { xFrac: 0.663, zFrac: 0.003 },
     ],
   },
+  theCanyon: {
+    id: "theCanyon",
+    name: "The Canyon",
+    blurb: "A winding canyon of solid rock, carrier to carrier. The walls don't forgive.",
+    carrierZ: { player: -750, enemy: 750 },
+    // The whole map is PLANETSIDE: a procedural landscape scrolls far below
+    // the flight plane (real parallax — it's world geometry, unlike the space
+    // Backdrop blit) and the canyon ridges rise out of it. The first map on
+    // the "planet" theme; every other map keeps the space stack.
+    environment: "planet",
+    // The first HARD-WALL map (the `wall` hazard kind — sim/Wall.ts capsule
+    // chains + WallView's procedural ridge). Successor to the storm-walled
+    // feel-prototype that validated corridor combat here (2026-08-03).
+    //
+    // Layout: an S-curve lane, centerline x(z) = 220·sin(π·z/600), sampled
+    // every 100 on Z with each wall offset 55 along the centerline NORMAL
+    // (offsetting in plain X would pinch the lane even further at the steep
+    // middle bend). Lane = 80 wide edge-to-edge between wall faces (wall
+    // width 30) — a deliberately TIGHT trench (narrowed 220→110→80 on
+    // 2026-08-05; walls.chunkLength dropped 24→12 in the same change so the
+    // AI's avoidance circles hug the faces tight enough to thread it).
+    // Both walls continue BEHIND the carriers to z=±1200, so each mothership
+    // and its launch bays live inside a widened trench chamber and the player
+    // never sees a canyon mouth during normal play. The chamber walls sit at
+    // x≈±135 (240 units clear face-to-face), comfortably outside both fitted
+    // carrier hulls; they taper into the authored S-lane before the first bend.
+    // The map remains 180°-rotationally symmetric.
+    hazards: [
+      {
+        kind: "wall",
+        // West wall, south → north. The lane is to its EAST (the right of
+        // the point order), so the mesa high ground rises on its LEFT — the
+        // trench topology: mesa top (ground tex) → canyon face (rock tex) →
+        // trench floor (ground tex), with the flight plane down inside.
+        mesa: "left",
+        points: [
+          // Widened south carrier chamber (human carrier center z=-750).
+          { x: -135, z: -1200 },
+          { x: -135, z: -950 },
+          { x: -135, z: -780 },
+          { x: -140, z: -660 },
+          { x: -149, z: -539 },
+          { x: -238, z: -427 },
+          { x: -275, z: -300 },
+          { x: -238, z: -173 },
+          { x: -149, z: -61 },
+          { x: -36, z: 42 },
+          { x: 71, z: 139 },
+          { x: 143, z: 227 },
+          { x: 165, z: 300 },
+          { x: 143, z: 373 },
+          { x: 71, z: 461 },
+          // Swing out around the machine catapult lanes (x=±41.3, clear at
+          // z≈579) before tapering into the carrier chamber.
+          { x: -100, z: 558 },
+          // Taper out to the widened north carrier chamber.
+          { x: -115, z: 610 },
+          { x: -130, z: 670 },
+          { x: -135, z: 780 },
+          { x: -135, z: 950 },
+          { x: -135, z: 1200 },
+        ],
+      },
+      {
+        kind: "wall",
+        // East wall, south → north (point-reflection of the west wall; the
+        // reflection flips the lane to its WEST, so the mesa is on its RIGHT).
+        mesa: "right",
+        points: [
+          // Widened south carrier chamber; taper into the shifted S-lane.
+          { x: 135, z: -1200 },
+          { x: 135, z: -950 },
+          { x: 135, z: -780 },
+          { x: 130, z: -670 },
+          { x: 115, z: -610 },
+          // Swing out around the human catapult lanes (x=±38.2, clear at
+          // z≈-585); this is the point-reflection of the north entry above.
+          { x: 100, z: -558 },
+          { x: -71, z: -461 },
+          { x: -143, z: -373 },
+          { x: -165, z: -300 },
+          { x: -143, z: -227 },
+          { x: -71, z: -139 },
+          { x: 36, z: -42 },
+          { x: 149, z: 61 },
+          { x: 238, z: 173 },
+          { x: 275, z: 300 },
+          { x: 238, z: 427 },
+          { x: 149, z: 539 },
+          // Widened north carrier chamber (machine carrier center z=750).
+          { x: 140, z: 660 },
+          { x: 135, z: 780 },
+          { x: 135, z: 950 },
+          { x: 135, z: 1200 },
+        ],
+      },
+    ],
+    // Weather sits OUTBOARD of the walls — one storm per open quarter, so the
+    // go-around route costs hull while the lane itself stays zap-free. The
+    // ±0.717 pair are the original bypass pickets; the ±0.83 pair fill the
+    // pockets behind each bend. None reach past a wall's inner face.
+    stormZones: [
+      { xFrac: 0.717, zFrac: -0.467, radius: 160 },
+      { xFrac: -0.717, zFrac: 0.467, radius: 160 },
+      { xFrac: -0.83, zFrac: -0.42, radius: 140 },
+      { xFrac: 0.83, zFrac: 0.42, radius: 140 },
+    ],
+    // PLANETSIDE means no space furniture: no drifting asteroids (floating
+    // rocks over a desert read as a glitch, not scree), no stealth nebulas
+    // (gas clouds are a deep-space thing), and no capture stations (orbital
+    // hardware — omitting the field leaves the whole capture/Energy layer
+    // inert here, so no station-powered carrier shields either). Cover and
+    // concealment come from the terrain itself — the bends break line of
+    // sight. The storm banks stay: over a mesa they read as thunderheads,
+    // not ion weather. Pure trench warfare: fly the canyon, kill the carrier.
+    asteroids: { count: 0 },
+    nebulaZones: [],
+  },
 };
 
 /** Resolve "random" to a concrete map id; pass concrete ids through. Map
@@ -340,6 +467,11 @@ export function applyMapConfig(
   // Carrier spacing — not a settings knob, always safe to write.
   GameConfig.mothership.playerZ = map.carrierZ.player;
   GameConfig.mothership.enemyZ = map.carrierZ.enemy;
+
+  // Environment theme — ALWAYS written (omitted = "space"), so launching a
+  // space map after a planet map restores the deep-space stack. View-only:
+  // the server writes it too (harmlessly — nothing server-side reads it).
+  GameConfig.scenery.environment = map.environment ?? "space";
 
   // Asteroid count / radius band / drift speed are ALL match-settings knobs,
   // so each writes only when the player hasn't overridden it (hand-tuning wins).

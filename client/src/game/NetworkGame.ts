@@ -25,6 +25,8 @@ import {
   collideShipWithAsteroid,
   bumpShipOutOfSection,
   bumpShipOutOfHulkSection,
+  bumpShipOutOfWallSegment,
+  Wall,
   Hulk,
   exponentialMultiplier,
   type DamageTarget,
@@ -38,6 +40,7 @@ import {
 } from "@space-duel/shared";
 import { Arena } from "./Arena";
 import { Backdrop } from "./Backdrop";
+import { PlanetTerrain } from "./PlanetTerrain";
 import { CombatNebulas } from "./CombatNebulas";
 import { StormClouds } from "./StormClouds";
 import { LightningSystem } from "./LightningSystem";
@@ -67,6 +70,7 @@ import { MothershipView } from "./view/MothershipView";
 import { StationView } from "./view/StationView";
 import { CaptureStation } from "@space-duel/shared";
 import { HulkView } from "./view/HulkView";
+import { WallView } from "./view/WallView";
 import { AsteroidView } from "./view/AsteroidView";
 import { LaserSystemView } from "./view/LaserSystemView";
 import { MissileSystemView } from "./view/MissileSystemView";
@@ -262,8 +266,9 @@ export class NetworkGame {
   private readonly glowLayer: GlowLayer;
   private readonly arena: Arena;
   private readonly cameraRig: CameraRig;
-  private readonly starfield: Starfield;
-  private readonly backdrop: Backdrop;
+  /** Null on "planet" maps — the space stack is replaced by PlanetTerrain. */
+  private readonly starfield: Starfield | null;
+  private readonly backdrop: Backdrop | null;
   private readonly hud: Hud;
   private readonly input: InputManager;
   /** Mouse heading-steer + fire buttons, merged into input.state each frame. */
@@ -448,6 +453,9 @@ export class NetworkGame {
    */
   private readonly hulks: Hulk[] = [];
   private readonly hulkViews: HulkView[] = [];
+  /** Terrain walls (map hazards): static local sims for depiction/prediction. */
+  private readonly walls: Wall[] = [];
+  private readonly wallViews: WallView[] = [];
   private hulkSimT: number | null = null;
   /** Server FX facts awaiting their sim time on the render clock. */
   private readonly fxQueue: Array<{ t: number; e: NetEvent }> = [];
@@ -557,7 +565,11 @@ export class NetworkGame {
     // buffers / clockOffsetMs / camera live while chasing netcode feel.
     (window as unknown as { __netGame: NetworkGame }).__netGame = this;
     this.scene.skipPointerMovePicking = true;
-    const c = GameConfig.scene.clearColor;
+    // "planet" maps trade the deep-space stack for a landscape below the
+    // flight plane (mirrors solo Game — the room's map was applied to
+    // GameConfig before construction, so the flag is already set).
+    const planetside = GameConfig.scenery.environment === "planet";
+    const c = planetside ? GameConfig.planet.clearColor : GameConfig.scene.clearColor;
     this.scene.clearColor = new Color4(c.r, c.g, c.b, 1);
 
     this.glowLayer = new GlowLayer("glow", this.scene, {
@@ -570,8 +582,12 @@ export class NetworkGame {
     const lcfg = GameConfig.lighting;
     const hemi = new HemisphericLight("hemi", new Vector3(0, 1, 0), this.scene);
     hemi.intensity = lcfg.hemiIntensity;
-    hemi.groundColor = new Color3(lcfg.hemiGround.r, lcfg.hemiGround.g, lcfg.hemiGround.b);
-    hemi.diffuse = new Color3(lcfg.hemiSky.r, lcfg.hemiSky.g, lcfg.hemiSky.b);
+    // Planetside BOTH hemispheric fills go warm (mirrors solo Game — the
+    // blue space sky fill would make the wall faces read cool vs the ground).
+    const ground = planetside ? GameConfig.planet.hemiGround : lcfg.hemiGround;
+    hemi.groundColor = new Color3(ground.r, ground.g, ground.b);
+    const sky = planetside ? GameConfig.planet.hemiSky : lcfg.hemiSky;
+    hemi.diffuse = new Color3(sky.r, sky.g, sky.b);
     const sun = new DirectionalLight(
       "sun",
       new Vector3(lcfg.sunDirection.x, lcfg.sunDirection.y, lcfg.sunDirection.z),
@@ -588,9 +604,16 @@ export class NetworkGame {
 
     // --- Scenery ---
     this.arena = new Arena(this.scene);
-    this.backdrop = new Backdrop(this.scene, this.viewFlipped ? -1 : 1);
-    new Nebulas(this.scene, this.arena.halfWidth, this.arena.halfDepth);
-    new CapitalShips(this.scene, this.arena.halfWidth, this.arena.halfDepth, this.glowLayer);
+    if (planetside) {
+      // The landscape replaces the whole deep-space stack (Backdrop layer,
+      // scenery Nebulas, CapitalShips, Starfield below) — mirrors solo Game.
+      new PlanetTerrain(this.scene);
+      this.backdrop = null;
+    } else {
+      this.backdrop = new Backdrop(this.scene, this.viewFlipped ? -1 : 1);
+      new Nebulas(this.scene, this.arena.halfWidth, this.arena.halfDepth);
+      new CapitalShips(this.scene, this.arena.halfWidth, this.arena.halfDepth, this.glowLayer);
+    }
 
     // --- Carriers (static depiction; live HP from the server) ---
     const ms = GameConfig.mothership;
@@ -632,6 +655,13 @@ export class NetworkGame {
         this.hulks.push(hulk);
         this.hulkViews.push(new HulkView(this.scene, this.glowLayer, hulk));
         for (const section of hulk.sections) this.cosmeticObstacles.push(section);
+      } else if (hazard.kind === "wall") {
+        // Terrain walls: fully static, so the local sim needs no clock —
+        // chunks block depicted bolts and bump the prediction like the wrecks.
+        const wall = new Wall(hazard);
+        this.walls.push(wall);
+        this.wallViews.push(new WallView(this.scene, wall));
+        for (const seg of wall.segments) this.cosmeticObstacles.push(seg);
       }
     }
 
@@ -649,7 +679,7 @@ export class NetworkGame {
     // ACES tone mapping + FXAA + vignette — the SAME full-frame grade as the
     // offline Game (shared helper), so both modes render identical colors.
     buildPostPipeline(this.scene, this.cameraRig.camera);
-    this.starfield = new Starfield(this.scene, this.cameraRig.camera);
+    this.starfield = planetside ? null : new Starfield(this.scene, this.cameraRig.camera);
     this.hud = new Hud(hudRoot);
     this.hud.setLaunchOverlay("STAND BY");
     this.hud.showInviteHint(); // the address bar is the WITH FRIENDS link
@@ -1345,8 +1375,8 @@ export class NetworkGame {
       }
       this.cameraRig.update(dt, this.camPos, this.camVel, zoomInput);
     }
-    this.starfield.update();
-    this.backdrop.update(this.cameraRig.camera.getTarget());
+    this.starfield?.update();
+    this.backdrop?.update(this.cameraRig.camera.getTarget());
 
     // 3.4 Mirror the replicated stations + derive the station-powered shield
     // factor BEFORE the FX playback below, so shieldedCarrierAt sees THIS
@@ -1605,6 +1635,7 @@ export class NetworkGame {
         this.combatNebulas.zones,
         this.stormClouds.zones,
         this.netStationList,
+        this.walls,
         nowMs,
         this.humanPiloted,
       );
@@ -2363,6 +2394,12 @@ export class NetworkGame {
     for (const hulk of this.hulks) {
       for (const s of hulk.sections) {
         bumpShipOutOfHulkSection(ship, s);
+      }
+    }
+    for (const wall of this.walls) {
+      // Full edges, not chunks — seam-free wall sliding, matching the server.
+      for (const s of wall.edges) {
+        bumpShipOutOfWallSegment(ship, s);
       }
     }
 

@@ -290,7 +290,37 @@ export interface HulkHazard {
   rollRate?: number;
   scale?: number;
 }
-export type HazardSpec = HulkHazard;
+
+/**
+ * `wall` — a static terrain wall (canyon flank, trench side, maze rib): an
+ * indestructible capsule-chain collider along a world-space polyline. Weapons
+ * die against it (line-of-sight cover), ships are bumped off it (with scrape
+ * damage, the hulk pattern), and the AI steers around it. The sim expands each
+ * polyline edge into short capsule CHUNKS (sim/Wall.ts) so the AI's circle
+ * avoidance sees a string of small keep-outs instead of one corridor-swallowing
+ * circle — that chunking is what makes narrow lanes between walls flyable.
+ * `width`/`height` default from GameConfig.walls; height is VIEW-ONLY (the sim
+ * is 2D on the flight plane).
+ */
+export interface WallHazard {
+  kind: "wall";
+  /** Polyline vertices in world X/Z (≥ 2). Consecutive points form edges. */
+  points: ReadonlyArray<{ x: number; z: number }>;
+  /** Total wall thickness (capsule diameter). Default: walls.width. */
+  width?: number;
+  /** Ridge height above the flight plane (view-only). Default: walls.height. */
+  height?: number;
+  /**
+   * VIEW-ONLY (planet maps): which side of the polyline — "left"/"right"
+   * relative to walking the points in order — carries the raised MESA
+   * surface (PlanetTerrain lifts the ground there to planet.mesaTopY, wall
+   * crest height, so the wall reads as the carved edge of a trench instead
+   * of a ridge standing on a plain). Omit for a free-standing ridge with
+   * low ground on both sides. The sim never reads this.
+   */
+  mesa?: "left" | "right";
+}
+export type HazardSpec = HulkHazard | WallHazard;
 
 export const GameConfig = {
   /** The ship catalog (see the `shipTypes` doc above). */
@@ -765,6 +795,226 @@ export const GameConfig = {
      * `window.__showHulkColliders(true|false)` (set up in Game).
      */
     debugColliders: false,
+  },
+
+  /**
+   * Terrain walls (the `wall` hazard kind — canyon flanks, trench sides, maze
+   * ribs). Sim knobs first, then the procedural ridge VIEW recipe (WallView:
+   * the asteroid look extruded — faceted, flat-shaded, matte, per-face tint).
+   * Stock config places none; maps inject WallHazards via applyMap → hazards.
+   */
+  walls: {
+    /** Default total thickness (capsule diameter) when a WallHazard omits it. */
+    width: 30,
+    /** Default ridge height above the flight plane when a hazard omits it. */
+    height: 34,
+    /**
+     * Collision chunk length along each polyline edge. Shorter chunks = the
+     * AI's avoidance circles hug the wall tighter (a chunk's steering circle
+     * radius is chunkLength/2 + width/2 — it must circumscribe the capsule),
+     * at the cost of more obstacles in the weapon/steering loops. At 12 with
+     * width 30 a chunk's circle overreaches the wall face by only 6 — needed
+     * since the Canyon's trench narrowed to ~110 edge-to-edge (2026-08-05);
+     * the old 24 (overreach 12) was proven in ~200-wide lanes but eats a
+     * quarter of the narrow lane from each side. The first knob to turn DOWN
+     * if AI pilots balk at narrow bends.
+     */
+    chunkLength: 12,
+    /**
+     * Hull damage for scraping a wall (gated by bumpCooldownSec — the
+     * asteroid/hulk ram pattern). Matches hulk.collisionDamage: walls line
+     * every lane on their maps, so brushing one must sting, not shred.
+     */
+    collisionDamage: 10,
+    /** Minimum seconds between scrape-damage applications to one ship. */
+    bumpCooldownSec: 0.5,
+
+    /** ── View (WallView's procedural canyon ridge) ─────────────────────── */
+    /** How far the rock face extends BELOW the flight plane, so ships read as
+     *  flying inside the canyon rather than skimming over a fence. */
+    belowDepth: 24,
+    /** Ring spacing along the path (mesh resolution; smaller = more facets). */
+    ringSpacing: 14,
+    /** Crest height jitter as a fraction of height (smooth noise per ring).
+     *  Kept restrained on cut banks so the rim belongs to one landform. */
+    crestJitter: 0.14,
+    /** Lateral face jitter in world units (one shared low-frequency field for
+     *  the rock face + mesa cap, so their seam cannot drift apart). */
+    faceJitter: 3,
+    /** Per-face diffuse darkening jitter (the asteroid faceTintJitter read). */
+    faceTintJitter: 0.22,
+    /**
+     * The owner-authored rock TEXTURE for the ridge faces (art is
+     * user-owned — drop a seamless tileable image at
+     * client/public/textures/<file>). Same contract as planet.texture:
+     * applied to DIFFUSE under the scene lights (never emissive, gotcha #9),
+     * smooth-shaded; a missing/broken file falls back to the plain `diffuse`
+     * rock color; `file: ""` opts into the texture-less faceted look.
+     * UVs are world-scaled: u runs along the wall's path, v across the
+     * profile (foot → crest → foot), both at `tileSize` units per repeat.
+     */
+    texture: {
+      /** Image filename under client/public/textures/. */
+      file: "canyon-wall.jpg",
+      /** World units per texture repeat. Match planet.texture.tileSize so one
+       *  pebble/stratum scale governs the whole landform; a finer wall tile
+       *  makes the cliff read as a separately modeled prop. Must be seamless. */
+      tileSize: 260,
+      /** Diffuse tint multiplied into the image — the brightness dial. The
+       *  wall tile is palette-matched to the ground tile at the SOURCE (it
+       *  was generated with the ground image as the style reference), so the
+       *  tint stays near-neutral; if the two ever drift again, lean this
+       *  BLUE (b ≥ r) to counteract an over-orange rock image — a multiply
+       *  can rebalance hue but can't truly desaturate. */
+      tint: { r: 0.88, g: 0.86, b: 0.84 },
+    },
+    /**
+     * FREE-STANDING fallback silhouette for a WallHazard without `mesa`.
+     * Planet trench walls bypass these tiers and use WallView's asymmetric
+     * cut bank (rock face on the trench side + terrain-matched mesa cap).
+     * The fallback remains useful for asteroid-like ridges on future maps.
+     *  - `topFrac`: slab top as a fraction of the wall's height above the
+     *    flight plane (the base slab's foot always seals at -belowDepth;
+     *    each upper slab's foot tucks `tierOverlap` units into the slab
+     *    below, hiding the join).
+     *  - `width`: slab half-width as a multiple of the wall's collision
+     *    half-width. The slab spanning the flight plane (y=0) must stay
+     *    ≥ ~1.1 or ships visibly stop short of the rock (capsule is 1.0).
+     * Live-tunable for non-mesa walls via `__tuneWalls({ tiers: [...] })`.
+     */
+    tiers: [
+      { topFrac: 0.24, width: 1.55, texture: "floor" },
+      { topFrac: 0.65, width: 1.1, texture: "wall" },
+      { topFrac: 1.0, width: 0.72, texture: "wall" },
+    ] as ReadonlyArray<{ topFrac: number; width: number; texture: "floor" | "wall" }>,
+    /** How far (world units) each upper slab's foot sinks into the slab
+     *  below — must out-reach the lower slab's top swell or gaps open. */
+    tierOverlap: 6,
+    /** Matte rock diffuse (RGB 0–1) — the texture-less faceted mode's base
+     *  color AND the plain fallback while the texture file is missing. */
+    diffuse: { r: 0.45, g: 0.39, b: 0.35 },
+    /**
+     * Dim self-light floor (RGB 0–1) so the steepest faces stay readable:
+     * both scene lights come from ABOVE, so a near-vertical rock face gets
+     * almost no sun and would crush to black under the pulled-down tonemap
+     * exposure. Keep it well below `diffuse` — it lifts the floor without
+     * flattening the sun-shaded facets, and the include-only GlowLayer never
+     * blooms it.
+     */
+    emissive: { r: 0.07, g: 0.06, b: 0.05 },
+  },
+
+  /**
+   * The "planet" environment theme (scenery.environment): a procedural
+   * flat-shaded landscape far below the flight plane, replacing the deep-space
+   * backdrop stack on maps that opt in (MapConfig.environment = "planet" —
+   * The Canyon). VIEW-ONLY: the terrain is world-space scenery (PlanetTerrain,
+   * built once, frozen); nothing in the sim reads this section.
+   *
+   * CONTRAST BUDGET: every glowing effect (bolts, engine trails, bloom) is
+   * tuned against near-black space, so the whole palette here must stay
+   * dusk-dark and desaturated — think last-light desert, not noon Sahara. If
+   * FX read washed-out on a planet map, DARKEN these before touching FX.
+   */
+  planet: {
+    /** Heightfield half-extent (world units). Must comfortably out-reach the
+     *  camera view at the edge of the play area (carriers sit at ~±750). */
+    halfExtent: 1600,
+    /** Grid cell size (world units). Smaller = more facets, more verts:
+     *  vert count ≈ (2·halfExtent/cellSize)² — keep the product sane. */
+    cellSize: 30,
+    /** Mean OPEN-TERRAIN level (Y, world units below the y=0 flight plane) —
+     *  on trench maps this is the trench/valley floor the pilots fly over. */
+    baseY: -80,
+    /** Height amplitude around baseY (peaks ≈ baseY + amplitude — keep peaks
+     *  well below the flight plane so hills never poke into gameplay).
+     *  Kept GENTLE under the texture: the image carries the surface detail,
+     *  the relief just gives the parallax shading a little life. */
+    amplitude: 14,
+    /**
+     * ── The MESA (trench-map high ground) ────────────────────────────────
+     * On the mesa side of a wall (WallHazard.mesa = "left"/"right") the
+     * ground does NOT fall back to baseY — it rises to this Y and stays
+     * there, so the wall becomes the carved edge of a trench and the flight
+     * plane (y=0) sits down INSIDE it. Keep mesaTopY a few units BELOW
+     * walls.height (34) so the wall's rock crest still pokes above the mesa
+     * as a natural rim lip. GAMEPLAY CAVEAT: the sim is 2D — a ship flying
+     * the outboard go-around route passes visually THROUGH ground that is
+     * above the flight plane. Tune this down (or below 0) if that reads
+     * worse than the trench reads good.
+     */
+    mesaTopY: 30,
+    /** Height noise amplitude ON the mesa surface (same fbm field — keep it
+     *  small so the top reads as a wind-planed plateau, not rolling hills). */
+    mesaAmplitude: 5,
+    /**
+     * Past a wall's END the mesa can't stop dead (there is no rock face to
+     * hide the cliff), so the rim ramp WIDENS with distance beyond the tip:
+     * ramp half-width = wall halfWidth + tipSoften × overshoot. Higher =
+     * the headland sinks into the valley floor over a longer, gentler slope.
+     */
+    mesaTipSoften: 1.4,
+    /** First-octave feature wavelength (world units) — dune/mesa size. */
+    featureSize: 640,
+    /**
+     * The owner-authored ground TEXTURE (art is user-owned — drop a seamless
+     * tileable sand/rock image at client/public/textures/<file>). Applied to
+     * DIFFUSE under the scene lights, never emissive (gotcha #9: emissive
+     * images + GlowLayer white out). While the file is missing or fails to
+     * load, the ground falls back to a plain paletteHigh sand — never black.
+     * Set `file: ""` to skip the texture entirely and use the old faceted
+     * procedural look (palette bands + per-face jitter below).
+     */
+    texture: {
+      /** Image filename under client/public/textures/. */
+      file: "planet-surface.jpg",
+      /** World units per texture repeat — smaller tiles = busier ground.
+       *  MUST be seamless or the tiling shows at every repeat. */
+      tileSize: 260,
+      /** Diffuse tint multiplied into the image — the brightness/warmth dial
+       *  (and the contrast-budget guard: darken THIS if FX wash out). */
+      tint: { r: 0.88, g: 0.84, b: 0.78 },
+    },
+    /** fbm octaves (each halves the wavelength and the weight). */
+    octaves: 3,
+    /**
+     * Near a terrain WALL the ground swells up to meet the wall's foot so the
+     * ridge rises OUT of the landscape instead of hanging over it (WallView's
+     * skirt ends at -walls.belowDepth = -24; tuck slightly below to seal).
+     */
+    wallFootY: -27,
+    /** Blend distance (world units) from a wall FACE over which the ground
+     *  falls from wallFootY back to the open-terrain noise height. */
+    wallBlend: 130,
+    /** Valley-floor color (RGB 0–1) — the LOW band, darkest. Only used by
+     *  the texture-less faceted mode (`texture.file: ""`). */
+    paletteLow: { r: 0.28, g: 0.22, b: 0.165 },
+    /** Crest color — the HIGH band (sunstruck sand-rock). Also the plain
+     *  fallback ground color while the texture file is missing. */
+    paletteHigh: { r: 0.46, g: 0.375, b: 0.285 },
+    /** Per-face tonal jitter (the asteroid/wall patchiness read). */
+    faceTintJitter: 0.16,
+    /** Dim self-light floor — same rationale as walls.emissive (steep hill
+     *  flanks get no sun), scaled down for the deeper, darker layer. */
+    emissive: { r: 0.05, g: 0.04, b: 0.035 },
+    /** scene.clearColor on planet maps — the "beyond the terrain edge" and
+     *  below-horizon tone (replaces GameConfig.scene.clearColor). */
+    clearColor: { r: 0.045, g: 0.035, b: 0.028 },
+    /** Hemispheric GROUND fill on planet maps (replaces lighting.hemiGround):
+     *  light bouncing off sand is warm, not the cool space-black default.
+     *  Applies to everything — ships' undersides pick up the bounce too,
+     *  which is exactly the "flying over a lit landscape" cue. */
+    hemiGround: { r: 0.14, g: 0.105, b: 0.075 },
+    /**
+     * Hemispheric SKY fill on planet maps (replaces lighting.hemiSky). The
+     * space default is BLUE (0.6/0.7/0.95) — and near-vertical surfaces
+     * (the canyon wall faces) are lit mostly by this fill, not the sun, so
+     * under the space sky they render cool gray while the sun-lit ground
+     * renders warm: the wall-vs-ground color mismatch. A dusty atmosphere
+     * scatters warm light, so planetside the fill goes warm too — walls,
+     * ground, and ship flanks all share one palette.
+     */
+    hemiSky: { r: 0.78, g: 0.7, b: 0.58 },
   },
 
   arena: {
@@ -1795,6 +2045,18 @@ export const GameConfig = {
   },
 
   scenery: {
+    /**
+     * The active environment THEME, written by applyMapConfig per map (stock
+     * = "space"; a map opts into "planet" via MapConfig.environment).
+     *  - "space":  deep-space stack — Backdrop layer + Starfield + scenery
+     *              Nebulas + CapitalShips (everything as before this field).
+     *  - "planet": low-level flight over a landscape — the client skips the
+     *              space stack and builds PlanetTerrain instead (knobs in
+     *              GameConfig.planet), retinting clearColor + the hemispheric
+     *              ground fill from that section. View-only: the sim never
+     *              reads it.
+     */
+    environment: "space" as "space" | "planet",
     capitalShips: {
       /** Number of background capital ships. */
       count: 3,

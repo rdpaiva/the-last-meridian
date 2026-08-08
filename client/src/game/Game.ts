@@ -42,6 +42,7 @@ import { StormSystem } from "@space-duel/shared";
 import { StrategicSystem } from "@space-duel/shared";
 import { StationView } from "./view/StationView";
 import { Backdrop } from "./Backdrop";
+import { PlanetTerrain } from "./PlanetTerrain";
 import { ExplosionSystem } from "./ExplosionSystem";
 import { JumpFlashSystem } from "./JumpFlashSystem";
 import { ShieldHitFlashSystem } from "./ShieldHitFlashSystem";
@@ -60,6 +61,8 @@ import { Hulk } from "@space-duel/shared";
 // BattleSim and the networked client's prediction run, so solo bumps match.
 import { bumpShipOutOfHulkSection } from "@space-duel/shared";
 import { HulkView } from "./view/HulkView";
+import { Wall, bumpShipOutOfWallSegment } from "@space-duel/shared";
+import { WallView } from "./view/WallView";
 import { LaunchSequence } from "@space-duel/shared";
 import { opposing, FACTION_THEME, type Faction } from "@space-duel/shared";
 import { LocalInputController } from "./LocalInputController";
@@ -148,6 +151,9 @@ export class Game {
    *  avoidance; update() spins them each sim step. */
   private readonly hulks: Hulk[] = [];
   private readonly hulkViews: HulkView[] = [];
+  /** Placed terrain walls (map hazards) + their ridge-mesh views. */
+  private readonly walls: Wall[] = [];
+  private readonly wallViews: WallView[] = [];
   /**
    * Combined weapon line-of-sight cover: the asteroid field's live rocks plus
    * every hulk's cover circles. Rebuilt in place each sim step (the weapon
@@ -170,8 +176,9 @@ export class Game {
   private readonly events = new SimEventBus();
   private readonly music: MusicSystem;
   private readonly cameraRig: CameraRig;
-  private readonly starfield: Starfield;
-  private readonly backdrop: Backdrop;
+  /** Null on "planet" maps — the space stack is replaced by PlanetTerrain. */
+  private readonly starfield: Starfield | null;
+  private readonly backdrop: Backdrop | null;
   private readonly hud: Hud;
   private readonly radar: Radar;
   /** Player's RWR — beep + HUD pulse + radar blips while a missile homes on them. */
@@ -325,6 +332,7 @@ export class Game {
   private readonly lastBumpMs = new Map<Ship, number>();
   /** Per-ship wreck-scrape damage cooldown (own clock — separate knob from rocks). */
   private readonly lastHulkBumpMs = new Map<Ship, number>();
+  private readonly lastWallBumpMs = new Map<Ship, number>();
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -353,8 +361,29 @@ export class Game {
       .__showHulkColliders = (on: boolean) => {
       for (const v of this.hulkViews) v.setDebugColliders(on);
     };
+    // Live wall-look tuner (dev console, solo only): merge overrides into
+    // GameConfig.walls and rebuild every WallView in place — e.g.
+    // `__tuneWalls({ tiers: [{ topFrac: 0.3, width: 1.6, texture: "floor" },
+    // { topFrac: 1, width: 0.9, texture: "wall" }] })`. SHALLOW merge: pass
+    // nested objects/arrays (texture, tiers) complete, not partially.
+    // Dev-tool exception to the GameConfig-read-only rule (same spirit as
+    // ConfigOverrides): once dialed in, COMMIT the values into GameConfig.
+    (window as unknown as {
+      __tuneWalls: (o?: Partial<typeof GameConfig.walls>) => void;
+    }).__tuneWalls = (o = {}) => {
+      Object.assign(GameConfig.walls, o);
+      for (const v of this.wallViews) v.dispose();
+      this.wallViews.length = 0;
+      for (const wall of this.walls) {
+        this.wallViews.push(new WallView(this.scene, wall));
+      }
+    };
     this.scene.skipPointerMovePicking = true;
-    const c = GameConfig.scene.clearColor;
+    // "planet" maps (scenery.environment, written by applyMap) trade the
+    // deep-space stack for a landscape below the flight plane; the clear
+    // color becomes the beyond-the-terrain-edge dusk tone to match.
+    const planetside = GameConfig.scenery.environment === "planet";
+    const c = planetside ? GameConfig.planet.clearColor : GameConfig.scene.clearColor;
     this.scene.clearColor = new Color4(c.r, c.g, c.b, 1);
 
     this.glowLayer = new GlowLayer("glow", this.scene, {
@@ -370,8 +399,15 @@ export class Game {
     const lcfg = GameConfig.lighting;
     const hemi = new HemisphericLight("hemi", new Vector3(0, 1, 0), this.scene);
     hemi.intensity = lcfg.hemiIntensity;
-    hemi.groundColor = new Color3(lcfg.hemiGround.r, lcfg.hemiGround.g, lcfg.hemiGround.b);
-    hemi.diffuse = new Color3(lcfg.hemiSky.r, lcfg.hemiSky.g, lcfg.hemiSky.b);
+    // Planetside BOTH hemispheric fills go warm: the ground bounce is sand
+    // (ships' undersides pick it up — the "flying over a lit landscape" cue)
+    // and the sky fill is dusty-atmosphere light instead of space blue —
+    // near-vertical surfaces (canyon wall faces) are lit mostly by the sky
+    // fill, so a blue fill makes walls read cool against the sun-warm ground.
+    const ground = planetside ? GameConfig.planet.hemiGround : lcfg.hemiGround;
+    hemi.groundColor = new Color3(ground.r, ground.g, ground.b);
+    const sky = planetside ? GameConfig.planet.hemiSky : lcfg.hemiSky;
+    hemi.diffuse = new Color3(sky.r, sky.g, sky.b);
 
     const sun = new DirectionalLight(
       "sun",
@@ -427,8 +463,16 @@ export class Game {
     window.addEventListener("keydown", this.onKeyDown);
 
     this.arena = new Arena(this.scene);
-    this.backdrop = new Backdrop(this.scene, this.viewFlipped ? -1 : 1);
-    new Nebulas(this.scene, this.arena.halfWidth, this.arena.halfDepth);
+    if (planetside) {
+      // The landscape replaces the whole deep-space stack (Backdrop layer,
+      // scenery Nebulas, CapitalShips, Starfield below). Fire-and-forget,
+      // like Nebulas — self-registers with the scene.
+      new PlanetTerrain(this.scene);
+      this.backdrop = null;
+    } else {
+      this.backdrop = new Backdrop(this.scene, this.viewFlipped ? -1 : 1);
+      new Nebulas(this.scene, this.arena.halfWidth, this.arena.halfDepth);
+    }
     this.combatNebulas = new CombatNebulas(
       this.scene,
       this.arena.halfWidth,
@@ -442,12 +486,14 @@ export class Game {
       this.arena.halfDepth,
     );
     this.storms = new StormSystem(this.arena.halfWidth, this.arena.halfDepth);
-    new CapitalShips(
-      this.scene,
-      this.arena.halfWidth,
-      this.arena.halfDepth,
-      this.glowLayer,
-    );
+    if (!planetside) {
+      new CapitalShips(
+        this.scene,
+        this.arena.halfWidth,
+        this.arena.halfDepth,
+        this.glowLayer,
+      );
+    }
 
     // Two BSG-style motherships — humans at the south end (bow faces +Z, into
     // the arena), machines at the north (bow faces -Z). Built now so they
@@ -487,6 +533,10 @@ export class Game {
         const hulk = new Hulk(hazard);
         this.hulks.push(hulk);
         this.hulkViews.push(new HulkView(this.scene, this.glowLayer, hulk));
+      } else if (hazard.kind === "wall") {
+        const wall = new Wall(hazard);
+        this.walls.push(wall);
+        this.wallViews.push(new WallView(this.scene, wall));
       }
     }
 
@@ -617,7 +667,7 @@ export class Game {
     this.jumpRipple = new JumpRipple(this.scene, this.cameraRig.camera);
     // Self-registers with the scene (like Nebulas/CapitalShips) — no handle kept.
     buildPostPipeline(this.scene, this.cameraRig.camera);
-    this.starfield = new Starfield(this.scene, this.cameraRig.camera);
+    this.starfield = planetside ? null : new Starfield(this.scene, this.cameraRig.camera);
     this.hud = new Hud(hudRoot);
     this.radar = new Radar(this.viewFlipped);
     this.nameplates = new Nameplates(this.scene, this.cameraRig.camera, hudRoot);
@@ -1075,6 +1125,14 @@ export class Game {
 
     // Wreck scrape: same ram-weight cue as the asteroid bump.
     this.events.on("shipRammedHulk", ({ ship }) => {
+      if (ship === this.playerShip) {
+        this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
+        this.sound.playHit(ship.position);
+      }
+    });
+
+    // Terrain-wall scrape: same ram-weight cue.
+    this.events.on("shipRammedWall", ({ ship }) => {
       if (ship === this.playerShip) {
         this.cameraRig.addTrauma(GameConfig.shake.traumaPlayerLaserHit);
         this.sound.playHit(ship.position);
@@ -1592,6 +1650,11 @@ export class Game {
     for (const hulk of this.hulks) {
       for (const section of hulk.sections) this.aiObstacles.push(section);
     }
+    // Wall chunks: short capsules whose steering circles hug the wall face,
+    // so pilots thread the lanes between walls instead of refusing them.
+    for (const wall of this.walls) {
+      for (const seg of wall.segments) this.aiObstacles.push(seg);
+    }
     // Storm keep-outs: pilots route around the banks instead of eating zaps.
     for (const o of this.storms.obstacles) this.aiObstacles.push(o);
   }
@@ -1608,6 +1671,9 @@ export class Game {
     for (const rock of this.asteroids.obstacles) this.weaponObstacles.push(rock);
     for (const hulk of this.hulks) {
       for (const section of hulk.sections) this.weaponObstacles.push(section);
+    }
+    for (const wall of this.walls) {
+      for (const seg of wall.segments) this.weaponObstacles.push(seg);
     }
   }
 
@@ -1660,6 +1726,38 @@ export class Game {
         this.lastHulkBumpMs.set(ship, nowMs);
         ship.takeDamage(cfg.collisionDamage, nowMs);
         this.events.emit("shipRammedHulk", { ship });
+      }
+    }
+  }
+
+  /**
+   * Keep ships out of every terrain wall: capsule bump off each chunk via the
+   * shared bumpShipOutOfWallSegment (one resolver for solo, server, and
+   * prediction) + scrape damage on a per-ship cooldown — walls line the lanes
+   * on their maps, so a graze stings without shredding (the hulk balance).
+   */
+  private resolveWallCollisions(nowMs: number): void {
+    if (this.walls.length === 0) return;
+    const cfg = GameConfig.walls;
+    const bumpCooldownMs = cfg.bumpCooldownSec * 1000;
+    for (const c of this.combatants) {
+      const ship = c.ship;
+      if (!ship.isAlive) continue;
+      if (c.launch && !c.launch.isComplete) continue;
+      let scraped = false;
+      for (const wall of this.walls) {
+        // Full edges, not chunks — chunk seams nudge a wall-hugging ship
+        // sideways (see the WallSegment keep-out doc).
+        for (const seg of wall.edges) {
+          if (bumpShipOutOfWallSegment(ship, seg)) scraped = true;
+        }
+      }
+      if (!scraped) continue;
+      const last = this.lastWallBumpMs.get(ship) ?? -Infinity;
+      if (nowMs - last >= bumpCooldownMs) {
+        this.lastWallBumpMs.set(ship, nowMs);
+        ship.takeDamage(cfg.collisionDamage, nowMs);
+        this.events.emit("shipRammedWall", { ship });
       }
     }
   }
@@ -1993,6 +2091,8 @@ export class Game {
     this.resolveMothershipCollisions();
     // Wrecks are solid too: oriented keep-out bump + cooldowned scrape damage.
     this.resolveHulkCollisions(nowMs);
+    // Terrain walls: capsule keep-out bump + cooldowned scrape damage.
+    this.resolveWallCollisions(nowMs);
     // Ion storms zap anyone loitering inside (per-ship cadence in StormSystem).
     this.resolveStormZaps(nowMs);
     // Strategic layer: capture/energy (station maps only) + declarative
@@ -2167,8 +2267,8 @@ export class Game {
         this.playerShip.velocity,
         zoomInput,
       );
-      this.starfield.update();
-      this.backdrop.update(this.cameraRig.camera.getTarget());
+      this.starfield?.update();
+      this.backdrop?.update(this.cameraRig.camera.getTarget());
       if (!inHitstop) {
         // Keep the glow off through the player's launch (it's occluded by the
         // carrier; a lit glow would bleed through the hull via the GlowLayer).
@@ -2218,8 +2318,8 @@ export class Game {
         this.input.state,
         this.spectateRoster,
       );
-      this.starfield.update();
-      this.backdrop.update(this.cameraRig.camera.getTarget());
+      this.starfield?.update();
+      this.backdrop?.update(this.cameraRig.camera.getTarget());
     }
     this.playerDamageFlash?.update();
     for (const flash of this.aiDamageFlashes.values()) flash.update();
@@ -2346,6 +2446,7 @@ export class Game {
         this.combatNebulas.zones,
         this.stormClouds.zones,
         this.strategic.stations,
+        this.walls,
         nowMs,
       );
     }
