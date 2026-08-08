@@ -1970,6 +1970,31 @@ export class NetworkGame {
           this.myKillerKey = e.by !== "" ? e.by : null;
         }
         this.explosions.spawn(this.fxVec);
+        // The ship comes apart: its own hull meshes fly off as wreckage. The
+        // view root holds the last rendered pose (a dead view is disabled,
+        // not moved); the piece fling inherits the ship's momentum, derived
+        // from the last two snapshots (snapshots don't carry velocity). The
+        // dt floor skips the teleport-snap duplicate pair (t, t+1ms), whose
+        // derived "velocity" would fling pieces across the map.
+        const deadView = this.views.get(e.ship);
+        if (deadView) {
+          const buf = this.snaps.get(e.ship);
+          let vx = 0;
+          let vz = 0;
+          if (buf && buf.length >= 2) {
+            const a = buf[buf.length - 2];
+            const b = buf[buf.length - 1];
+            const dtSec = (b.t - a.t) / 1000;
+            if (dtSec >= 0.02) {
+              vx = (b.x - a.x) / dtSec;
+              vz = (b.z - a.z) / dtSec;
+            }
+          }
+          this.explosions.spawnShipBreakup(deadView.root, this.fxVec, {
+            x: vx,
+            z: vz,
+          });
+        }
         this.sound.playExplosion(this.fxVec);
         this.cameraRig.addTrauma(
           e.ship === this.myKey

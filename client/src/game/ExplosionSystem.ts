@@ -2,7 +2,8 @@ import type { Scene } from "@babylonjs/core/scene";
 import type { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
 import type { DynamicTexture } from "@babylonjs/core/Materials/Textures/dynamicTexture";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
-import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
+import type { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
@@ -74,6 +75,18 @@ export class ExplosionSystem {
    * reference — config palettes are stable arrays, so this stays tiny.
    */
   private readonly paletteMats = new Map<object, StandardMaterial[]>();
+  /**
+   * Ember pops scheduled onto flying breakup pieces: when a countdown
+   * expires, a small fire-palette spark burst fires at the piece's current
+   * position (a chunk cooking off mid-flight). The piece mesh is owned by
+   * its Explosion — a disposed mesh just skips its ember.
+   */
+  private readonly pendingEmbers: { delayMs: number; mesh: Mesh }[] = [];
+  // Scratch for spawnShipBreakup's world-transform bake (death-time only,
+  // but kept off the per-piece loop all the same).
+  private readonly scratchScale = new Vector3();
+  private readonly scratchQuat = new Quaternion();
+  private readonly scratchPos = new Vector3();
 
   constructor(
     private readonly scene: Scene,
@@ -335,9 +348,145 @@ export class ExplosionSystem {
     );
   }
 
+  /**
+   * The dying ship comes APART: its larger hull meshes are cloned (clones
+   * share geometry + materials — no new buffers), unparented at their exact
+   * world pose, and flung outward with the ship's momentum, tumbling and
+   * shrinking away as breakup debris. Fired alongside the stock kill flash
+   * (`spawn()`), which still carries the light; this carries the wreckage.
+   *
+   * `shipRoot` is the ship's VIEW root (still holding its last rendered
+   * pose — a dead view is disabled, not moved); `center` is the sim's death
+   * position, which the pieces are re-anchored on since the rendered pose
+   * can trail the sim by a frame offline or an interpolation beat online.
+   */
+  spawnShipBreakup(
+    shipRoot: TransformNode,
+    center: Vector3,
+    velocity: { x: number; z: number },
+  ): void {
+    const cfg = GameConfig.explosion.breakup;
+
+    // Candidate pieces: real hull geometry only. The FX meshes riding the
+    // ship root (damage-flash shell, engine/RCS glow cores + plumes) are
+    // excluded by name — cloning those would fling invisible spheres that
+    // light up whenever their shared material animates.
+    const fxMesh = /damage_flash|engine_core|engine_trail|_core$|_plume$/i;
+    const parts: { mesh: Mesh; volume: number }[] = [];
+    for (const m of shipRoot.getChildMeshes(false)) {
+      if (!(m instanceof Mesh)) continue;
+      if (m.getTotalVertices() === 0) continue;
+      if (fxMesh.test(m.name)) continue;
+      m.computeWorldMatrix(true);
+      const half = m.getBoundingInfo().boundingBox.extendSizeWorld;
+      parts.push({ mesh: m, volume: half.x * half.y * half.z });
+    }
+    if (parts.length === 0) return;
+
+    // Fling the biggest pieces (wings, nacelles, hull), skip the trim.
+    parts.sort((a, b) => b.volume - a.volume);
+    const minVolume = parts[0].volume * cfg.minVolumeRatio;
+    const picked = parts
+      .slice(0, cfg.maxPieces)
+      .filter((p) => p.volume >= minVolume);
+
+    // Re-anchor on the sim death position (see method doc).
+    shipRoot.computeWorldMatrix(true);
+    const rootPos = shipRoot.getAbsolutePosition();
+    const offsetX = center.x - rootPos.x;
+    const offsetZ = center.z - rootPos.z;
+
+    const debris: Debris[] = [];
+    for (const { mesh } of picked) {
+      const clone = mesh.clone(`breakup_${mesh.name}`, null, true);
+      clone.parent = null;
+      // Bake the piece's WORLD transform into the clone's local one: the
+      // source sits under rotated/scaled correction nodes (two-tier root,
+      // glTF mirror), all of which the unparented clone must carry itself.
+      mesh
+        .getWorldMatrix()
+        .decompose(this.scratchScale, this.scratchQuat, this.scratchPos);
+      clone.position.set(
+        this.scratchPos.x + offsetX,
+        this.scratchPos.y,
+        this.scratchPos.z + offsetZ,
+      );
+      // Euler, not quaternion: the debris tumble integrates mesh.rotation,
+      // which Babylon ignores while rotationQuaternion is set.
+      clone.rotationQuaternion = null;
+      clone.rotation = this.scratchQuat.toEulerAngles();
+      clone.scaling.copyFrom(this.scratchScale);
+      clone.setEnabled(true);
+      clone.isPickable = false;
+
+      // Fling: inherited ship momentum + a radial kick away from the death
+      // center (a centered piece — the hull itself — kicks a random way).
+      let dirX = clone.position.x - center.x;
+      let dirZ = clone.position.z - center.z;
+      const len = Math.hypot(dirX, dirZ);
+      if (len > 1e-3) {
+        dirX /= len;
+        dirZ /= len;
+      } else {
+        const a = Math.random() * Math.PI * 2;
+        dirX = Math.cos(a);
+        dirZ = Math.sin(a);
+      }
+      const speed = cfg.speedMin + Math.random() * (cfg.speedMax - cfg.speedMin);
+      debris.push({
+        mesh: clone,
+        velocity: new Vector3(
+          velocity.x * cfg.inheritVelocityFactor + dirX * speed,
+          (Math.random() - 0.35) * cfg.verticalKick,
+          velocity.z * cfg.inheritVelocityFactor + dirZ * speed,
+        ),
+        rotationVel: new Vector3(
+          (Math.random() - 0.5) * 2 * cfg.tumbleMax,
+          (Math.random() - 0.5) * 2 * cfg.tumbleMax,
+          (Math.random() - 0.5) * 2 * cfg.tumbleMax,
+        ),
+        baseScaling: clone.scaling.clone(),
+      });
+    }
+    if (debris.length === 0) return;
+
+    // A couple of pieces cook off mid-flight: schedule small fire-palette
+    // ember bursts at random beats of the scatter.
+    for (let i = 0; i < Math.min(cfg.emberCount, debris.length); i++) {
+      const frac =
+        cfg.emberDelayMinFraction +
+        Math.random() *
+          (cfg.emberDelayMaxFraction - cfg.emberDelayMinFraction);
+      this.pendingEmbers.push({
+        delayMs: cfg.durationMs * frac,
+        mesh: debris[Math.floor(Math.random() * debris.length)].mesh,
+      });
+    }
+
+    // Flash-less: spawn()'s flare already carries the kill's light.
+    this.active.push(
+      new Explosion(null, debris, cfg.durationMs, 0, cfg.holdFraction),
+    );
+  }
+
   update(deltaSeconds: number, deltaMs: number): void {
     for (const e of this.active) {
       e.update(deltaSeconds, deltaMs);
+    }
+    // Due ember pops ride the flying breakup pieces (walked backwards for
+    // the splice). Runs BEFORE the expiry sweep so an ember due this frame
+    // still finds its piece; a piece disposed earlier just skips its pop.
+    for (let i = this.pendingEmbers.length - 1; i >= 0; i--) {
+      const ember = this.pendingEmbers[i];
+      ember.delayMs -= deltaMs;
+      if (ember.delayMs > 0) continue;
+      if (!ember.mesh.isDisposed()) {
+        this.spawnSpark(ember.mesh.position, {
+          ...GameConfig.impactSpark,
+          palette: GameConfig.explosion.breakup.emberPalette,
+        });
+      }
+      this.pendingEmbers.splice(i, 1);
     }
     for (let i = this.active.length - 1; i >= 0; i--) {
       if (this.active[i].isExpired) {

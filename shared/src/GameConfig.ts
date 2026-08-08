@@ -3164,6 +3164,56 @@ export const GameConfig = {
      * apparent punch.
      */
     flareSizeFactor: 2.2,
+
+    /**
+     * Ship BREAKUP on death (view-only, ExplosionSystem.spawnShipBreakup):
+     * the dying ship's own larger hull meshes are cloned off the model
+     * (clones share geometry + materials — no new buffers), flung outward
+     * with the ship's momentum, and tumble/shrink away. Rides ALONGSIDE the
+     * stock kill flash above, replacing the anonymous-orange-cube read with
+     * recognizable wings/nacelles coming off the hull.
+     */
+    breakup: {
+      /** Max hull pieces flung per kill (largest by world bounding volume). */
+      maxPieces: 7,
+      /**
+       * Drop candidate pieces smaller than this fraction of the biggest
+       * piece's volume — flings wings and engines, not antenna nubs.
+       */
+      minVolumeRatio: 0.02,
+      /** Piece lifetime (ms) — longer than the flash; wreckage lingers. */
+      durationMs: 1500,
+      /**
+       * Fraction of the lifetime pieces hold FULL size before the linear
+       * shrink-out starts — chunks read as solid wreckage first, then burn
+       * away, instead of melting from frame one.
+       */
+      holdFraction: 0.55,
+      /** How much of the ship's velocity the pieces inherit (0..1). */
+      inheritVelocityFactor: 0.65,
+      /** Radial kick away from the death point (units/sec, rolled per piece). */
+      speedMin: 2.5,
+      speedMax: 7,
+      /** Vertical scatter kick (units/sec peak, slight downward bias). */
+      verticalKick: 3,
+      /** Max tumble rate per axis (radians/sec, rolled per piece). */
+      tumbleMax: 8,
+      /** Pieces that pop a small fire-palette ember burst mid-flight. */
+      emberCount: 5,
+      /** When the embers pop, as fractions of the piece lifetime. */
+      emberDelayMinFraction: 0.15,
+      emberDelayMaxFraction: 0.6,
+      /**
+       * Ember burst emissive palette (fire mix, rolled per sliver) — same
+       * recipe as impactSpark.hangar.palette at fighter scale.
+       */
+      emberPalette: [
+        { r: 2.6, g: 2.5, b: 2.2 }, // white-hot
+        { r: 2.4, g: 1.9, b: 0.5 }, // yellow
+        { r: 2.0, g: 0.85, b: 0.2 }, // orange
+        { r: 1.7, g: 0.35, b: 0.12 }, // deep red
+      ],
+    },
   },
 
   /**

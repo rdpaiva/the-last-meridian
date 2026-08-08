@@ -634,6 +634,24 @@ state paragraphs of that date).
   per-explosion without per-material alpha, we scale meshes toward 0
   instead of fading alpha.
 - Debris/streak meshes opt into GlowLayer on spawn for bloom.
+- **Ship breakup on death** (`spawnShipBreakup`, `explosion.breakup` knobs):
+  the dead ship's own larger hull meshes (top-N by world bounding volume)
+  are `clone()`d — clones share geometry + materials, so this costs draw
+  calls only — unparented with their WORLD transform baked into local
+  (two-tier-root corrections + the glTF mirror ride in `scaling`, hence
+  `Debris.baseScaling`: shrink multiplies it, never overwrites), then flung
+  with inherited ship momentum + a radial kick as flash-less `Explosion`
+  debris. Pieces hold full size for `holdFraction` of their life before
+  shrinking; a couple pop a fire-palette ember spark mid-flight
+  (`pendingEmbers`). FX meshes riding the ship root (damage-flash shell,
+  engine/RCS cores + plumes) are excluded BY NAME — cloning those flings
+  invisible spheres that light up when their shared material animates.
+  Rotation is converted quaternion→Euler on the clone because the debris
+  tumble integrates `mesh.rotation`, which Babylon ignores while
+  `rotationQuaternion` is set. Fired from both `Game` (sim ship velocity)
+  and `NetworkGame` (velocity derived from the last two snapshots, with a
+  dt floor so the teleport-snap duplicate pair can't fling pieces across
+  the map).
 - `createBurnFX(scale)` hands out `BurnFX` instances sharing the flare
   sprite (see below); callers own start/stop/dispose.
 

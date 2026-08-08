@@ -1209,6 +1209,17 @@ export class Game {
       // spooling — a ship that already jumped was released and rings out).
       this.sound.stopJumpDrive(ship);
       this.explosions.spawn(ship.position);
+      // The ship comes apart: its own hull meshes fly off as wreckage (the
+      // view root still holds the last rendered pose — views sync after the
+      // sim block, so it isn't disabled yet when this event lands).
+      const combatant = this.combatants.find((c) => c.ship === ship);
+      if (combatant) {
+        this.explosions.spawnShipBreakup(
+          combatant.view.root,
+          ship.position,
+          ship.velocity,
+        );
+      }
       this.sound.playExplosion(ship.position);
       this.cameraRig.addTrauma(
         isPlayer
