@@ -62,7 +62,6 @@ export class ExplosionSystem {
   /** Shared soft radial sprite behind every flare + the BurnFX particles. */
   private readonly flareTexture: DynamicTexture;
   private readonly flashMat: StandardMaterial;
-  private readonly debrisMat: StandardMaterial;
   /** Hot-orange flash for turret muzzle pops (spawnMuzzleFlash). */
   private readonly muzzleFlashMat: StandardMaterial;
   /** Hot white-gold glint for impact-spark flashes (spawnSpark). */
@@ -82,6 +81,15 @@ export class ExplosionSystem {
    * its Explosion — a disposed mesh just skips its ember.
    */
   private readonly pendingEmbers: { delayMs: number; mesh: Mesh }[] = [];
+  /**
+   * Secondary explosions scheduled around a kill (spawnShipBreakup): fixed
+   * points near the death center where fire-palette pops fire after a
+   * rolled delay — the hull cooking off after the main flash.
+   */
+  private readonly pendingSecondaries: {
+    delayMs: number;
+    position: Vector3;
+  }[] = [];
   // Scratch for spawnShipBreakup's world-transform bake (death-time only,
   // but kept off the per-piece loop all the same).
   private readonly scratchScale = new Vector3();
@@ -96,13 +104,6 @@ export class ExplosionSystem {
 
     // Flash: nearly white flare, > 1 emissive components so the core burns hot.
     this.flashMat = this.makeFlareMat("explosion_flash_mat", 2.5, 2.0, 1.2);
-
-    // Debris: warm orange.
-    this.debrisMat = new StandardMaterial("explosion_debris_mat", scene);
-    this.debrisMat.diffuseColor = new Color3(0, 0, 0);
-    this.debrisMat.specularColor = new Color3(0, 0, 0);
-    this.debrisMat.emissiveColor = new Color3(1.8, 0.6, 0.15);
-    this.debrisMat.disableLighting = true;
 
     // Muzzle flash: hot orange, tinted to match the turret bolt (config-driven).
     const mf = GameConfig.mothership.turrets.muzzleFlash.color;
@@ -312,15 +313,22 @@ export class ExplosionSystem {
       position,
     );
 
+    const fireMats = this.matsForPalette(cfg.debrisPalette);
     const debris: Debris[] = [];
     for (let i = 0; i < cfg.debrisCount; i++) {
+      // Per-piece size + fire color: the burst mixes fine white-hot embers
+      // with chunky deep-red fragments instead of uniform orange cubes.
+      const size =
+        cfg.debrisSize *
+        (cfg.debrisSizeVarMin +
+          Math.random() * (cfg.debrisSizeVarMax - cfg.debrisSizeVarMin));
       const mesh = MeshBuilder.CreateBox(
         `explosion_debris_${i}`,
-        { size: cfg.debrisSize },
+        { size },
         this.scene,
       );
       mesh.position.copyFrom(position);
-      mesh.material = this.debrisMat;
+      mesh.material = fireMats[Math.floor(Math.random() * fireMats.length)];
       mesh.isPickable = false;
       includeInGlow(this.glowLayer, mesh);
 
@@ -367,6 +375,27 @@ export class ExplosionSystem {
   ): void {
     const cfg = GameConfig.explosion.breakup;
 
+    // Schedule the kill's secondary explosions FIRST (before the piece scan
+    // can early-return): staggered fire pops scattered around the death
+    // point, so every kill rolls into a short chain of blasts rather than
+    // one beat. Positions drift with a fraction of the ship's momentum so
+    // the chain trails the wreck instead of popping behind it.
+    const sec = cfg.secondaries;
+    for (let i = 0; i < sec.count; i++) {
+      const delayMs = sec.delayMinMs + Math.random() * (sec.delayMaxMs - sec.delayMinMs);
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * sec.spreadRadius;
+      const drift = cfg.inheritVelocityFactor * (delayMs / 1000);
+      this.pendingSecondaries.push({
+        delayMs,
+        position: new Vector3(
+          center.x + Math.cos(a) * r + velocity.x * drift,
+          center.y,
+          center.z + Math.sin(a) * r + velocity.z * drift,
+        ),
+      });
+    }
+
     // Candidate pieces: real hull geometry only. The FX meshes riding the
     // ship root (damage-flash shell, engine/RCS glow cores + plumes) are
     // excluded by name — cloning those would fling invisible spheres that
@@ -390,6 +419,28 @@ export class ExplosionSystem {
       .slice(0, cfg.maxPieces)
       .filter((p) => p.volume >= minVolume);
 
+    // Union bounds of EVERY candidate part = the ship's whole envelope. A
+    // picked piece spanning most of it IS the intact ship (mono-mesh GLBs
+    // like the Wraith come through as one fused hull) — flinging its clone
+    // reads as the whole ship tumbling away, so those get shattered into
+    // fragments below instead.
+    let unionVolume = 0;
+    {
+      let minX = Infinity, minY = Infinity, minZ = Infinity;
+      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+      for (const p of parts) {
+        const bb = p.mesh.getBoundingInfo().boundingBox;
+        minX = Math.min(minX, bb.minimumWorld.x);
+        minY = Math.min(minY, bb.minimumWorld.y);
+        minZ = Math.min(minZ, bb.minimumWorld.z);
+        maxX = Math.max(maxX, bb.maximumWorld.x);
+        maxY = Math.max(maxY, bb.maximumWorld.y);
+        maxZ = Math.max(maxZ, bb.maximumWorld.z);
+      }
+      unionVolume =
+        ((maxX - minX) / 2) * ((maxY - minY) / 2) * ((maxZ - minZ) / 2);
+    }
+
     // Re-anchor on the sim death position (see method doc).
     shipRoot.computeWorldMatrix(true);
     const rootPos = shipRoot.getAbsolutePosition();
@@ -397,7 +448,32 @@ export class ExplosionSystem {
     const offsetZ = center.z - rootPos.z;
 
     const debris: Debris[] = [];
-    for (const { mesh } of picked) {
+    // Shatter budget: fragmentCount is a per-KILL total, split across every
+    // qualifying piece proportionally to volume (a mono-mesh ship qualifies
+    // with 2-3 overlapping whole-ship shells — per-piece counts would
+    // multiply its wreckage several-fold vs a part-split ship). The hull
+    // gets the lion's share; thin material shells throw a chunk or two.
+    const shattering = picked.filter(
+      (p) => p.volume >= cfg.shatter.wholeShipRatio * unionVolume,
+    );
+    const shatterVolume = shattering.reduce((sum, p) => sum + p.volume, 0);
+    for (const { mesh, volume } of picked) {
+      if (volume >= cfg.shatter.wholeShipRatio * unionVolume) {
+        const share = Math.max(
+          1,
+          Math.round(cfg.shatter.fragmentCount * (volume / shatterVolume)),
+        );
+        this.shatterPiece(
+          mesh,
+          center,
+          offsetX,
+          offsetZ,
+          velocity,
+          share,
+          debris,
+        );
+        continue;
+      }
       const clone = mesh.clone(`breakup_${mesh.name}`, null, true);
       clone.parent = null;
       // Bake the piece's WORLD transform into the clone's local one: the
@@ -419,32 +495,16 @@ export class ExplosionSystem {
       clone.setEnabled(true);
       clone.isPickable = false;
 
-      // Fling: inherited ship momentum + a radial kick away from the death
-      // center (a centered piece — the hull itself — kicks a random way).
-      let dirX = clone.position.x - center.x;
-      let dirZ = clone.position.z - center.z;
-      const len = Math.hypot(dirX, dirZ);
-      if (len > 1e-3) {
-        dirX /= len;
-        dirZ /= len;
-      } else {
-        const a = Math.random() * Math.PI * 2;
-        dirX = Math.cos(a);
-        dirZ = Math.sin(a);
-      }
-      const speed = cfg.speedMin + Math.random() * (cfg.speedMax - cfg.speedMin);
+      const fling = this.rollFling(
+        clone.position.x,
+        clone.position.z,
+        center,
+        velocity,
+      );
       debris.push({
         mesh: clone,
-        velocity: new Vector3(
-          velocity.x * cfg.inheritVelocityFactor + dirX * speed,
-          (Math.random() - 0.35) * cfg.verticalKick,
-          velocity.z * cfg.inheritVelocityFactor + dirZ * speed,
-        ),
-        rotationVel: new Vector3(
-          (Math.random() - 0.5) * 2 * cfg.tumbleMax,
-          (Math.random() - 0.5) * 2 * cfg.tumbleMax,
-          (Math.random() - 0.5) * 2 * cfg.tumbleMax,
-        ),
+        velocity: fling.velocity,
+        rotationVel: fling.rotationVel,
         baseScaling: clone.scaling.clone(),
       });
     }
@@ -469,6 +529,109 @@ export class ExplosionSystem {
     );
   }
 
+  /**
+   * The breakup fling recipe: inherited ship momentum + a radial kick away
+   * from the death center (a centered piece kicks a random way) + vertical
+   * scatter + tumble. Shared by real hull-piece clones and shatter fragments.
+   */
+  private rollFling(
+    px: number,
+    pz: number,
+    center: Vector3,
+    velocity: { x: number; z: number },
+  ): { velocity: Vector3; rotationVel: Vector3 } {
+    const cfg = GameConfig.explosion.breakup;
+    let dirX = px - center.x;
+    let dirZ = pz - center.z;
+    const len = Math.hypot(dirX, dirZ);
+    if (len > 1e-3) {
+      dirX /= len;
+      dirZ /= len;
+    } else {
+      const a = Math.random() * Math.PI * 2;
+      dirX = Math.cos(a);
+      dirZ = Math.sin(a);
+    }
+    const speed = cfg.speedMin + Math.random() * (cfg.speedMax - cfg.speedMin);
+    return {
+      velocity: new Vector3(
+        velocity.x * cfg.inheritVelocityFactor + dirX * speed,
+        (Math.random() - 0.35) * cfg.verticalKick,
+        velocity.z * cfg.inheritVelocityFactor + dirZ * speed,
+      ),
+      rotationVel: new Vector3(
+        (Math.random() - 0.5) * 2 * cfg.tumbleMax,
+        (Math.random() - 0.5) * 2 * cfg.tumbleMax,
+        (Math.random() - 0.5) * 2 * cfg.tumbleMax,
+      ),
+    };
+  }
+
+  /**
+   * The mono-mesh fallback (`breakup.shatter`): a picked piece that IS the
+   * whole ship is broken into random box fragments wearing the piece's own
+   * material — hull-colored chunks instead of the intact ship tumbling off.
+   * Fragments spawn scattered through the piece's world bounds and take the
+   * same fling as real pieces. `count` is this piece's share of the per-kill
+   * fragment budget (see the caller's split).
+   */
+  private shatterPiece(
+    source: Mesh,
+    center: Vector3,
+    offsetX: number,
+    offsetZ: number,
+    velocity: { x: number; z: number },
+    count: number,
+    out: Debris[],
+  ): void {
+    const s = GameConfig.explosion.breakup.shatter;
+    const bb = source.getBoundingInfo().boundingBox;
+    const c = bb.centerWorld;
+    const ext = bb.extendSizeWorld;
+    const rollEdge = (extent: number) =>
+      Math.max(
+        s.minSize,
+        extent *
+          2 *
+          (s.fragMinFraction +
+            Math.random() * (s.fragMaxFraction - s.fragMinFraction)),
+      );
+    for (let i = 0; i < count; i++) {
+      const frag = MeshBuilder.CreateBox(
+        `breakup_frag_${source.name}_${i}`,
+        {
+          width: rollEdge(ext.x),
+          height: rollEdge(ext.y),
+          depth: rollEdge(ext.z),
+        },
+        this.scene,
+      );
+      frag.material = source.material;
+      frag.isPickable = false;
+      frag.position.set(
+        c.x + (Math.random() * 2 - 1) * ext.x * s.scatterFraction + offsetX,
+        c.y + (Math.random() * 2 - 1) * ext.y * s.scatterFraction,
+        c.z + (Math.random() * 2 - 1) * ext.z * s.scatterFraction + offsetZ,
+      );
+      frag.rotation.set(
+        Math.random() * Math.PI * 2,
+        Math.random() * Math.PI * 2,
+        Math.random() * Math.PI * 2,
+      );
+      const fling = this.rollFling(
+        frag.position.x,
+        frag.position.z,
+        center,
+        velocity,
+      );
+      out.push({
+        mesh: frag,
+        velocity: fling.velocity,
+        rotationVel: fling.rotationVel,
+      });
+    }
+  }
+
   update(deltaSeconds: number, deltaMs: number): void {
     for (const e of this.active) {
       e.update(deltaSeconds, deltaMs);
@@ -487,6 +650,18 @@ export class ExplosionSystem {
         });
       }
       this.pendingEmbers.splice(i, 1);
+    }
+    // Due secondary explosions (kill cook-off pops) fire at their pre-rolled
+    // positions — each is a fire-palette spark burst with its own flash.
+    for (let i = this.pendingSecondaries.length - 1; i >= 0; i--) {
+      const secondary = this.pendingSecondaries[i];
+      secondary.delayMs -= deltaMs;
+      if (secondary.delayMs > 0) continue;
+      this.spawnSpark(secondary.position, {
+        ...GameConfig.explosion.breakup.secondaries.burst,
+        palette: GameConfig.explosion.breakup.emberPalette,
+      });
+      this.pendingSecondaries.splice(i, 1);
     }
     for (let i = this.active.length - 1; i >= 0; i--) {
       if (this.active[i].isExpired) {

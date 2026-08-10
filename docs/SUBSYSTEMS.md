@@ -641,9 +641,24 @@ state paragraphs of that date).
   (two-tier-root corrections + the glTF mirror ride in `scaling`, hence
   `Debris.baseScaling`: shrink multiplies it, never overwrites), then flung
   with inherited ship momentum + a radial kick as flash-less `Explosion`
-  debris. Pieces hold full size for `holdFraction` of their life before
-  shrinking; a couple pop a fire-palette ember spark mid-flight
-  (`pendingEmbers`). FX meshes riding the ship root (damage-flash shell,
+  debris. MONO-MESH GLBs (the Wraith is one fused hull; the Spitfire is
+  material shells) would fling "the largest piece" = the intact ship, which
+  reads as the whole ship tumbling away — so any picked piece whose bounding
+  volume spans ≥ `shatter.wholeShipRatio` of the union bounds of all parts is
+  instead shattered into random box fragments wearing the piece's own
+  material (`shatterPiece`; `breakup.shatter` knobs; `fragmentCount` is a
+  per-KILL budget split across shattered pieces by volume — mono-mesh ships
+  qualify with 2-3 whole-ship shells, and per-piece counts would multiply
+  their wreckage vs part-split ships). Part-split models
+  (Reaver/Breaker, ~30-44 meshes) never trigger it. Pieces hold full size for
+  `holdFraction` of their life before shrinking; a couple pop a fire-palette
+  ember spark mid-flight (`pendingEmbers`). Each kill also schedules `breakup.secondaries` —
+  staggered fire-palette pops (spawnSpark bursts with their own flash)
+  scattered around the death point and drifted with the ship's momentum
+  (`pendingSecondaries`), so a kill reads as a rolling chain of blasts, not
+  one beat. Scheduled BEFORE the piece scan's early-return, so the cook-off
+  fires even when no hull pieces qualify. FX meshes riding the ship root
+  (damage-flash shell,
   engine/RCS cores + plumes) are excluded BY NAME — cloning those flings
   invisible spheres that light up when their shared material animates.
   Rotation is converted quaternion→Euler on the clone because the debris

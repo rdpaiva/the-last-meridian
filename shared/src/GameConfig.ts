@@ -3144,18 +3144,36 @@ export const GameConfig = {
 
   explosion: {
     /** Pieces of debris per explosion. */
-    debrisCount: 8,
+    debrisCount: 12,
     /** Total time before the explosion is disposed. */
     durationMs: 700,
     /** Outward speed of debris pieces (units / sec). */
     debrisSpeedMin: 6,
-    debrisSpeedMax: 14,
+    debrisSpeedMax: 16,
     /** Initial size of each debris piece (cube edge). */
     debrisSize: 0.45,
+    /**
+     * Each piece's edge is debrisSize × a random factor in this range, so a
+     * burst mixes fine embers with chunkier fragments instead of a uniform
+     * cube swarm.
+     */
+    debrisSizeVarMin: 0.55,
+    debrisSizeVarMax: 1.5,
+    /**
+     * Per-piece emissive palette (fire mix, rolled per piece) — the debris
+     * reads as burning wreckage in whites/yellows/oranges/reds rather than
+     * one flat orange.
+     */
+    debrisPalette: [
+      { r: 2.6, g: 2.5, b: 2.2 }, // white-hot
+      { r: 2.4, g: 1.9, b: 0.5 }, // yellow
+      { r: 2.0, g: 0.85, b: 0.2 }, // orange
+      { r: 1.7, g: 0.35, b: 0.12 }, // deep red
+    ],
     /** Initial radius of the bright central flash sphere. */
     flashRadius: 0.7,
     /** Peak scale multiplier of the flash. */
-    flashPeakScale: 5.0,
+    flashPeakScale: 6.0,
     /**
      * Every flash (kill, impact spark, turret muzzle pop) renders as a soft
      * radial-gradient flare billboard, not a solid sphere. The gradient's
@@ -3175,7 +3193,7 @@ export const GameConfig = {
      */
     breakup: {
       /** Max hull pieces flung per kill (largest by world bounding volume). */
-      maxPieces: 7,
+      maxPieces: 9,
       /**
        * Drop candidate pieces smaller than this fraction of the biggest
        * piece's volume — flings wings and engines, not antenna nubs.
@@ -3198,11 +3216,70 @@ export const GameConfig = {
       verticalKick: 3,
       /** Max tumble rate per axis (radians/sec, rolled per piece). */
       tumbleMax: 8,
+      /**
+       * MONO-MESH fallback: some ship GLBs (the Wraith; the Spitfire's
+       * material shells) are one fused mesh, so the "largest pieces" scan
+       * just picks the intact ship and the breakup reads as the whole hull
+       * tumbling away, not debris. Any picked piece whose bounding volume
+       * spans at least `wholeShipRatio` of the union bounds of ALL parts is
+       * instead SHATTERED into random box fragments wearing the piece's own
+       * hull material. Properly part-split models (Reaver) never trigger it.
+       */
+      shatter: {
+        /** Piece volume ÷ whole-ship union volume at/above which it shatters. */
+        wholeShipRatio: 0.45,
+        /**
+         * TOTAL box fragments per KILL, split across every shattered piece
+         * proportionally to volume (mono-mesh ships shatter 2-3 whole-ship
+         * shells — a per-piece count would multiply the wreckage and make
+         * the Wraith throw 3× a Reaver's pieces).
+         */
+        fragmentCount: 9,
+        /** Fragment edge per axis: fraction of the piece's full extent. */
+        fragMinFraction: 0.18,
+        fragMaxFraction: 0.42,
+        /** Floor on any fragment edge (world units) — flat hulls would
+         * otherwise yield paper-thin chips. */
+        minSize: 0.12,
+        /** Fragments spawn within this fraction of the piece's extents. */
+        scatterFraction: 0.65,
+      },
       /** Pieces that pop a small fire-palette ember burst mid-flight. */
       emberCount: 5,
       /** When the embers pop, as fractions of the piece lifetime. */
       emberDelayMinFraction: 0.15,
       emberDelayMaxFraction: 0.6,
+      /**
+       * SECONDARY explosions: staggered fire-palette pops scattered around
+       * the death point after the main flash — the hull cooking off. What
+       * turns "one flash + debris" into a rolling kill sequence. Each pop
+       * is a spawnSpark burst (own flash + slivers) using the profile below
+       * with emberPalette colors.
+       */
+      secondaries: {
+        /** Pops per kill. */
+        count: 3,
+        /** Delay window after death (ms, rolled per pop). */
+        delayMinMs: 90,
+        delayMaxMs: 550,
+        /** Max offset from the death point (world units, rolled per pop). */
+        spreadRadius: 2.0,
+        /** The pop's burst profile (SparkProfile shape, kill-scale). */
+        burst: {
+          countMin: 6,
+          countMax: 10,
+          durationMs: 300,
+          durationJitter: 0.3,
+          speedMin: 8,
+          speedMax: 18,
+          size: 0.3,
+          sizeVarMin: 0.6,
+          sizeVarMax: 1.5,
+          flashRadius: 0.5,
+          flashPeakMin: 2.6,
+          flashPeakMax: 3.8,
+        },
+      },
       /**
        * Ember burst emissive palette (fire mix, rolled per sliver) — same
        * recipe as impactSpark.hangar.palette at fighter scale.
@@ -3403,7 +3480,7 @@ export const GameConfig = {
     /** Trauma added by each kind of impact (cap is 1.0). */
     traumaEnemyLaserHit: 0.2, // player laser landed on enemy
     traumaPlayerLaserHit: 0.35, // enemy laser landed on player
-    traumaEnemyExplosion: 0.55,
+    traumaEnemyExplosion: 0.65,
     traumaPlayerExplosion: 0.75,
     /** Player missile detonated on an enemy — heavier than a laser hit. */
     traumaMissileHit: 0.5,
@@ -3419,7 +3496,7 @@ export const GameConfig = {
      */
     enemyLaserHitMs: 25,
     playerLaserHitMs: 50,
-    enemyExplosionMs: 70,
+    enemyExplosionMs: 85,
     playerExplosionMs: 90,
     /** Player missile detonation — a beefier freeze than a laser hit. */
     missileHitMs: 70,
