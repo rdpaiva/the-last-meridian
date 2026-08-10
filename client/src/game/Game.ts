@@ -2682,7 +2682,7 @@ export class Game {
     skipIntro = false,
   ): LaunchSequence {
     const fwd = home.getLaunchForward();
-    return new LaunchSequence(
+    const seq = new LaunchSequence(
       fwd.x,
       fwd.z,
       home.position.x,
@@ -2692,6 +2692,13 @@ export class Game {
       cinematic,
       skipIntro,
     );
+    // Land the camera on the pilot's own (persisted) zoom, not the config
+    // default. At match start the rig holds the restored preference, so the
+    // intro eases down onto it; on a respawn relaunch this equals the live
+    // zoom, so the per-frame setZoom(desiredZoom) is a no-op instead of a
+    // reset of whatever the pilot had dialed in.
+    if (cinematic) seq.landingZoom = this.cameraRig.currentZoom;
+    return seq;
   }
 
   /**

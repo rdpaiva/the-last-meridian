@@ -6,6 +6,37 @@ import { GameConfig } from "@space-duel/shared";
 import { clamp, exponentialDecay } from "@space-duel/shared";
 
 /**
+ * Persisted zoom preference (sibling of the other lastMeridian_* keys, see
+ * Loadout.ts). The zoom a pilot dials in with the +/- keys is remembered
+ * across respawns and sessions: restored into the rig at construction and
+ * saved on zoom-key release. Only INTERACTIVE zoom writes it — setZoom()
+ * (the launch cinematic driver) never does.
+ */
+const ZOOM_KEY = "lastMeridian_zoom";
+
+/** The saved zoom clamped to the live min/max, or defaultZoom if absent/bad. */
+function loadSavedZoom(): number {
+  const cfg = GameConfig.camera;
+  try {
+    const raw = localStorage.getItem(ZOOM_KEY);
+    if (raw === null) return cfg.defaultZoom;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return cfg.defaultZoom;
+    return clamp(parsed, cfg.minZoom, cfg.maxZoom);
+  } catch {
+    return cfg.defaultZoom;
+  }
+}
+
+function saveZoom(zoom: number): void {
+  try {
+    localStorage.setItem(ZOOM_KEY, String(zoom));
+  } catch {
+    // Storage unavailable (private mode etc.) — the zoom just won't persist.
+  }
+}
+
+/**
  * Angled top-down camera that smoothly follows the player, with a
  * trauma-based shake on top.
  *
@@ -48,8 +79,11 @@ export class CameraRig {
   /**
    * Live zoom factor multiplying the base offset. 1.0 = default framing;
    * driven by the +/- keys via update(), clamped to [minZoom, maxZoom].
+   * Starts at the pilot's persisted preference (falls back to defaultZoom).
    */
-  private zoom = GameConfig.camera.defaultZoom;
+  private zoom = loadSavedZoom();
+  /** Interactive zoom changed since the last save — persist on key release. */
+  private zoomDirty = false;
 
   constructor(scene: Scene, flipped = false) {
     const cfg = GameConfig.camera;
@@ -124,12 +158,20 @@ export class CameraRig {
     // --- Apply zoom input (+ = closer, - = further) ---
     // zoomInput is -1 / 0 / +1. Positive zooms IN (shrinks the offset),
     // negative zooms OUT, scaled by zoomRate so it's frame-rate-independent.
+    // The result is the pilot's zoom PREFERENCE: persisted on key release
+    // (one localStorage write per adjustment, not per frame) so it survives
+    // respawns and sessions. setZoom() (cinematic driver) deliberately
+    // bypasses this — only interactive zoom is a preference.
     if (zoomInput !== 0) {
       this.zoom = clamp(
         this.zoom - zoomInput * cfg.zoomRate * deltaSeconds,
         cfg.minZoom,
         cfg.maxZoom,
       );
+      this.zoomDirty = true;
+    } else if (this.zoomDirty) {
+      this.zoomDirty = false;
+      saveZoom(this.zoom);
     }
 
     // --- Decay trauma ---

@@ -742,6 +742,17 @@ Full design + as-built notes: `docs/JUMP-DRIVE-AND-RESUPPLY.md`. Built sim/view-
   base offset (1.0 = default; clamped to `camera.minZoom..maxZoom`, changed
   at `camera.zoomRate`/sec). `update()` takes a `zoomInput` of -1/0/+1 from
   `Game.tick`. Shake rides on top unscaled, no HUD element.
+- **Zoom is a persisted preference** (`lastMeridian_zoom`): restored by the
+  constructor (clamped to the live min/max; `camera.defaultZoom` is only the
+  first-run fallback) and saved on zoom-key RELEASE — one write per
+  adjustment, never per frame, and only from interactive input (`setZoom()`,
+  the cinematic driver, never persists). The launch cinematic eases down onto
+  it via `LaunchSequence.landingZoom` (stamped from `cameraRig.currentZoom`
+  in `Game.makeLaunchSequence`; `NetworkGame`'s opening shot captures the
+  same landing point before overwriting the rig with `introZoom`). Respawn
+  relaunches stamp the live zoom, which turns the per-frame
+  `setZoom(desiredZoom)` into a no-op — a respawn never resets the pilot's
+  dialed-in zoom.
 - **Shake**: trauma 0..1, decays at `decayRate`/sec. Per-frame offset =
   `maxOffset × trauma² × sine-noise`. Position-only shake (target stays
   on `trackedTarget`) gives a slight angular tilt that reads as a

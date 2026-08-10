@@ -523,6 +523,13 @@ export class NetworkGame {
   private openingShot: boolean | null = null;
   /** Wall-clock ms when OUR catapult fired — starts the opening-shot zoom ease. */
   private launchZoomEaseStartMs: number | null = null;
+  /**
+   * The zoom the opening shot eases DOWN TO — the rig's zoom captured on the
+   * first opening-shot frame, i.e. the pilot's persisted preference restored
+   * by the CameraRig constructor (mirrors solo's LaunchSequence.landingZoom).
+   * Captured before setZoom(introZoom) overwrites the rig.
+   */
+  private openingLandingZoom: number | null = null;
   private ended = false;
   private connectionLost = false;
   /** A resume attempt is in flight (unexpected drop, grace window open). */
@@ -1314,6 +1321,12 @@ export class NetworkGame {
     }
     if (this.openingShot) {
       const launch = GameConfig.launch;
+      // First opening-shot frame: the rig still holds the pilot's restored
+      // zoom preference — remember it as the ease's landing point before
+      // setZoom(introZoom) below overwrites it.
+      if (this.openingLandingZoom === null) {
+        this.openingLandingZoom = this.cameraRig.currentZoom;
+      }
       if (this.launchZoomEaseStartMs === null) {
         if (this.myLaunching) {
           this.cameraRig.setZoom(launch.introZoom);
@@ -1328,7 +1341,7 @@ export class NetworkGame {
         const t = Math.min((nowMs - this.launchZoomEaseStartMs) / durMs, 1);
         const eased = t * t * (3 - 2 * t); // smoothstep — same curve as solo
         this.cameraRig.setZoom(
-          launch.introZoom + (GameConfig.camera.defaultZoom - launch.introZoom) * eased,
+          launch.introZoom + (this.openingLandingZoom - launch.introZoom) * eased,
         );
         if (t >= 1) this.openingShot = false; // spent — zoom keys take over
       }

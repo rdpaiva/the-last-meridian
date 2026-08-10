@@ -246,7 +246,7 @@ client/src/                @space-duel/client — the Babylon view, menus, and e
     LightningSystem.ts     spawns bolts: ambient per-zone cadence + strikeShip() off the stormZap SimEvent; builds the jagged ribbon geometry
     FighterMesh.ts         faction-themed procedural fighter mesh + randomFighterSpawn helper
     MissileWarning.ts      player RWR: polls enemy missiles homing on the player; beep w/ proximity tempo ramp + HUD border pulse + radar threat list
-    CameraRig.ts           top-down camera, velocity lead, trauma-based shake
+    CameraRig.ts           top-down camera, velocity lead, trauma-based shake; zoom = persisted preference (lastMeridian_zoom, restored at construction, saved on key release)
     SpectatorCamera.ts     death spectate: while the redeploy clock runs, the camera follows a live ship (killer first, cycle keys) instead of freezing; fed by Game (sim ships) AND NetworkGame (shadows)
     EngineGlow.ts          core sphere + TrailMesh per ship, thrust-driven; exhaust COLOR is a friend-or-foe channel (faction palette; own ship teal)
     SecondaryThrusters.ts  strafe/reverse puff jets (view)

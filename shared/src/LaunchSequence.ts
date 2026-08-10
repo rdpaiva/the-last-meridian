@@ -29,6 +29,16 @@ export class LaunchSequence {
   private kickPending = false;
 
   /**
+   * The zoom the cinematic eases DOWN TO (and holds until the launch
+   * completes). Set by the client after construction to the pilot's current
+   * (persisted) zoom preference, so the intro lands where the player left the
+   * camera rather than snapping their preference back to the config default.
+   * null = fall back to GameConfig.camera.defaultZoom — the value for
+   * headless/server runs, which never read desiredZoom anyway.
+   */
+  landingZoom: number | null = null;
+
+  /**
    * Total pre-launch freeze for the cinematic (player) launch: the wide intro
    * hold + the 3-2-1 countdown + the lingering "LAUNCH!" banner. The whole
    * launch queue is timed off this base so the wing starts streaming out the
@@ -119,13 +129,17 @@ export class LaunchSequence {
    * sequences are never queried for it).
    *
    * Returns introZoom (full mothership visible) during the intro hold, then
-   * smoothstep-lerps down to the default over the 3-digit countdown, and holds
-   * at the default from LAUNCH! onward.
+   * smoothstep-lerps down to the landing zoom (the pilot's own preference when
+   * the client set `landingZoom`, else the config default) over the 3-digit
+   * countdown, and holds there from LAUNCH! onward. A skip-intro respawn
+   * relaunch returns the landing zoom throughout — with `landingZoom` set to
+   * the rig's live value that's a no-op, so a respawn never resets the zoom
+   * the pilot had dialed in.
    */
   get desiredZoom(): number {
     const cfg = GameConfig.launch;
-    const defaultZoom = GameConfig.camera.defaultZoom;
-    if (!this.cinematic || this.phase !== "hold") return defaultZoom;
+    const landing = this.landingZoom ?? GameConfig.camera.defaultZoom;
+    if (!this.cinematic || this.phase !== "hold") return landing;
 
     if (this.elapsedSec < cfg.introDuration) return cfg.introZoom;
 
@@ -133,7 +147,7 @@ export class LaunchSequence {
     const t = Math.min((this.elapsedSec - cfg.introDuration) / countdownDur, 1);
     // Smoothstep easing: slow start and end, fast middle — feels cinematic.
     const eased = t * t * (3 - 2 * t);
-    return cfg.introZoom + (defaultZoom - cfg.introZoom) * eased;
+    return cfg.introZoom + (landing - cfg.introZoom) * eased;
   }
 
   // ─── Tick ─────────────────────────────────────────────────────────────────
