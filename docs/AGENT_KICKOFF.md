@@ -16,8 +16,8 @@ editing instead of searching.
 
 ---
 
-**State (2026-08-19)**: MULTIPLAYER DIFFICULTY + SOFTER EASY, uncommitted
-on top of `c051f6e`. PROTOCOL_VERSION 30→**31** (JoinOptions gained
+**State (2026-08-19)**: MULTIPLAYER DIFFICULTY + SOFTER EASY, committed
+as `ed27049` on top of `c051f6e`. PROTOCOL_VERSION 30→**31** (JoinOptions gained
 `difficulty`). The difficulty presets moved to **`shared/src/Difficulty.ts`**
 (new; Maps.ts pattern — catalog + injectable-override applier;
 `client/src/game/Difficulty.ts` is now the persistence + solo-apply shim
