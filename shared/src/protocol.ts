@@ -9,7 +9,7 @@ import type { InputState } from "./types";
  * message protocol or to GameConfig (balance lives in shared, so a tweak is a
  * both-sides deploy) — see docs/MULTIPLAYER.md → Decisions (protocol version).
  */
-export const PROTOCOL_VERSION = 30;
+export const PROTOCOL_VERSION = 31;
 
 /** Room name registered on the server + asked for by the client. */
 export const BATTLE_ROOM = "battle";
@@ -41,6 +41,16 @@ export interface JoinOptions {
    * falls back to "random" rather than trusting the client.
    */
   mapSelection: string;
+  /**
+   * The player's difficulty selection (a DifficultyId). Same contract as
+   * mapSelection: consulted only when THIS join CREATES the room — the
+   * creator's pick becomes the room's AI skill level (BattleRoom applies it
+   * server-side before the sim constructs, then replicates the id as
+   * BattleState.difficulty). Joiners inherit the room's level; their value
+   * is ignored. Typed as string on the wire — the server validates with
+   * isDifficultyId and falls back to "medium" rather than trusting the client.
+   */
+  difficulty: string;
 }
 
 /**

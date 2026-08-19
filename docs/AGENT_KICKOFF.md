@@ -16,7 +16,30 @@ editing instead of searching.
 
 ---
 
-**State (2026-08-08)**: AI FLEET DOCTRINE + OBSERVE MODE, one commit on
+**State (2026-08-19)**: MULTIPLAYER DIFFICULTY + SOFTER EASY, uncommitted
+on top of `c051f6e`. PROTOCOL_VERSION 30→**31** (JoinOptions gained
+`difficulty`). The difficulty presets moved to **`shared/src/Difficulty.ts`**
+(new; Maps.ts pattern — catalog + injectable-override applier;
+`client/src/game/Difficulty.ts` is now the persistence + solo-apply shim
+re-exporting it). Online the ROOM owns the difficulty exactly like the
+arena: the creator's pick rides `JoinOptions.difficulty`
+(`NetClient.options`, `main.ts startOnline`), `BattleRoom.onCreate`
+validates (`isDifficultyId`, fallback "medium") + `applyDifficulty()`s it
+server-side before the sim constructs, and replicates it as
+`BattleState.difficulty` (display-only for clients; joiners inherit).
+LoadoutMenu step 3 online now shows the difficulty + arena pickers
+(`rows()`, `stageMission()` — invite joins still get no pickers). EASY
+SOFTENED per the owner (too hard even on Easy): reactionSec 0.55→0.7,
+engagementRange 100→85, fireRange 22→20, fireConeAngle 0.14→0.10,
+missileCooldownSec 14→18, missileMaxRange 80→65 (escort/hunt stay 1/1).
+Typecheck green, 61/61 tests (`tests/server/battleRoom.test.ts` joinOpts
+now pins `difficulty: "medium"`). NOTE: protocol bump = both-sides deploy.
+Open thread (separate, not queued): owner's gamepad RT/LT thrust dead on
+his WINDOWS machine only (works on macOS) — suspected non-standard-mapping
+triggers-as-axes; needs his pad's `navigator.getGamepads()` readout, then
+a fallback in `GamepadSteering.trigger()`.
+
+Prior batch: **State (2026-08-08)**: AI FLEET DOCTRINE + OBSERVE MODE, one commit on
 top of `3fc9b0c` (the owner's commit of the 2026-08-05 terrain-walls/
 planetside batch below). PROTOCOL_VERSION 29→**30** (GameConfig changed:
 `ai.engagementRange`, new `ai.defendOrbitBand`). The doctrine batch, in

@@ -17,6 +17,7 @@ export * from "./Faction";
 export * from "./Callsigns";
 export * from "./WingPlan";
 export * from "./Maps";
+export * from "./Difficulty";
 
 // AI + awareness
 export * from "./AIController";

@@ -7,6 +7,7 @@ import {
   isMapSelection,
   sanitizePilotName,
   type ConcreteMapId,
+  type DifficultyId,
   type JoinOptions,
   type Faction,
   type MapId,
@@ -22,6 +23,9 @@ export interface NetLoadout {
   /** Arena selection — becomes the room's map if THIS join creates the room
    *  (joiners inherit the existing room's arena; see protocol.ts). */
   mapSelection?: MapId;
+  /** AI skill level — becomes the room's difficulty if THIS join creates the
+   *  room (same creator-owns contract as mapSelection). */
+  difficulty?: DifficultyId;
 }
 
 /**
@@ -112,6 +116,7 @@ export class NetClient {
       shipType: loadout.shipType,
       pilotName: sanitizePilotName(loadout.pilotName ?? ""),
       mapSelection: loadout.mapSelection ?? "random",
+      difficulty: loadout.difficulty ?? "medium",
     };
   }
 

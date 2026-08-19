@@ -208,6 +208,11 @@ export const BattleState = schema(
      *  at room creation from the creator's selection; every client applies
      *  this exact map before building its view, so the boards match. */
     mapId: "string",
+    /** The room's AI skill level — a DifficultyId (shared Difficulty.ts).
+     *  Set once at room creation from the creator's selection; the server
+     *  already applied it to its sim, so clients read this for DISPLAY only
+     *  (joiners see what they're flying into). */
+    difficulty: "string",
     /** "launching" | "playing" | "ended" */
     phase: "string",
     /** "" | "humans" | "machines" */

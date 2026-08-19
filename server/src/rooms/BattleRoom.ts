@@ -28,6 +28,8 @@ import {
   applyMap,
   isMapSelection,
   resolveMapId,
+  applyDifficulty,
+  isDifficultyId,
 } from "@space-duel/shared";
 
 import {
@@ -146,6 +148,17 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     const mapId = resolveMapId(isMapSelection(selection) ? selection : "random");
     applyMap(mapId);
     this.state.mapId = mapId;
+
+    // The room's AI skill level, same contract as the arena: the creator's
+    // validated pick (fallback "medium"), applied to GameConfig before the
+    // sim constructs — the AI pilots live in THIS process, so this is the
+    // only apply that tunes them. Joiners inherit via state.difficulty.
+    // Disjoint knobs from the map (ai/commander vs battlefield), so the
+    // apply order doesn't matter.
+    const requested = options?.difficulty;
+    const difficulty = isDifficultyId(requested) ? requested : "medium";
+    applyDifficulty(difficulty);
+    this.state.difficulty = difficulty;
 
     // Per-room seed: reproducible within a match, different across matches.
     BattleSim.seedRng((Math.random() * 0xffffffff) >>> 0);

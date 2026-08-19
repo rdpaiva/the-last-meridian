@@ -1,90 +1,31 @@
-import { GameConfig } from "@space-duel/shared";
+import {
+  applyDifficulty as applySharedDifficulty,
+  isDifficultyId,
+  type DifficultyId,
+} from "@space-duel/shared";
 import { isOverridden } from "./ConfigOverrides";
 
 /**
- * Difficulty presets — a named bundle of ENEMY-skill tuning chosen on the
- * splash menu, parallel to the arena Map (see Maps.ts). Difficulty changes how
- * sharp and aggressive the AI opposition is; it does NOT touch the player's own
- * side (the allied wing is a fixed baseline — see GameConfig.player.wingmen).
+ * Client shim over the SHARED difficulty catalog (shared/Difficulty.ts) —
+ * same shape as Maps.ts over the shared arena catalog. The presets themselves
+ * live shared so the server can apply them too; this file owns what's
+ * client-only: selection persistence and the SOLO applier that wires the
+ * ConfigOverrides precedence in (an explicit match-settings override beats
+ * the difficulty baseline).
  *
- * HOW IT'S APPLIED: like Maps, `applyDifficulty` writes its knobs INTO the live
- * GameConfig at startup, before any system constructs (every system copies its
- * config at construction). Call it once per launch, alongside applyMap.
- *
- * PRECEDENCE: a knob is written ONLY when the player hasn't hand-tuned it in
- * match settings (ConfigOverrides) — same rule Maps uses, so an explicit
- * override always beats the difficulty baseline. Difficulty and Maps touch
- * disjoint knobs (Maps = battlefield setup; difficulty = ai/commander), so
- * their apply order doesn't matter.
- *
- * The knobs are the enemy's reflexes (`ai.reactionSec`), willingness/accuracy
- * (`ai.fireConeAngle`, `ai.fireRange`, `ai.engagementRange`), missile pressure
- * (`ai.missileCooldownSec`, `ai.missileMaxRange`), and how many fleet ships
- * actively press you (`commander.escortCount`, `commander.huntCount`).
+ * Online the ROOM owns the difficulty: the creator's pick rides JoinOptions,
+ * BattleRoom validates + applies it server-side (where the AI pilots actually
+ * live), and joiners inherit it via the replicated BattleState.difficulty —
+ * the client never applies difficulty locally for an online match.
  */
 
-export type DifficultyId = "easy" | "medium" | "hard";
-
-/** Menu order, easiest first. */
-export const DIFFICULTY_ORDER: readonly DifficultyId[] = ["easy", "medium", "hard"];
-
-export interface DifficultyConfig {
-  id: DifficultyId;
-  /** Splash card title. */
-  name: string;
-  /** One-line flavor for the card. */
-  blurb: string;
-  /** Sparse GameConfig overrides (dot-path → value) this level applies. */
-  knobs: Record<string, number>;
-}
-
-export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
-  easy: {
-    id: "easy",
-    name: "Easy",
-    blurb: "Green pilots. Slow to react, hold their fire, hunt you in ones.",
-    knobs: {
-      "ai.reactionSec": 0.55,
-      "ai.engagementRange": 100,
-      "ai.fireRange": 22,
-      "ai.fireConeAngle": 0.14,
-      "ai.missileCooldownSec": 14,
-      "ai.missileMaxRange": 80,
-      "commander.escortCount": 1,
-      "commander.huntCount": 1,
-    },
-  },
-  medium: {
-    id: "medium",
-    name: "Normal",
-    blurb: "A fair fight. Competent enemies that press but won't overwhelm you.",
-    knobs: {
-      "ai.reactionSec": 0.4,
-      "ai.engagementRange": 140,
-      "ai.fireRange": 24,
-      "ai.fireConeAngle": 0.19,
-      "ai.missileCooldownSec": 9,
-      "ai.missileMaxRange": 100,
-      "commander.escortCount": 2,
-      "commander.huntCount": 2,
-    },
-  },
-  hard: {
-    id: "hard",
-    name: "Hard",
-    blurb: "Ace squadrons. Fast reflexes, accurate guns, missiles and packs on you.",
-    knobs: {
-      "ai.reactionSec": 0.22,
-      "ai.engagementRange": 180,
-      "ai.fireRange": 28,
-      "ai.fireConeAngle": 0.26,
-      "ai.missileCooldownSec": 6,
-      "ai.missileMaxRange": 120,
-      "commander.escortCount": 3,
-      "commander.huntCount": 3,
-    },
-  },
-};
+export {
+  DIFFICULTIES,
+  DIFFICULTY_ORDER,
+  type DifficultyConfig,
+  type DifficultyId,
+} from "@space-duel/shared";
+export { isDifficultyId };
 
 // ─── Persistence ─────────────────────────────────────────────────────────────
 // Persists alongside the loadout + map (its own `lastMeridian_*` key). Default
@@ -92,16 +33,12 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
 
 const KEY = "lastMeridian_difficulty";
 
-function isValid(v: unknown): v is DifficultyId {
-  return v === "easy" || v === "medium" || v === "hard";
-}
-
 /** The persisted difficulty, defaulting to "medium" (also the fallback for an
  *  unknown/corrupt/missing stored value). */
 export function loadSavedDifficulty(): DifficultyId {
   try {
     const v = localStorage.getItem(KEY);
-    return isValid(v) ? v : "medium";
+    return isDifficultyId(v) ? v : "medium";
   } catch {
     return "medium";
   }
@@ -116,26 +53,11 @@ export function saveDifficulty(id: DifficultyId): void {
   }
 }
 
-function deepSet(obj: unknown, path: string, value: number): void {
-  const parts = path.split(".");
-  let cur: unknown = obj;
-  for (let i = 0; i < parts.length - 1; i++) {
-    if (cur === null || typeof cur !== "object") return;
-    cur = (cur as Record<string, unknown>)[parts[i]];
-  }
-  if (cur === null || typeof cur !== "object") return;
-  (cur as Record<string, number>)[parts[parts.length - 1]] = value;
-}
-
 /**
- * Write a difficulty level's enemy-skill knobs into the live GameConfig. Call
- * ONCE at startup, after applyStoredOverrides (so a hand-tuned knob wins) and
- * before `new Game(...)`.
+ * SOLO launch: write the difficulty's enemy-skill knobs into the live
+ * GameConfig with match-settings precedence. Call ONCE at startup, after
+ * applyStoredOverrides and before `new Game(...)`.
  */
 export function applyDifficulty(id: DifficultyId): void {
-  const cfg = DIFFICULTIES[id];
-  for (const [path, value] of Object.entries(cfg.knobs)) {
-    if (isOverridden(path)) continue; // explicit match-settings override wins
-    deepSet(GameConfig, path, value);
-  }
+  applySharedDifficulty(id, { isOverridden });
 }

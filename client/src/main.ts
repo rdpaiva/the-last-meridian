@@ -275,10 +275,13 @@ async function startOnline(base: ReturnType<typeof loadSavedLoadout>): Promise<v
   // CREATES the room (quick match to an empty server, WITH FRIENDS host, or
   // the faction-full fallback create); joining an existing room inherits its
   // arena instead — either way the server replicates the resolved map back.
+  // Difficulty rides on the same room-creator contract: the server applies
+  // it to ITS sim (where the AI pilots live) — no client-side apply here.
   const loadout = {
     ...base,
     pilotName: loadPilotName(),
     mapSelection: loadSavedMapSelection(),
+    difficulty: loadSavedDifficulty(),
   };
   // Status lands where the player is looking: the loadout's online launch
   // CTA (step 3) or the CONTINUE CTA (step 1) — setOnlineStatus feeds both.

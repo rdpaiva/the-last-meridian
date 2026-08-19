@@ -49,6 +49,9 @@ const joinOpts = (over: Partial<JoinOptions> = {}): JoinOptions => ({
   // Pin the arena: the creating join's selection becomes the room's map, and
   // a "random" board (midline rocks, storm zaps) would make these sims flaky.
   mapSelection: "openVoid",
+  // Pin the AI skill level too — the creating join's pick becomes the room's
+  // difficulty, and these sims are tuned against the stock-ish baseline.
+  difficulty: "medium",
   ...over,
 });
 
