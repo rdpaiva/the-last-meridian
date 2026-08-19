@@ -46,11 +46,12 @@ const joinOpts = (over: Partial<JoinOptions> = {}): JoinOptions => ({
   faction: "humans",
   shipType: "spitfire",
   pilotName: "",
-  // Pin the arena: the creating join's selection becomes the room's map, and
-  // a "random" board (midline rocks, storm zaps) would make these sims flaky.
+  // Pin the arena + AI skill level: a "random" board (midline rocks, storm
+  // zaps, concealment nebulas over the test's fixed drag points) would make
+  // these sims flaky. NOTE: onCreate reads the CREATE options, not a joiner's
+  // — the pins only hold because every colyseus.createRoom in this file
+  // passes joinOpts() too (creating with {} rolled a random map for years).
   mapSelection: "openVoid",
-  // Pin the AI skill level too — the creating join's pick becomes the room's
-  // difficulty, and these sims are tuned against the stock-ish baseline.
   difficulty: "medium",
   ...over,
 });
@@ -92,7 +93,7 @@ describe("BattleRoom integration", () => {
   it(
     "replicates a full AI-backfilled battle to a joining client",
     async () => {
-      const room = await colyseus.createRoom(BATTLE_ROOM, {});
+      const room = await colyseus.createRoom(BATTLE_ROOM, joinOpts());
       const client = await colyseus.connectTo(room, joinOpts({ pilotName: "Maverick" }));
       // Wait for the first replicated patch to reach the client.
       expect(await waitUntil(() => (client.state?.ships?.size ?? 0) > 0)).toBe(true);
@@ -147,7 +148,7 @@ describe("BattleRoom integration", () => {
   it(
     "advances the shared sim on the server (launches clear, ships move)",
     async () => {
-      const room = await colyseus.createRoom(BATTLE_ROOM, {});
+      const room = await colyseus.createRoom(BATTLE_ROOM, joinOpts());
       const client = await colyseus.connectTo(room, joinOpts());
       // The fleets hold in their tubes until a client reports ready.
       client.send(MSG.ready, {});
@@ -178,7 +179,7 @@ describe("BattleRoom integration", () => {
   it(
     "replays client input into its seat over the wire (NetworkController seam)",
     async () => {
-      const room = await colyseus.createRoom(BATTLE_ROOM, {});
+      const room = await colyseus.createRoom(BATTLE_ROOM, joinOpts());
       const client = await colyseus.connectTo(room, joinOpts());
 
       // The seat this client occupies, found server-side.
@@ -222,7 +223,7 @@ describe("BattleRoom integration", () => {
   it(
     "relays sim FX events to clients (Phase 2 event replication)",
     async () => {
-      const room = await colyseus.createRoom(BATTLE_ROOM, {});
+      const room = await colyseus.createRoom(BATTLE_ROOM, joinOpts());
       const client = await colyseus.connectTo(room, joinOpts());
       const batches: EventsMessage[] = [];
       client.onMessage(MSG.events, (msg: EventsMessage) => batches.push(msg));
@@ -257,7 +258,7 @@ describe("BattleRoom integration", () => {
   it(
     "makes a joining human the faction's formation leader (escort wing), and hands it back on leave",
     async () => {
-      const room = await colyseus.createRoom(BATTLE_ROOM, {});
+      const room = await colyseus.createRoom(BATTLE_ROOM, joinOpts());
       const inner = room as unknown as {
         sim: { worldByFaction: Record<string, { leader: { position: unknown } | null }> };
         seatBySession: Map<string, { combatant: { ship: unknown } }>;
@@ -285,7 +286,7 @@ describe("BattleRoom integration", () => {
   it(
     "holds a dropped seat for reconnection: AI flies it meanwhile, reclaim restores occupant + callsign + leadership",
     async () => {
-      const room = await colyseus.createRoom(BATTLE_ROOM, {});
+      const room = await colyseus.createRoom(BATTLE_ROOM, joinOpts());
       const inner = room as unknown as {
         sim: { worldByFaction: Record<string, { leader: unknown }> };
         seatBySession: Map<string, { combatant: { ship: unknown } }>;
@@ -359,7 +360,7 @@ describe("BattleRoom integration", () => {
       const realLinger = GameConfig.net.endedRoomLingerSec;
       GameConfig.net.endedRoomLingerSec = 5;
       try {
-        const room = await colyseus.createRoom(BATTLE_ROOM, {});
+        const room = await colyseus.createRoom(BATTLE_ROOM, joinOpts());
         const roomId = room.roomId;
         const inner = room as unknown as {
           sim: { motherships: { machines: { takeDamage(n: number): void } } };
@@ -422,7 +423,7 @@ describe("BattleRoom integration", () => {
   it(
     "sensor-filters enemy replication (anti-wallhack), friendlies always on the wire",
     async () => {
-      const room = await colyseus.createRoom(BATTLE_ROOM, {});
+      const room = await colyseus.createRoom(BATTLE_ROOM, joinOpts());
       const client = await colyseus.connectTo(room, joinOpts()); // humans seat
       const inner = room as unknown as {
         seats: Array<{
@@ -494,7 +495,7 @@ describe("BattleRoom integration", () => {
   it(
     "replicates the match scoreboard unfiltered: a row per seat, identity swaps, kill/death tallies",
     async () => {
-      const room = await colyseus.createRoom(BATTLE_ROOM, {});
+      const room = await colyseus.createRoom(BATTLE_ROOM, joinOpts());
       const client = await colyseus.connectTo(room, joinOpts({ pilotName: "Maverick" }));
       const inner = room as unknown as {
         lastHitBy: Map<string, string>;
@@ -577,7 +578,7 @@ describe("BattleRoom integration", () => {
   it(
     "rejects a protocol-version mismatch",
     async () => {
-      const room = await colyseus.createRoom(BATTLE_ROOM, {});
+      const room = await colyseus.createRoom(BATTLE_ROOM, joinOpts());
       await expect(
         colyseus.connectTo(room, joinOpts({ protocolVersion: PROTOCOL_VERSION + 999 })),
       ).rejects.toBeDefined();
@@ -588,7 +589,7 @@ describe("BattleRoom integration", () => {
   it(
     "refuses a faction-full join with the typed FACTION_FULL code",
     async () => {
-      const room = await colyseus.createRoom(BATTLE_ROOM, {});
+      const room = await colyseus.createRoom(BATTLE_ROOM, joinOpts());
       // Fill every humans seat (claimSeat falls back across ship types, so
       // faction-full means ALL of the faction's seats are taken).
       const seats = fleetCount("humans");
