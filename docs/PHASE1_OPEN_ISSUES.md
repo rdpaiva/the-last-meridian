@@ -18,6 +18,36 @@ test suite is **20/20 green** (`npm test`). PROTOCOL_VERSION is **17** —
 stale tabs get a clean join rejection (rendered as "NEW VERSION —
 refresh"), so always reload after pulling.
 
+## 2026-08-31 — scoreboard credited humans' kills to bots (protocol 31→32)
+
+Owner-reported from a live MP match: the other human finished with 54 kills
+but the end board showed **Silent Hymn 54/12/7560** (a machines bot's
+callsign), the reporter's banner read `KILLS 0 · SCORE 0` beside their own row
+of 10/11/1600, and the board had exactly 14 rows = the 7+7 fleet roster, i.e.
+no row was ever created for a human.
+
+Root cause: `state.scores` held one row per SEAT (`buildFleet`), and joining
+only *renamed* it (`syncScoreIdentity` wrote `callsign` + `isAI`, nothing
+else). `onLeave` renamed it straight back to `seat.aiCallsign` with the
+human's tally still on it — so any drop, even transient, moved a human's match
+onto a bot's name; and a rejoin, which is a new sessionId claiming a different
+free seat, inherited *that* bot's ledger. Reconnection reservations
+(`seat.pilotCallsign`/`reserved`) only ever covered same-session Colyseus
+reconnection inside `net.reconnectGraceSec`; a page reload never qualifies.
+
+Fix: score identity split from seat identity — `ai:<seatId>` bot ledgers and
+`pilot:<key>` human ledgers, with `Seat.scoreRowId` as the indirection and
+`rowForSeat` resolving kill credit through the seat's current occupant. Full
+invariants + gotchas in SUBSYSTEMS → "Scoreboard identity". `ScoreSchema`
+gained `owner` + `frozen` (protocol 31→**32**, both-sides deploy).
+
+Semantics were the owner's call, taken this session: key pilot rows by
+**sanitized pilot name** (a reload resumes the tally in any seat; same-name
+pilots share a row — accepted), and **hide a frozen bot row only while its
+tally is all-zero**. Proof: `tests/server/battleRoom.test.ts` "a pilot
+rejoining after a drop resumes their own tally, never a bot's" (62/62 green).
+Not yet playtested live.
+
 ## 2026-07-18 — strategic layer merged to `main`; owner cleared the queue
 
 `feat/strategic-layer` (14 commits, protocol 17→27: capture stations +

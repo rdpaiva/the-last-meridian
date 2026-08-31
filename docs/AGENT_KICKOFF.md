@@ -16,7 +16,38 @@ editing instead of searching.
 
 ---
 
-**State (2026-08-19)**: MULTIPLAYER DIFFICULTY + SOFTER EASY, committed
+**State (2026-08-31)**: SCOREBOARD BUG FIXED — pilot-owned score rows.
+PROTOCOL_VERSION 31→**32** (`ScoreSchema` gained fields = both-sides deploy).
+THE DEFECT: `state.scores` held exactly one row per SEAT, minted in
+`buildFleet`, and occupancy swaps merely RENAMED it (`syncScoreIdentity`) — so
+`onLeave` handed a human's whole match to the seat's bot, and a reload (a new
+sessionId → `claimSeat` gives a different seat) inherited THAT bot's ledger.
+THE FIX: score identity is now separate from seat identity. Rows are keyed
+`ai:<seatId>` (a seat's own bot ledger, one per seat from birth) or
+`pilot:<key>` (a human's ledger, created on join, RESUMED on rejoin, following
+them seat to seat). `Seat.scoreRowId` is the indirection — `lastHitBy` still
+trades in seat ids, and `rowForSeat` resolves both victim and shooter through
+the seat's CURRENT occupant, so credit lands on whoever is actually flying.
+`attachPilotRow`/`detachPilotRow` replace `syncScoreIdentity` (deleted) at all
+three occupancy sites (join / leave / reconnection reclaim); a leaving pilot's
+row keeps its tally and stays on the board with `owner` cleared, never renamed.
+`ScoreSchema` gained `owner` (sessionId of the live human, "" otherwise — the
+client's "my row" test, replacing the `id === myKey` ship-id match) and
+`frozen` (a bot ledger parked while a human holds its seat; the client hides
+frozen rows with an all-zero tally, so a bot that scored BEFORE the human sat
+down keeps its earned row). Third symptom fixed too: the banner's
+`KILLS · SCORE` was a page-load-local counter — `NetworkGame` now reconciles
+`playerKills`/`score` against its replicated row each scoreboard rebuild
+(`rollBestScore` extracted), so banner and row cannot disagree. Offline
+`ScoreBoard` needed no behavior change (solo has no join/leave; a Ship instance
+IS a stable pilot identity) — parity documented in its header. Typecheck green,
+**62/62 tests** (+1: `tests/server/battleRoom.test.ts` "a pilot rejoining after
+a drop resumes their own tally, never a bot's" — leave → NEW sessionId rejoin →
+same row, tally intact, no AI row wearing the kills; the existing scoreboard
+test was rewritten off the old seat-owned assertions). NOT YET PLAYTESTED by
+the owner on a live MP match. NOTE: protocol bump = both-sides deploy.
+
+Prior batch: **State (2026-08-19)**: MULTIPLAYER DIFFICULTY + SOFTER EASY, committed
 as `ed27049` on top of `c051f6e`. PROTOCOL_VERSION 30→**31** (JoinOptions gained
 `difficulty`). The difficulty presets moved to **`shared/src/Difficulty.ts`**
 (new; Maps.ts pattern — catalog + injectable-override applier;
@@ -39,7 +70,7 @@ his WINDOWS machine only (works on macOS) — suspected non-standard-mapping
 triggers-as-axes; needs his pad's `navigator.getGamepads()` readout, then
 a fallback in `GamepadSteering.trigger()`.
 
-Prior batch: **State (2026-08-08)**: AI FLEET DOCTRINE + OBSERVE MODE, one commit on
+Earlier: **State (2026-08-08)**: AI FLEET DOCTRINE + OBSERVE MODE, one commit on
 top of `3fc9b0c` (the owner's commit of the 2026-08-05 terrain-walls/
 planetside batch below). PROTOCOL_VERSION 29→**30** (GameConfig changed:
 `ai.engagementRange`, new `ai.defendOrbitBand`). The doctrine batch, in
@@ -184,6 +215,14 @@ recur):
   in `docs/PHASE1_OPEN_ISSUES.md`.
 
 **Work order**:
+
+- ~~**BUG: the scoreboard credits a human pilot's kills to a BOT.**~~ FIXED
+  2026-08-31 (see the State line above). Semantics were the owner's call, taken
+  this session: pilot rows key by SANITIZED NAME (a reload resumes the tally in
+  any seat; same-name pilots deliberately share a row), and a seat's bot ledger
+  is hidden from the board while frozen-and-untouched. Left as a known,
+  accepted seam: two pilots typing the same callsign share one row (documented
+  at `BattleRoom.pilotRowKey`).
 
 - **Owner playtest: The Canyon on real walls, planetside**. Expected
   sights: a dusk desert landscape scrolling far below with real parallax

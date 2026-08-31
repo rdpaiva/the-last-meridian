@@ -99,20 +99,34 @@ export const AsteroidSchema = schema(
 export type AsteroidSchema = SchemaType<typeof AsteroidSchema>;
 
 /**
- * One pilot's running match tally — the scoreboard/leaderboard row. Keyed by
- * the seat's ship id (same key as the ships map). Identity (callsign/faction/
- * isAI) is carried HERE rather than joined from ShipSchema because the ships
- * map is sensor-filtered: a stealthed enemy's ShipSchema may never replicate
- * to a client, but its scoreboard row must.
+ * One pilot's running match tally — the scoreboard/leaderboard row. Identity
+ * (callsign/faction/isAI) is carried HERE rather than joined from ShipSchema
+ * because the ships map is sensor-filtered: a stealthed enemy's ShipSchema may
+ * never replicate to a client, but its scoreboard row must.
+ *
+ * SCORE IDENTITY IS NOT SEAT IDENTITY. Rows are keyed `ai:<seatId>` (a seat's
+ * bot ledger) or `pilot:<key>` (a human's own ledger, which follows them from
+ * seat to seat) — see BattleRoom.pilotRowKey. Rows used to be one-per-seat and
+ * merely RENAMED on occupancy swaps, which credited a human's whole match to
+ * the seat's bot the moment they dropped or reloaded.
  */
 export const ScoreSchema = schema(
   {
-    /** = the seat's ship id (the ships-map key). */
+    /** Row key in the scores map: `ai:<seatId>` or `pilot:<key>`. */
     id: "string",
-    /** Pilot display name — swaps with seat occupancy, like ShipSchema's. */
+    /** Display name: the bot's designation, or the human's pilot name. */
     callsign: "string",
     faction: "string",
     isAI: "boolean",
+    /** SessionId of the human flying this row RIGHT NOW, "" when nobody is
+     *  (a disconnected pilot's row keeps its tally with owner cleared). The
+     *  client's "which row is mine" test — never the ship id. */
+    owner: "string",
+    /** True while this row is parked and not accruing: a seat's bot ledger
+     *  whose seat a human currently holds. Frozen rows with an all-zero tally
+     *  are hidden from the board (they are pure noise); a bot that scored
+     *  before the human sat down keeps its earned row visible. */
+    frozen: "boolean",
     kills: "number",
     deaths: "number",
     /** Sum of victims' maxHp — same currency as the client's score line. */

@@ -1039,6 +1039,57 @@ is the first `"planet"` map.
   MapEditor environment toggle (drafts test-fly as "space"), more themes
   (ocean, ice, derelict-hull surface).
 
+## Scoreboard identity (ScoreSchema / ScoreBoard)
+
+**THE INVARIANT: a scoreboard row belongs to a PILOT, never to a seat.**
+Breaking this is what produced the 2026-08-21 bug report — a human finishing
+with 54 kills whose whole match showed on a bot's name.
+
+Online (`BattleRoom` + `server/src/schema/BattleState.ts`), `state.scores` is
+keyed two ways:
+
+- `ai:<seatId>` — a seat's own bot ledger. Minted for every seat in
+  `buildFleet` and scored on whenever the seat is AI-flown.
+- `pilot:<key>` — one human's ledger. Created in `attachPilotRow` on join,
+  **resumed** on rejoin, and it follows the pilot from seat to seat.
+
+`Seat.scoreRowId` is the indirection that makes this work. Kill attribution
+(`lastHitBy`) still trades in *seat* ids, because that is what the sim's
+events carry; `rowForSeat` resolves victim and shooter through the seat's
+**current** occupant at `shipDied` time, so credit always lands on whoever is
+actually flying. The three occupancy sites — `onJoin`, `onLeave`, and the
+reconnection reclaim — call `attachPilotRow`/`detachPilotRow`; there is
+deliberately no "rename the row" path any more (the old `syncScoreIdentity`
+was exactly that, and was the defect).
+
+Gotchas worth keeping:
+
+- **A leave never renames or deletes a pilot's row.** It clears `owner` and
+  hands the *seat* back to its bot ledger. The tally stays on the board.
+- **Pilot rows key by sanitized NAME, not session.** A page reload — which
+  both the end-banner Enter and Esc paths do — arrives as a brand-new
+  sessionId and claims whatever seat is free, so name is the only handle that
+  survives it. Accepted cost, documented at `pilotRowKey`: two pilots typing
+  the same callsign share a row. Anonymous joins get a session-scoped row so
+  they don't all collide in one bucket.
+- **`owner`, not the ship id, answers "which row is mine".** The client test
+  is `owner === net.sessionId` (`NetworkGame.scoreRows`). An `id === myKey`
+  match is the seat-owned thinking that caused the bug.
+- **`frozen`** marks a bot ledger parked while a human holds its seat. The
+  client hides frozen rows whose tally is all-zero (pure noise); a bot that
+  scored *before* the human sat down keeps its earned row.
+- **The banner is not an independent counter.** `NetworkGame.recordKill`
+  still increments locally for instant feedback, but each scoreboard rebuild
+  reconciles `playerKills`/`score` against the replicated row — otherwise a
+  rejoining pilot's banner reads 0 beside a row reading 10/11/1600, which is
+  precisely the third symptom in the original report.
+
+Offline (`client/src/game/ScoreBoard.ts`) needs no equivalent machinery: a
+solo match has no join/leave, so a `Ship` instance *is* a stable pilot
+identity for the whole match. If seat handover ever comes to solo (hot-seat,
+AI takeover), that map must move off `Ship` the same way `ScoreSchema` moved
+off the seat id.
+
 ## Splash flow (loadout front door / intro gate)
 - `main.ts` owns a small state machine; the current state lives in
   `data-state` on `#splash` and ALL visibility is CSS keyed off that

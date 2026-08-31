@@ -493,7 +493,7 @@ describe("BattleRoom integration", () => {
   );
 
   it(
-    "replicates the match scoreboard unfiltered: a row per seat, identity swaps, kill/death tallies",
+    "replicates the match scoreboard unfiltered: a bot ledger per seat, a pilot-owned row per human, kill/death tallies",
     async () => {
       const room = await colyseus.createRoom(BATTLE_ROOM, joinOpts());
       const client = await colyseus.connectTo(room, joinOpts({ pilotName: "Maverick" }));
@@ -502,47 +502,60 @@ describe("BattleRoom integration", () => {
         seats: Array<{
           faction: string;
           occupant: string | null;
+          scoreRowId: string;
           schema: { id: string };
           combatant: { ship: { maxHp: number; takeDamage(n: number): void } };
         }>;
       };
       expect(await waitUntil(() => (client.state?.ships?.size ?? 0) > 0)).toBe(true);
 
-      // Every seat has a scoreboard row from birth, with id parity to the
-      // ships map — and the CLIENT sees ALL of them (the scores map is
-      // unfiltered root state) even while the sensor filter hides the whole
-      // enemy fleet from its ships map.
-      expect(room.state.scores.size).toBe(TOTAL_SHIPS);
+      // Every seat has a BOT ledger from birth, keyed `ai:<seatId>` — and the
+      // CLIENT sees ALL of them (the scores map is unfiltered root state) even
+      // while the sensor filter hides the whole enemy fleet from its ships map.
+      // Plus one PILOT-owned row for the human: seats no longer own tallies.
+      expect(room.state.scores.size).toBe(TOTAL_SHIPS + 1);
       for (const id of room.state.ships.keys()) {
-        expect(room.state.scores.has(id)).toBe(true);
+        expect(room.state.scores.has(`ai:${id}`)).toBe(true);
       }
-      expect(await waitUntil(() => client.state.scores.size === TOTAL_SHIPS)).toBe(true);
+      expect(
+        await waitUntil(() => client.state.scores.size === TOTAL_SHIPS + 1),
+      ).toBe(true);
       expect(
         [...client.state.ships.values()].filter((s) => s.faction === "machines"),
       ).toHaveLength(0);
 
-      // The occupied seat's row wears the human identity (name + isAI=false).
+      // The human flies their OWN row (stamped with their sessionId so the
+      // client can find it); the seat's bot ledger parks, frozen, untouched.
       const mySeat = inner.seats.find((s) => s.occupant === client.sessionId)!;
-      const myRow = room.state.scores.get(mySeat.schema.id)!;
+      const myRowId = mySeat.scoreRowId;
+      expect(myRowId).toBe("pilot:Maverick");
+      const myRow = room.state.scores.get(myRowId)!;
       expect(myRow.callsign).toBe("Maverick");
       expect(myRow.isAI).toBe(false);
+      expect(myRow.owner).toBe(client.sessionId);
+      expect(myRow.frozen).toBe(false);
+      const parkedBotRow = room.state.scores.get(`ai:${mySeat.schema.id}`)!;
+      expect(parkedBotRow.isAI).toBe(true);
+      expect(parkedBotRow.frozen).toBe(true);
+      expect(parkedBotRow.callsign).not.toBe("Maverick");
 
       client.send(MSG.ready, {});
       expect(await waitUntil(() => room.state.phase === "playing")).toBe(true);
 
       // An attributed kill: stamp the last-hit ledger the way a real laserHit
-      // would, then destroy the victim — the shooter's row must gain the kill
-      // and the victim's max hull as score, the victim's row the death.
+      // would, then destroy the victim. lastHitBy trades in SEAT ids, so this
+      // also proves the credit resolves through the seat to the PILOT's row.
       const victim = inner.seats.find((s) => s.faction === "machines")!;
-      const shooterId = mySeat.schema.id;
-      inner.lastHitBy.set(victim.schema.id, shooterId);
+      inner.lastHitBy.set(victim.schema.id, mySeat.schema.id);
       victim.combatant.ship.takeDamage(1e9);
       expect(
-        await waitUntil(() => room.state.scores.get(shooterId)!.kills === 1),
-        "attributed kill never tallied on the shooter's row",
+        await waitUntil(() => room.state.scores.get(myRowId)!.kills === 1),
+        "attributed kill never tallied on the shooter's pilot row",
       ).toBe(true);
-      expect(room.state.scores.get(shooterId)!.score).toBe(victim.combatant.ship.maxHp);
-      expect(room.state.scores.get(victim.schema.id)!.deaths).toBe(1);
+      expect(room.state.scores.get(myRowId)!.score).toBe(victim.combatant.ship.maxHp);
+      expect(room.state.scores.get(victim.scoreRowId)!.deaths).toBe(1);
+      // The kill went to the human, NOT to the bot whose seat they borrowed.
+      expect(room.state.scores.get(`ai:${mySeat.schema.id}`)!.kills).toBe(0);
 
       // An unattributed death (no hit on the ledger) counts the death only —
       // no phantom kill credit anywhere.
@@ -551,26 +564,106 @@ describe("BattleRoom integration", () => {
       )!;
       bystander.combatant.ship.takeDamage(1e9);
       expect(
-        await waitUntil(() => room.state.scores.get(bystander.schema.id)!.deaths === 1),
+        await waitUntil(() => room.state.scores.get(bystander.scoreRowId)!.deaths === 1),
       ).toBe(true);
       const totalKills = [...room.state.scores.values()].reduce((n, r) => n + r.kills, 0);
       expect(totalKills).toBe(1);
 
       // The tally reaches the client's replicated copy too.
-      expect(
-        await waitUntil(() => client.state.scores.get(shooterId)?.kills === 1),
-      ).toBe(true);
+      expect(await waitUntil(() => client.state.scores.get(myRowId)?.kills === 1)).toBe(
+        true,
+      );
 
       await client.leave();
-      // The seat hands back to AI: the row renames (kills stay with the SEAT).
+      // The seat hands back to AI — and the kill STAYS with the pilot. The
+      // bot's ledger un-freezes to resume scoring on its own, still at zero:
+      // the whole bug was this handover renaming the human's row to the bot.
       expect(
         await waitUntil(() => {
-          const row = room.state.scores.get(shooterId);
-          return row !== undefined && row.isAI && row.callsign !== "Maverick";
+          const bot = room.state.scores.get(`ai:${mySeat.schema.id}`);
+          return bot !== undefined && !bot.frozen && bot.kills === 0;
         }),
-        "scoreboard row never resumed the AI identity after the leave",
+        "the seat's bot ledger never resumed after the leave",
       ).toBe(true);
-      expect(room.state.scores.get(shooterId)!.kills).toBe(1);
+      const left = room.state.scores.get(myRowId)!;
+      expect(left.kills).toBe(1);
+      expect(left.callsign).toBe("Maverick");
+      expect(left.isAI).toBe(false);
+      expect(left.owner).toBe(""); // on the board, tally intact, nobody flying it
+    },
+    60_000,
+  );
+
+  it(
+    "a pilot rejoining after a drop resumes their own tally, never a bot's",
+    async () => {
+      const room = await colyseus.createRoom(BATTLE_ROOM, joinOpts());
+      // A second pilot keeps the room alive across Maverick's leave (an
+      // emptied room auto-disposes) — and doubles as the multi-human case.
+      const keepalive = await colyseus.connectTo(room, joinOpts({ pilotName: "Goose" }));
+      const first = await colyseus.connectTo(room, joinOpts({ pilotName: "Maverick" }));
+      const inner = room as unknown as {
+        lastHitBy: Map<string, string>;
+        seats: Array<{
+          faction: string;
+          occupant: string | null;
+          scoreRowId: string;
+          schema: { id: string };
+          combatant: { ship: { maxHp: number; takeDamage(n: number): void } };
+        }>;
+      };
+      expect(await waitUntil(() => (first.state?.ships?.size ?? 0) > 0)).toBe(true);
+      first.send(MSG.ready, {});
+      expect(await waitUntil(() => room.state.phase === "playing")).toBe(true);
+
+      const firstSeat = inner.seats.find((s) => s.occupant === first.sessionId)!;
+      const victim = inner.seats.find((s) => s.faction === "machines")!;
+      inner.lastHitBy.set(victim.schema.id, firstSeat.schema.id);
+      victim.combatant.ship.takeDamage(1e9);
+      expect(
+        await waitUntil(() => room.state.scores.get("pilot:Maverick")!.kills === 1),
+      ).toBe(true);
+      const earned = room.state.scores.get("pilot:Maverick")!.score;
+
+      // The drop: a page reload arrives as a BRAND-NEW sessionId (never a
+      // Colyseus reconnection), and claimSeat is free to hand out a different
+      // seat — the exact path that used to dump the tally onto a bot's name.
+      await first.leave();
+      expect(await waitUntil(() => firstSeat.occupant === null)).toBe(true);
+      const second = await colyseus.connectTo(room, joinOpts({ pilotName: "Maverick" }));
+      expect(second.sessionId).not.toBe(first.sessionId);
+      expect(await waitUntil(() => (second.state?.ships?.size ?? 0) > 0)).toBe(true);
+
+      // Same row, same tally, now owned by the new session — and no bot
+      // anywhere on the board is wearing the pilot's kills or name.
+      const resumed = room.state.scores.get("pilot:Maverick")!;
+      expect(await waitUntil(() => resumed.owner === second.sessionId)).toBe(true);
+      expect(resumed.kills).toBe(1);
+      expect(resumed.score).toBe(earned);
+      expect(resumed.isAI).toBe(false);
+      for (const row of room.state.scores.values()) {
+        if (row.isAI) {
+          expect(row.kills).toBe(0);
+          expect(row.callsign).not.toBe("Maverick");
+        }
+      }
+      // Rejoining creates no duplicate: the roster is the fleet's bot ledgers
+      // plus exactly one row per distinct pilot name.
+      expect(room.state.scores.size).toBe(TOTAL_SHIPS + 2);
+
+      // A further kill keeps accumulating on the SAME row (continuing tally).
+      const seatNow = inner.seats.find((s) => s.occupant === second.sessionId)!;
+      const victim2 = inner.seats.find(
+        (s) => s.faction === "machines" && s.schema.id !== victim.schema.id,
+      )!;
+      inner.lastHitBy.set(victim2.schema.id, seatNow.schema.id);
+      victim2.combatant.ship.takeDamage(1e9);
+      expect(
+        await waitUntil(() => room.state.scores.get("pilot:Maverick")!.kills === 2),
+        "the rejoined pilot's kills did not keep accruing on their own row",
+      ).toBe(true);
+
+      await keepalive.leave();
     },
     60_000,
   );

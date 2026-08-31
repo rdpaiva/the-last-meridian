@@ -311,6 +311,9 @@ export class NetworkGame {
   private wingKills = 0;
   private score = 0;
   private bestScore = 0;
+  /** Our own replicated scoreboard row, refreshed on each rebuild (null until
+   *  the server has stamped one with our sessionId). The banner's authority. */
+  private myRow: ScoreRow | null = null;
 
   // Interpolation state, keyed by ship id.
   private readonly snaps = new Map<string, Snap[]>();
@@ -1469,6 +1472,15 @@ export class NetworkGame {
       this.lastScoreboardMs = nowMs;
       const scoreRows = this.scoreRows();
       if (scoreRows.length > 0) this.hud.setScoreboard(scoreRows);
+      // The banner's KILLS · SCORE line is a client-local counter that starts
+      // at 0 every page load; our replicated row is the authority and carries
+      // the tally across a rejoin. Reconcile so the two can never disagree
+      // (they used to, loudly: banner 0 · 0 beside a row reading 10/11/1600).
+      if (this.myRow) {
+        this.playerKills = this.myRow.kills;
+        this.score = this.myRow.score;
+        this.rollBestScore();
+      }
     }
     if (state?.humansMothership && state.machinesMothership) {
       // Carrier sims mirror the replicated HP: the radar diamond drops and the
@@ -2573,18 +2585,24 @@ export class NetworkGame {
     const shooterId = e.by;
     if (e.vf !== this.enemyFaction || shooterId === "") return;
     if (shooterId === this.myKey) {
+      // Instant banner feedback on the kill; the next scoreboard rebuild
+      // reconciles both counters against our replicated row (the authority).
       this.playerKills++;
       this.score += GameConfig.shipTypes[e.vt].maxHp;
-      if (this.score > this.bestScore) {
-        this.bestScore = this.score;
-        try {
-          localStorage.setItem(BEST_SCORE_KEY, String(this.bestScore));
-        } catch {
-          // Storage unavailable — the in-session best still shows.
-        }
-      }
+      this.rollBestScore();
     } else if (this.meta.get(shooterId)?.faction === this.playerFaction) {
       this.wingKills++;
+    }
+  }
+
+  /** Roll the persistent best if this match has passed it. */
+  private rollBestScore(): void {
+    if (this.score <= this.bestScore) return;
+    this.bestScore = this.score;
+    try {
+      localStorage.setItem(BEST_SCORE_KEY, String(this.bestScore));
+    } catch {
+      // Storage unavailable — the in-session best still shows.
     }
   }
 
@@ -2945,6 +2963,11 @@ export class NetworkGame {
    * the scoreboard panel + end-of-game board. The scores map is UNFILTERED
    * root state, so every pilot is here — never-seen stealthed enemies and
    * all history a late joiner missed included. Empty until the first patch.
+   *
+   * Rows are PILOT-owned, not seat-owned (see ScoreSchema): "my row" is the
+   * one the server stamped with our sessionId — never a ship-id match, which
+   * is exactly the confusion that used to credit a human's match to a bot.
+   * Side effect: caches our own row so the HUD banner can agree with it.
    */
   private scoreRows(): ScoreRow[] {
     const state = this.net.room.state as unknown as {
@@ -2955,6 +2978,8 @@ export class NetworkGame {
             callsign: string;
             faction: string;
             isAI: boolean;
+            owner: string;
+            frozen: boolean;
             kills: number;
             deaths: number;
             score: number;
@@ -2963,16 +2988,24 @@ export class NetworkGame {
       };
     };
     const rows: ScoreRow[] = [];
+    this.myRow = null;
     state.scores?.forEach((e) => {
-      rows.push({
+      // A seat's bot ledger, parked while a human flies that seat, with
+      // nothing on it yet: pure noise on the board. A bot that scored before
+      // the human sat down keeps its earned row.
+      if (e.frozen && e.kills === 0 && e.deaths === 0 && e.score === 0) return;
+      const isPlayer = e.owner !== "" && e.owner === this.net.sessionId;
+      const row: ScoreRow = {
         callsign: e.callsign,
         faction: e.faction as Faction,
         kills: e.kills,
         deaths: e.deaths,
         score: e.score,
-        isPlayer: e.id === this.myKey,
+        isPlayer,
         isHuman: !e.isAI,
-      });
+      };
+      if (isPlayer) this.myRow = row;
+      rows.push(row);
     });
     return rows;
   }

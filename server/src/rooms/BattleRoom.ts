@@ -64,7 +64,19 @@ interface Seat {
   /** SessionId holding a reconnection-grace reservation on this seat (the AI
    *  flies it meanwhile, but claimSeat won't give it away). null = free. */
   reserved: string | null;
+  /** Scoreboard row this seat's kills and deaths credit to right now: its own
+   *  `ai:<id>` bot ledger while AI-flown, the occupant's `pilot:<key>` row
+   *  while a human holds it. THE indirection that keeps score identity
+   *  separate from seat identity. */
+  scoreRowId: string;
+  /** The occupant's pilot-row key — held across a disconnect so a
+   *  reconnection reclaim resumes the same ledger. "" when no human is
+   *  attached to the seat. */
+  pilotRowId: string;
 }
+
+/** This seat's own bot ledger — the row it scores on whenever AI-flown. */
+const aiRowId = (seatId: string): string => `ai:${seatId}`;
 
 const SIM_HZ = 30;
 const PATCH_HZ = 20;
@@ -121,6 +133,9 @@ export class BattleRoom extends Room<{ state: BattleState }> {
   };
   /** Live sim Ship → its Seat (event relay lookups: ship type on the wire). */
   private readonly seatByShip = new Map<Ship, Seat>();
+  /** Seat id (= ship id, the kill-attribution currency) → its Seat. Kill
+   *  credit resolves through here to the seat's CURRENT scoreRowId. */
+  private readonly seatById = new Map<string, Seat>();
   /**
    * Per-client replication view (sensor-filtered replication, Phase 2): the
    * `ships` map is view-tagged, so a client receives exactly the entries in
@@ -259,7 +274,10 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     const pilotName = sanitizePilotName(options.pilotName);
     seat.schema.callsign = pilotName !== "" ? pilotName : seat.aiCallsign;
     seat.pilotCallsign = seat.schema.callsign; // survives a disconnect for the reclaim
-    this.syncScoreIdentity(seat);
+    // Score identity ≠ seat identity: the kills go on a row this PILOT owns,
+    // which a rejoin (a fresh sessionId, very likely a different seat) finds
+    // again by name. The seat's bot ledger parks, frozen, until they leave.
+    this.attachPilotRow(seat, client.sessionId, this.pilotRowKey(pilotName, client.sessionId));
     this.seatBySession.set(client.sessionId, seat);
 
     // Sensor-filtered replication: this client's view starts with every
@@ -292,7 +310,10 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     seat.schema.isAI = true;
     seat.schema.owner = "";
     seat.schema.callsign = seat.aiCallsign; // the bot resumes its designation
-    this.syncScoreIdentity(seat);
+    // The bot resumes scoring on its OWN ledger. The human's row keeps every
+    // kill it earned and stays on the board, just unowned — so a drop (even a
+    // transient one) can no longer move their match onto a bot's name.
+    this.detachPilotRow(seat, client.sessionId);
     this.retaskLeader(seat.faction);
 
     if (code === CloseCode.CONSENTED || this.matchEnded) {
@@ -301,6 +322,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
       // reservation would only delay the ended room's disposal.
       this.clientViews.delete(client.sessionId);
       seat.pilotCallsign = "";
+      seat.pilotRowId = "";
       return;
     }
 
@@ -321,13 +343,24 @@ export class BattleRoom extends Room<{ state: BattleState }> {
       seat.schema.owner = client.sessionId;
       seat.schema.callsign =
         seat.pilotCallsign !== "" ? seat.pilotCallsign : seat.aiCallsign;
-      this.syncScoreIdentity(seat);
+      // Same session, same row: pilotRowId survived the window, so the pilot
+      // picks their ledger back up exactly where the drop left it. (The
+      // fallback is unreachable while onJoin always stamps a row — it just
+      // refuses to mint an ""-keyed row if that ever stops being true.)
+      this.attachPilotRow(
+        seat,
+        client.sessionId,
+        seat.pilotRowId !== "" ? seat.pilotRowId : this.pilotRowKey("", client.sessionId),
+      );
       this.seatBySession.set(client.sessionId, seat);
       this.retaskLeader(seat.faction);
     } catch {
-      // Window elapsed (or the room disposed): the AI keeps the seat.
+      // Window elapsed (or the room disposed): the AI keeps the seat. The
+      // pilot's row stays on the board with its tally — a reload rejoining
+      // under the same name resumes it.
       seat.reserved = null;
       seat.pilotCallsign = "";
+      seat.pilotRowId = "";
       this.clientViews.delete(client.sessionId);
     }
   }
@@ -496,9 +529,12 @@ export class BattleRoom extends Room<{ state: BattleState }> {
       // Scoreboard tally (the replicated running leaderboard): the death
       // always counts; a non-empty attribution credits the shooter the
       // victim's max hull — the same score currency as the client HUD.
-      const victimScore = this.state.scores.get(victim);
+      // lastHitBy trades in SEAT ids; both sides resolve through the seat's
+      // current occupant to a row, so the credit lands on whoever is actually
+      // flying — the human's own row, or the bot's once they hand it back.
+      const victimScore = this.rowForSeat(this.seatByShip.get(ship));
       if (victimScore) victimScore.deaths++;
-      const shooterScore = by !== "" ? this.state.scores.get(by) : undefined;
+      const shooterScore = by !== "" ? this.rowForSeat(this.seatById.get(by)) : undefined;
       if (shooterScore) {
         shooterScore.kills++;
         shooterScore.score += ship.maxHp;
@@ -741,10 +777,11 @@ export class BattleRoom extends Room<{ state: BattleState }> {
         const callsign = aiCallsign(faction, index);
         schema.callsign = callsign;
         this.state.ships.set(schema.id, schema);
-        // Every seat gets a scoreboard row from birth (0/0/0) — kills stay
-        // with the SEAT across human↔AI occupancy swaps (the row renames via
-        // syncScoreIdentity, matching how the seat keeps its ship/HP).
-        this.state.scores.set(schema.id, this.makeScoreSchema(schema.id, callsign, faction));
+        // Every seat gets a BOT ledger from birth (0/0/0), which it scores on
+        // whenever AI-flown. A human taking the seat does not rename this row;
+        // they bring their own (attachPilotRow) and this one parks, frozen.
+        const rowId = aiRowId(schema.id);
+        this.state.scores.set(rowId, this.makeScoreSchema(rowId, callsign, faction));
         this.shipIds.set(ship, schema.id);
         const seat: Seat = {
           id: schema.id,
@@ -759,9 +796,12 @@ export class BattleRoom extends Room<{ state: BattleState }> {
           aiCallsign: callsign,
           pilotCallsign: "",
           reserved: null,
+          scoreRowId: rowId,
+          pilotRowId: "",
         };
         this.seats.push(seat);
         this.seatByShip.set(ship, seat);
+        this.seatById.set(schema.id, seat);
         pilots.push({ ship, ai });
       }
     }
@@ -821,23 +861,79 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     score.callsign = callsign;
     score.faction = faction;
     score.isAI = true;
+    score.owner = "";
+    score.frozen = false;
     score.kills = 0;
     score.deaths = 0;
     score.score = 0;
     return score;
   }
 
+  // ─── Scoreboard rows (pilot-owned, NOT seat-owned) ──────────────────────────
+
   /**
-   * Mirror a seat's replicated identity (callsign + isAI) onto its scoreboard
-   * row — call after every occupancy swap site that rewrites seat.schema
-   * (join, leave, reconnection reclaim). The tally itself stays with the seat.
+   * The scoreboard row key for a joining human. Named pilots key by their
+   * SANITIZED NAME, deliberately: a page reload (both the end-banner Enter and
+   * Esc paths call window.location.reload()) arrives as a brand-new sessionId
+   * and claims whatever seat is free, so name is the only handle that survives
+   * it — key by session and every reload would restart the pilot at 0/0/0 and
+   * orphan their old row. The accepted cost: two pilots typing the same
+   * callsign share a row (they are already indistinguishable on the board).
+   * Anonymous joins have no name to key on, so they get a session-scoped row
+   * rather than all colliding in one anonymous bucket.
    */
-  private syncScoreIdentity(seat: Seat): void {
-    const entry = this.state.scores.get(seat.id);
-    if (entry) {
-      entry.callsign = seat.schema.callsign;
-      entry.isAI = seat.schema.isAI;
+  private pilotRowKey(pilotName: string, sessionId: string): string {
+    return pilotName !== "" ? `pilot:${pilotName}` : `pilot:@${sessionId}`;
+  }
+
+  /**
+   * Point a seat's tally at its occupant's own row (creating it on a first
+   * join, RESUMING it on a rejoin) and park the seat's bot ledger, frozen, for
+   * the duration. Called from every site where a human takes a seat: onJoin
+   * and the reconnection reclaim.
+   */
+  private attachPilotRow(seat: Seat, sessionId: string, rowId: string): void {
+    let row = this.state.scores.get(rowId);
+    if (!row) {
+      row = this.makeScoreSchema(rowId, seat.schema.callsign, seat.faction);
+      this.state.scores.set(rowId, row);
     }
+    row.callsign = seat.schema.callsign;
+    row.faction = seat.faction; // a rejoin may well land on the other side
+    row.isAI = false;
+    row.owner = sessionId;
+    row.frozen = false;
+    seat.pilotRowId = rowId;
+    seat.scoreRowId = rowId;
+    this.setAiRowFrozen(seat, true);
+  }
+
+  /**
+   * Hand a seat's tally back to its own bot ledger, which resumes accruing.
+   * The pilot's row is NOT deleted or renamed — it keeps every kill and stays
+   * on the board, merely unowned, ready for them to rejoin onto.
+   */
+  private detachPilotRow(seat: Seat, sessionId: string): void {
+    if (seat.pilotRowId !== "") {
+      const row = this.state.scores.get(seat.pilotRowId);
+      // Clear ownership only if it is still OURS: two pilots who typed the
+      // same callsign share a row (pilotRowKey), and one of them leaving must
+      // not strip the other's "this row is mine" highlight.
+      if (row && row.owner === sessionId) row.owner = "";
+    }
+    seat.scoreRowId = aiRowId(seat.id);
+    this.setAiRowFrozen(seat, false);
+  }
+
+  /** The scoreboard row a seat is currently scoring on (undefined if the seat
+   *  or its row is gone — an unattributed or already-cleaned-up death). */
+  private rowForSeat(seat: Seat | undefined): ScoreSchema | undefined {
+    return seat ? this.state.scores.get(seat.scoreRowId) : undefined;
+  }
+
+  private setAiRowFrozen(seat: Seat, frozen: boolean): void {
+    const row = this.state.scores.get(aiRowId(seat.id));
+    if (row) row.frozen = frozen;
   }
 
   private initMothershipSchema(schema: MothershipSchema, faction: Faction): void {

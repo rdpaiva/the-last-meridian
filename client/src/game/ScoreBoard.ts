@@ -16,6 +16,13 @@ import { compareScoreRows, type ScoreRow } from "./Hud";
  * Keyed by Ship instance — solo respawns reuse the same Ship, so a pilot's
  * tally survives its deaths. Turret/asteroid deaths stay unattributed
  * (turret bolts carry shooter: null); the death still counts.
+ *
+ * Parity with the online board (BattleRoom's pilot-owned ScoreSchema rows):
+ * both key a tally to the PILOT, never to the seat. Offline that costs
+ * nothing — a solo match has no join/leave, so a Ship instance IS a stable
+ * pilot identity for the whole match, and there are no frozen/unowned rows to
+ * represent. If seat handover ever comes to solo (hot-seat, AI takeover),
+ * this map must move off Ship the way ScoreSchema moved off the seat id.
  */
 export class ScoreBoard {
   private readonly entries = new Map<Ship, ScoreRow>();
