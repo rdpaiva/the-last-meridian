@@ -76,6 +76,7 @@ import { FleetCommander, WingCommander, type CommandedPilot } from "@space-duel/
 import type { ShipController, ControllerWorld, AvoidObstacle } from "@space-duel/shared";
 import { buildFighterMesh } from "./FighterMesh";
 import type { DamageTarget, InputState } from "@space-duel/shared";
+import { FlightSchool, TrainingTargetController } from "./FlightSchool";
 
 /** Match lifecycle. The match has a beginning (launch), middle (playing), end. */
 type GameState = "launching" | "playing" | "victory" | "defeat";
@@ -256,6 +257,10 @@ export class Game {
   private wingCommander: WingCommander | null = null;
   /** AI-exhibition mode: the player's seat is AI-flown, the camera spectates. */
   private readonly spectateMode: boolean;
+  /** Guided solo course: one inert target, normal player systems, no battle. */
+  private readonly flightSchoolMode: boolean;
+  private flightSchool: FlightSchool | null = null;
+  private flightSchoolTarget: Ship | null = null;
   /** The HUD text-cluster root — OBSERVE mode toggles it per-frame to track
    *  whether the camera is following a ship (stats) or holding a wide shot. */
   private readonly hudRoot: HTMLDivElement;
@@ -360,9 +365,12 @@ export class Game {
        * only (never persisted), so CONTINUE/quick-play always fly normally.
        */
       spectate?: boolean;
+      /** Launch the guided five-lesson training range. */
+      flightSchool?: boolean;
     },
   ) {
     this.spectateMode = opts?.spectate ?? false;
+    this.flightSchoolMode = opts?.flightSchool ?? false;
     this.hudRoot = hudRoot;
     this.engine = new Engine(
       canvas,
@@ -772,11 +780,25 @@ export class Game {
     const loaded = await loader.loadPlayerShip(playerType.model);
     // The AI opposition flies the OTHER faction's fleet; the wing list is the
     // player's faction's.
-    const enemyFleet = GameConfig.fleets[this.enemyFaction];
+    const enemyFleet = this.flightSchoolMode
+      ? {
+          fleet: [
+            {
+              type: GameConfig.factionShips[this.enemyFaction][
+                GameConfig.factionShips[this.enemyFaction].length - 1
+              ],
+              count: 1,
+            },
+          ],
+          strikeCount: 0,
+        }
+      : GameConfig.fleets[this.enemyFaction];
     // The wing is resolved from the RUNTIME loadout (role counts → concrete
     // types), so "2 of your ship + 2 of the other type + 2 gunship guards"
     // tracks the ship you actually picked. See WingPlan.resolveWingPlan.
-    const wingPlan = resolveWingPlan(this.playerFaction, this.playerShipTypeId);
+    const wingPlan = this.flightSchoolMode
+      ? []
+      : resolveWingPlan(this.playerFaction, this.playerShipTypeId);
     // One clone template per unique GLB an AI ship needs: the enemy fleet
     // composition, plus any wingman flying a type OTHER than the player's
     // (same-type wingmen clone the player's loaded model instead). A type
@@ -959,8 +981,12 @@ export class Game {
       const template = type.model ? (shipTemplates.get(type.model) ?? null) : null;
       for (let i = 0; i < entry.count; i++, fleetIndex++) {
         const { ship, view } = this.makeFighter(this.enemyFaction, type, template);
-        let controller: AIController;
-        if (fleetIndex < enemyFleet.strikeCount) {
+        let controller: ShipController;
+        const isTrainingTarget = this.flightSchoolMode && fleetIndex === 0;
+        if (isTrainingTarget) {
+          controller = new TrainingTargetController();
+          this.flightSchoolTarget = ship;
+        } else if (fleetIndex < enemyFleet.strikeCount) {
           controller = new AIController({ order: "strike" });
         } else if (fleetIndex < escortEnd) {
           // Escorts reuse the wing's slot generator — a generic expanding V
@@ -974,7 +1000,9 @@ export class Game {
         } else {
           controller = new AIController({ order: "patrol" });
         }
-        enemyPilots.push({ ship, ai: controller });
+        if (controller instanceof AIController) {
+          enemyPilots.push({ ship, ai: controller });
+        }
         this.combatants.push({
           ship,
           view,
@@ -1001,7 +1029,12 @@ export class Game {
           });
         }
         this.aiDamageFlashes.set(ship, new DamageFlash(this.scene, view.root, this.glowLayer, new Color3(2.5, 1.5, 0.2)));
-        this.shipCallsigns.set(ship, aiCallsign(this.enemyFaction, fleetIndex));
+        this.shipCallsigns.set(
+          ship,
+          isTrainingTarget
+            ? "TARGET DRONE"
+            : aiCallsign(this.enemyFaction, fleetIndex),
+        );
       }
     }
 
@@ -1011,11 +1044,13 @@ export class Game {
     if (enemyPilots.length > 0) {
       this.worldByFaction[this.enemyFaction].leader = enemyPilots[0].ship;
     }
-    this.fleetCommander = new FleetCommander(
-      enemyPilots,
-      enemyFleet.strikeCount,
-      this.worldByFaction[this.enemyFaction],
-    );
+    if (!this.flightSchoolMode) {
+      this.fleetCommander = new FleetCommander(
+        enemyPilots,
+        enemyFleet.strikeCount,
+        this.worldByFaction[this.enemyFaction],
+      );
+    }
 
     // Wire combat targets: every ship is a target of the opposing faction's
     // lasers AND missiles. Every pilot also gets a scoreboard row (the player
@@ -1109,6 +1144,21 @@ export class Game {
     // wing on its own carrier instead of pre-scattered next to the player.
     this.state = "launching";
     this.assignInitialLaunches();
+
+    if (this.flightSchoolMode && this.playerShip && this.flightSchoolTarget) {
+      const targetCombatant = this.combatants.find(
+        (c) => c.ship === this.flightSchoolTarget,
+      );
+      if (targetCombatant) targetCombatant.launch = null;
+      this.flightSchool = new FlightSchool({
+        player: this.playerShip,
+        target: this.flightSchoolTarget,
+        home: this.motherships[this.playerFaction],
+        input: this.input.state,
+        events: this.events,
+        resetPlayerTrails: () => this.engineGlow?.resetTrails(),
+      });
+    }
 
     this.music.playPlaylist("game");
     this.engine.runRenderLoop(this.tick);
@@ -1975,6 +2025,11 @@ export class Game {
 
       this.updateViews(deltaSeconds, deltaMs, nowMs, inHitstop, simStepRan);
 
+      this.flightSchool?.update(
+        this.state === "playing" && this.playerLaunch === null,
+        this.playerServiceState,
+      );
+
       this.scene.render();
     } catch (err) {
       console.error("[Game] render loop frame failed", err);
@@ -2161,16 +2216,18 @@ export class Game {
     // picture and fires into that faction's LaserSystem (shooter = null — a
     // turret isn't a Ship; onHit/feedback handle a null shooter). Bolts go
     // into the carrier's OWN faction system, so a humans turret hits machines.
-    for (const f of ["humans", "machines"] as Faction[]) {
-      const ms = this.motherships[f];
-      const fires = ms.updateTurrets(deltaSeconds, this.sensors.contacts[f], nowMs);
-      for (const cmd of fires) {
-        this.factionLasers[f].spawn(cmd.origin, cmd.rotationY, null, cmd.damage, true, cmd.velocityY);
-        this.events.emit("turretFired", {
-          faction: f,
-          origin: cmd.origin,
-          rotationY: cmd.rotationY,
-        });
+    if (!this.flightSchoolMode) {
+      for (const f of ["humans", "machines"] as Faction[]) {
+        const ms = this.motherships[f];
+        const fires = ms.updateTurrets(deltaSeconds, this.sensors.contacts[f], nowMs);
+        for (const cmd of fires) {
+          this.factionLasers[f].spawn(cmd.origin, cmd.rotationY, null, cmd.damage, true, cmd.velocityY);
+          this.events.emit("turretFired", {
+            faction: f,
+            origin: cmd.origin,
+            rotationY: cmd.rotationY,
+          });
+        }
       }
     }
 
@@ -2655,7 +2712,11 @@ export class Game {
       for (const c of this.combatants) {
         if (c === this.playerCombatant || c.launch !== null || !c.ship.isAlive) continue;
         const friendly = c.ship.faction === this.playerFaction;
-        if (!friendly && c.ship !== this.lockTarget) continue;
+        if (
+          !friendly &&
+          c.ship !== this.lockTarget &&
+          c.ship !== this.flightSchoolTarget
+        ) continue;
         const sign = this.shipCallsigns.get(c.ship);
         if (!sign) continue;
         this.nameplates.show(sign, sign, c.ship.position.x, c.ship.position.z, "ai", c.ship.faction);
@@ -2903,6 +2964,7 @@ export class Game {
 
   /** Win when the enemy mothership falls; lose when yours does. */
   private checkObjectives(): void {
+    if (this.flightSchoolMode) return;
     if (this.state !== "playing" && this.state !== "launching") return;
     if (!this.motherships[this.enemyFaction].isAlive) {
       this.endMatch("victory", this.motherships[this.enemyFaction]);

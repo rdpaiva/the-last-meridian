@@ -8,6 +8,10 @@ capital-ship silhouettes.
 
 Built with **Vite + TypeScript + Babylon.js**.
 
+New pilots can launch **Flight School** from the mode screen for five guided,
+hands-on exercises using the real flight, weapons, docking, and jump-drive
+systems. The Field Manual remains available as the deeper reference guide.
+
 ---
 
 ## Quick start

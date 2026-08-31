@@ -2,6 +2,7 @@ import { GameConfig, PILOT_NAME_MAX, type ShipTypeId } from "@space-duel/shared"
 import { FACTION_THEME, opposing, type Faction } from "@space-duel/shared";
 import {
   hasSavedLoadout,
+  hasCompletedFlightSchool,
   hasSeenGuide,
   hasSeenIntro,
   loadPilotName,
@@ -46,6 +47,8 @@ export interface LoadoutActions {
   openMapEditor(): void;
   /** Open the Field Manual card deck (FieldManual.ts). */
   openManual(): void;
+  /** Launch the guided solo training scenario. */
+  startFlightSchool(): void;
 }
 
 /**
@@ -560,15 +563,16 @@ export class LoadoutMenu {
       </div>`;
   }
 
-  /** A gold strip above the footer rail pointing first-timers at the Field
-   *  Manual. Shows until the manual is opened once (lastMeridian_guideSeen) —
-   *  opening it marks it seen, and the re-render on click retires the strip. */
+  /** A gold strip above the footer rail pointing first-timers at Flight School
+   *  and the Field Manual. It retires after both onboarding paths are complete. */
   private rookieCallout(): string {
-    if (hasSeenGuide()) return "";
+    if (hasSeenGuide() && hasCompletedFlightSchool()) return "";
     return `
       <div class="lo-rookie">
         <span class="lo-rookie-star">★</span>
-        ROOKIE PILOTS — new to the cockpit? Review the
+        ROOKIE PILOTS — learn by flying in
+        <button class="lo-rookie-link" id="loadout-rookie-school">FLIGHT SCHOOL</button>
+        or review the
         <button class="lo-rookie-link" id="loadout-rookie-manual">FIELD MANUAL</button>
         before your first sortie.
       </div>`;
@@ -669,6 +673,14 @@ export class LoadoutMenu {
           <div class="mode-name">MULTIPLAYER</div>
           <div class="mode-desc">Quick-match onto the server, or share your invite link and fly against a friend.</div>
         </div>
+      </div>
+      <div class="flight-school-entry${hasCompletedFlightSchool() ? " complete" : ""}">
+        <div class="flight-school-entry-copy">
+          <span class="flight-school-entry-kicker">${hasCompletedFlightSchool() ? "CERTIFICATION EARNED" : "NEW PILOT ORIENTATION"}</span>
+          <strong>FLIGHT SCHOOL</strong>
+          <span>Five guided exercises: flight, guns, missile lock, carrier service, and the Meridian Drive.</span>
+        </div>
+        <button id="loadout-flight-school">${hasCompletedFlightSchool() ? "REFLY COURSE" : "BEGIN TRAINING"}</button>
       </div>
       <div class="callsign-block">
         <label class="callsign-label" for="pilot-name">Callsign</label>
@@ -829,6 +841,12 @@ export class LoadoutMenu {
     this.root
       .querySelector<HTMLButtonElement>("#loadout-manual")
       ?.addEventListener("click", () => this.actions.openManual());
+    this.root
+      .querySelector<HTMLButtonElement>("#loadout-flight-school")
+      ?.addEventListener("click", () => this.actions.startFlightSchool());
+    this.root
+      .querySelector<HTMLButtonElement>("#loadout-rookie-school")
+      ?.addEventListener("click", () => this.actions.startFlightSchool());
     // The rookie callout's link: open the manual (which marks it seen), then
     // re-render so the strip is gone when the overlay closes.
     this.root

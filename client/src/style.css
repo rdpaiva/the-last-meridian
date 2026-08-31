@@ -801,6 +801,77 @@ video.faction-portrait-video {
   color: #5b6680;
 }
 
+/* Flight School is a direct launch beside the normal mode flow: prominent
+   enough for a first sortie, compact enough not to become a third game mode. */
+.flight-school-entry {
+  width: min(760px, 92%);
+  margin: 0 auto;
+  padding: 13px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border: 1px solid rgba(116, 199, 236, 0.38);
+  border-radius: 7px;
+  background: linear-gradient(90deg, rgba(30, 75, 95, 0.32), rgba(11, 13, 22, 0.76));
+  box-shadow: 0 0 24px rgba(116, 199, 236, 0.08);
+}
+
+.flight-school-entry.complete {
+  border-color: rgba(166, 227, 161, 0.35);
+  background: linear-gradient(90deg, rgba(40, 80, 55, 0.28), rgba(11, 13, 22, 0.76));
+}
+
+.flight-school-entry-copy {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 14px;
+  align-items: baseline;
+}
+
+.flight-school-entry-kicker {
+  grid-column: 1 / -1;
+  color: #74c7ec;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+}
+
+.flight-school-entry.complete .flight-school-entry-kicker {
+  color: #a6e3a1;
+}
+
+.flight-school-entry-copy strong {
+  color: #eef2ff;
+  font-size: 14px;
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+}
+
+.flight-school-entry-copy > span:last-child {
+  color: #8a96b8;
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+#loadout-flight-school {
+  flex: 0 0 auto;
+  padding: 10px 15px;
+  border: 1px solid rgba(116, 199, 236, 0.65);
+  border-radius: 4px;
+  background: rgba(116, 199, 236, 0.12);
+  color: #b9e8f5;
+  font: 700 10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.15em;
+  cursor: pointer;
+}
+
+#loadout-flight-school:hover {
+  background: rgba(116, 199, 236, 0.22);
+  box-shadow: 0 0 16px rgba(116, 199, 236, 0.18);
+}
+
 /* ── Step 2: the hangar grid — roster column beside the live preview ── */
 
 .hangar-grid {
@@ -1566,6 +1637,158 @@ body {
 #hud .label {
   color: #7f8aa6;
   margin-right: 6px;
+}
+
+/* Guided objective card. The canvas remains interactive; only the graduation
+   button accepts pointer input. */
+.flight-school {
+  position: fixed;
+  top: 86px;
+  left: 50%;
+  z-index: 12;
+  width: min(600px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  pointer-events: none;
+  user-select: none;
+}
+
+.flight-school.hidden {
+  display: none;
+}
+
+.fs-card {
+  padding: 14px 18px 15px;
+  border: 1px solid rgba(116, 199, 236, 0.42);
+  border-radius: 7px;
+  background: linear-gradient(135deg, rgba(7, 17, 27, 0.94), rgba(11, 13, 22, 0.88));
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4), 0 0 28px rgba(116, 199, 236, 0.1);
+  text-align: center;
+}
+
+.fs-card.complete {
+  border-color: rgba(166, 227, 161, 0.55);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45), 0 0 36px rgba(166, 227, 161, 0.18);
+}
+
+.fs-topline {
+  display: flex;
+  justify-content: space-between;
+  color: #74c7ec;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+}
+
+.fs-card.complete .fs-topline {
+  color: #a6e3a1;
+}
+
+.fs-progress {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 10px 0 8px;
+}
+
+.fs-dot {
+  width: 26px;
+  height: 3px;
+  background: rgba(108, 112, 134, 0.35);
+}
+
+.fs-dot.done {
+  background: rgba(116, 199, 236, 0.7);
+  box-shadow: 0 0 6px rgba(116, 199, 236, 0.4);
+}
+
+.fs-dot.current {
+  background: #f9e2af;
+  box-shadow: 0 0 8px rgba(249, 226, 175, 0.6);
+}
+
+.fs-card h2 {
+  margin: 0 0 7px;
+  color: #eef2ff;
+  font-size: 20px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.fs-card p {
+  max-width: 62ch;
+  margin: 0 auto;
+  color: #aab4d2;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.fs-checklist {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  color: #8a96b8;
+  font-size: 10.5px;
+}
+
+.fs-checklist li span {
+  display: inline-block;
+  width: 16px;
+  color: #6c7086;
+}
+
+.fs-checklist li.done,
+.fs-checklist li.done span {
+  color: #a6e3a1;
+}
+
+.fs-hint {
+  margin-top: 10px;
+  color: #f9e2af;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+#flight-school-finish {
+  margin-top: 14px;
+  padding: 10px 18px;
+  pointer-events: auto;
+  border: 1px solid rgba(166, 227, 161, 0.65);
+  border-radius: 4px;
+  background: rgba(166, 227, 161, 0.14);
+  color: #d8f5d5;
+  font: 700 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+}
+
+#flight-school-finish:hover {
+  background: rgba(166, 227, 161, 0.24);
+}
+
+@media (max-width: 700px) {
+  .flight-school-entry {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .flight-school-entry-copy {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .flight-school {
+    top: 70px;
+  }
+
+  .fs-card {
+    padding-inline: 12px;
+  }
 }
 
 /* Ship nameplates (Nameplates.ts) — callsign labels projected under the

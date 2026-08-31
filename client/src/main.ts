@@ -10,6 +10,8 @@ import {
   FACTION_FULL,
   applyMap as applyServerMap,
   applyMapConfig,
+  GameConfig,
+  type MapConfig,
 } from "@space-duel/shared";
 import { applyStoredOverrides } from "./game/ConfigOverrides";
 import { applyMap, resolveMapId, loadSavedMapSelection } from "./game/Maps";
@@ -212,6 +214,38 @@ function applyActiveMap(): void {
  */
 function applyActiveDifficulty(): void {
   applyDifficulty(loadSavedDifficulty());
+}
+
+/** A quiet, obstruction-free board reserved for the guided course. */
+const FLIGHT_SCHOOL_MAP: Omit<MapConfig, "id"> = {
+  name: "Flight School",
+  blurb: "Commonwealth and Novari pilot certification range.",
+  carrierZ: { player: -650, enemy: 650 },
+  asteroids: { count: 0 },
+  nebulaZones: [],
+  stormZones: [],
+  hazards: [],
+  stations: [],
+};
+
+function startFlightSchool(): void {
+  if (game || netGame || connecting) return;
+  const chosen = menu ? menu.commit() : loadSavedLoadout();
+  // The course includes a required seeker launch. Preserve the selected side,
+  // but temporarily seat the pilot in its first missile-capable trainer.
+  const trainer = GameConfig.factionShips[chosen.faction].find(
+    (id) => GameConfig.shipTypes[id].missileAmmo > 0,
+  );
+  const loadout = { ...chosen, shipType: trainer ?? chosen.shipType };
+
+  stopSplashMusic();
+  preview?.dispose();
+  preview = null;
+  sessionStorage.removeItem(TEST_FLIGHT_FLAG);
+  applyMapConfig(FLIGHT_SCHOOL_MAP);
+  splash!.classList.add("hidden");
+  game = new Game(canvas!, hudRoot!, loadout, { flightSchool: true });
+  void game.start();
 }
 
 /**
@@ -418,6 +452,7 @@ function setState(next: SplashState): void {
           },
           openMapEditor: () => setState("mapEditor"),
           openManual,
+          startFlightSchool,
         });
       }
       preview.start();

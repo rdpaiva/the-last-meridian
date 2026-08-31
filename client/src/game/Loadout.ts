@@ -26,6 +26,7 @@ const FACTION_KEY = "lastMeridian_faction";
 const SHIP_KEY = "lastMeridian_ship";
 const INTRO_KEY = "lastMeridian_introSeen";
 const GUIDE_KEY = "lastMeridian_guideSeen";
+const FLIGHT_SCHOOL_KEY = "lastMeridian_flightSchoolComplete";
 const PILOT_NAME_KEY = "lastMeridian_pilotName";
 const MODE_KEY = "lastMeridian_mode";
 /** Pre-rename single-JSON key — still read as a fallback, removed on save. */
@@ -175,5 +176,22 @@ export function markGuideSeen(): void {
     localStorage.setItem(GUIDE_KEY, "true");
   } catch {
     // Non-essential — the manual just auto-opens again next first run.
+  }
+}
+
+/** True once the pilot has graduated from the interactive Flight School. */
+export function hasCompletedFlightSchool(): boolean {
+  try {
+    return localStorage.getItem(FLIGHT_SCHOOL_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function markFlightSchoolComplete(): void {
+  try {
+    localStorage.setItem(FLIGHT_SCHOOL_KEY, "true");
+  } catch {
+    // Non-essential — the course still completes for this session.
   }
 }
