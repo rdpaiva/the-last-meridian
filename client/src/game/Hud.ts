@@ -136,6 +136,15 @@ export class Hud {
   private readonly jumpRingTextEl: HTMLElement | null;
   /** Last spool tenth written to the ring (write-on-change; per-frame). */
   private lastJumpTenths = -1;
+  /** Latest live spool fraction, retained so a cancel can unwind from the
+   *  exact point the cyan charge ring had reached. */
+  private jumpSpoolProgress = 0;
+  /** Wall-clock start + charge fraction for the red cancellation unwind. */
+  private jumpCancelStartMs: number | null = null;
+  private jumpCancelStartProgress = 0;
+  /** Short full-ring notice shown when J is pressed during drive recharge. */
+  private jumpCooldownNoticeStartMs: number | null = null;
+  private jumpCooldownNoticeRemainingMs = 0;
   private readonly respawnRingEl: HTMLElement;
   private readonly respawnRingTextEl: HTMLElement | null;
   /** "SPECTATING — <callsign>" line under the redeploy ring (death spectate). */
@@ -631,23 +640,112 @@ export class Hud {
     }
   }
 
+  /** Begin the red charge-unwind shown after the pilot cancels a jump. The
+   *  regular per-frame setJumpSpool(null) calls advance and eventually hide
+   *  it, keeping this cosmetic transition independent from the sim cooldown. */
+  cancelJumpSpool(): void {
+    if (this.jumpSpoolProgress <= 0) return;
+    this.jumpCooldownNoticeStartMs = null;
+    this.jumpRingEl.classList.remove("cooldown-denied");
+    this.jumpCancelStartProgress = this.jumpSpoolProgress;
+    this.jumpCancelStartMs = performance.now();
+    this.lastJumpTenths = -1;
+    this.jumpRingEl.classList.add("cancelling");
+    this.jumpRingEl.classList.remove("hidden");
+  }
+
+  /** Show a short, full red ring with the authoritative recharge time after a
+   *  denied J press. It overrides the longer abort unwind so the new input has
+   *  an immediate and unmistakable response. */
+  showJumpCooldown(remainingMs: number): void {
+    if (remainingMs <= 0) return;
+    this.jumpCancelStartMs = null;
+    this.jumpSpoolProgress = 0;
+    this.jumpCooldownNoticeStartMs = performance.now();
+    this.jumpCooldownNoticeRemainingMs = remainingMs;
+    this.lastJumpTenths = -1;
+    this.jumpRingEl.classList.remove("cancelling", "cooldown-denied");
+    // Restart the double-pulse animation when impatient pilots press J again.
+    void this.jumpRingEl.offsetWidth;
+    this.jumpRingEl.classList.add("cooldown-denied");
+    this.renderJumpSpool(1, Math.ceil(remainingMs / 100));
+  }
+
+  /** Immediately clear either a live charge or cosmetic cancel unwind (death
+   *  and other hard lifecycle boundaries must not leave it over the HUD). */
+  clearJumpSpool(): void {
+    this.jumpCancelStartMs = null;
+    this.jumpCancelStartProgress = 0;
+    this.jumpCooldownNoticeStartMs = null;
+    this.jumpCooldownNoticeRemainingMs = 0;
+    this.jumpSpoolProgress = 0;
+    this.lastJumpTenths = -1;
+    this.jumpRingEl.classList.remove("cancelling", "cooldown-denied");
+    this.jumpRingEl.classList.add("hidden");
+  }
+
   /**
    * Drive the jump-drive spool ring. `progress` is 0→1 (arm→fire) while the
-   * player's drive is spooling, or null to hide it. Called every frame; only
-   * touches the DOM when the displayed tenth-of-a-second changes (the conic
-   * fill + countdown text move together). The countdown counts DOWN to the
-   * jump (the audio build-up is its audible companion).
+   * player's drive is spooling, or null when the live spool has ended. After
+   * a pilot cancel, null advances the retained charge backward to zero in red;
+   * otherwise it hides the ring. DOM writes remain tenth-of-a-second gated.
    */
   setJumpSpool(progress: number | null): void {
-    if (progress === null) {
-      if (this.lastJumpTenths !== -1) {
-        this.lastJumpTenths = -1;
-        this.jumpRingEl.classList.add("hidden");
-      }
+    if (progress !== null) {
+      this.jumpCancelStartMs = null;
+      this.jumpCooldownNoticeStartMs = null;
+      this.jumpSpoolProgress = progress;
+      this.jumpRingEl.classList.remove("cancelling", "cooldown-denied");
+      const remainingSec = (1 - progress) * (GameConfig.jump.spoolMs / 1000);
+      this.renderJumpSpool(progress, Math.ceil(remainingSec * 10));
       return;
     }
-    const remainingSec = (1 - progress) * (GameConfig.jump.spoolMs / 1000);
-    const tenths = Math.ceil(remainingSec * 10);
+
+    if (this.jumpCooldownNoticeStartMs !== null) {
+      const elapsedMs = performance.now() - this.jumpCooldownNoticeStartMs;
+      const remainingMs = Math.max(
+        0,
+        this.jumpCooldownNoticeRemainingMs - elapsedMs,
+      );
+      if (
+        remainingMs > 0 &&
+        elapsedMs < Math.min(1400, this.jumpCooldownNoticeRemainingMs)
+      ) {
+        this.renderJumpSpool(1, Math.ceil(remainingMs / 100));
+        return;
+      }
+      this.jumpCooldownNoticeStartMs = null;
+      this.jumpCooldownNoticeRemainingMs = 0;
+      this.jumpRingEl.classList.remove("cooldown-denied");
+    }
+
+    if (this.jumpCancelStartMs !== null) {
+      const elapsedFraction =
+        (performance.now() - this.jumpCancelStartMs) / GameConfig.jump.spoolMs;
+      const unwindProgress = Math.max(
+        0,
+        this.jumpCancelStartProgress - elapsedFraction,
+      );
+      this.jumpSpoolProgress = unwindProgress;
+      if (unwindProgress > 0) {
+        // During abort, the number shows accumulated charge draining to zero
+        // (and therefore matches the remaining reversed-audio duration).
+        const unwindSec = unwindProgress * (GameConfig.jump.spoolMs / 1000);
+        this.renderJumpSpool(unwindProgress, Math.ceil(unwindSec * 10));
+        return;
+      }
+      this.jumpCancelStartMs = null;
+      this.jumpRingEl.classList.remove("cancelling");
+    }
+
+    if (this.lastJumpTenths !== -1) {
+      this.lastJumpTenths = -1;
+      this.jumpSpoolProgress = 0;
+      this.jumpRingEl.classList.add("hidden");
+    }
+  }
+
+  private renderJumpSpool(progress: number, tenths: number): void {
     if (tenths === this.lastJumpTenths) return;
     if (this.lastJumpTenths === -1) this.jumpRingEl.classList.remove("hidden");
     this.lastJumpTenths = tenths;

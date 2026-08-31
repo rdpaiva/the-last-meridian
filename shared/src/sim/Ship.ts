@@ -178,7 +178,7 @@ export class Ship implements DamageTarget, ShipPose {
    */
   jumpState: "idle" | "spooling" | "cooldown" = "idle";
   private jumpSpoolRemainingMs = 0;
-  private jumpCooldownRemainingMs = 0;
+  private jumpCooldownRemainingMsValue = 0;
 
   /**
    * Multiplier on the respawn delay — 1 normally. Written by the sim loops'
@@ -325,7 +325,7 @@ export class Ship implements DamageTarget, ShipPose {
     this.bankAngle = 0;
     this.jumpState = "idle";
     this.jumpSpoolRemainingMs = 0;
-    this.jumpCooldownRemainingMs = 0;
+    this.jumpCooldownRemainingMsValue = 0;
   }
 
   /**
@@ -535,7 +535,12 @@ export class Ship implements DamageTarget, ShipPose {
 
   /** True while the drive can't be re-armed (recharging after jump/cancel). */
   get isJumpOnCooldown(): boolean {
-    return this.jumpCooldownRemainingMs > 0;
+    return this.jumpCooldownRemainingMsValue > 0;
+  }
+
+  /** Remaining drive recharge time, exposed for a denied-input HUD cue. */
+  get jumpCooldownRemainingMs(): number {
+    return this.jumpCooldownRemainingMsValue;
   }
 
   /**
@@ -555,13 +560,19 @@ export class Ship implements DamageTarget, ShipPose {
    *   spooling        → cancel (pays the cooldown) UNLESS inside the final
    *                     commit window, where coordinates are locked ("spool-
    *                     cancelled" / null).
-   *   cooldown / idle-but-cooling → inert (null).
+   *   cooldown / idle-but-cooling → "cooldown-denied" so the pilot gets
+   *                                  an explicit unavailable-drive cue.
    * Returns the event the caller should announce on the SimEventBus, or null
    * if the press did nothing.
    */
-  onJumpIntent(): "spool-started" | "spool-cancelled" | null {
+  onJumpIntent():
+    | "spool-started"
+    | "spool-cancelled"
+    | "cooldown-denied"
+    | null {
     if (!this.isAlive) return null;
-    if (this.jumpState === "idle" && this.jumpCooldownRemainingMs <= 0) {
+    if (this.jumpCooldownRemainingMsValue > 0) return "cooldown-denied";
+    if (this.jumpState === "idle" && this.jumpCooldownRemainingMsValue <= 0) {
       this.jumpState = "spooling";
       this.jumpSpoolRemainingMs = GameConfig.jump.spoolMs;
       return "spool-started";
@@ -570,7 +581,7 @@ export class Ship implements DamageTarget, ShipPose {
       // "Coordinates locked": no abort inside the final commit window.
       if (this.jumpSpoolRemainingMs > GameConfig.jump.commitMs) {
         this.jumpState = "cooldown";
-        this.jumpCooldownRemainingMs = GameConfig.jump.cooldownMs;
+        this.jumpCooldownRemainingMsValue = GameConfig.jump.cooldownMs;
         this.jumpSpoolRemainingMs = 0;
         return "spool-cancelled";
       }
@@ -586,12 +597,18 @@ export class Ship implements DamageTarget, ShipPose {
    */
   tickJump(deltaSeconds: number): boolean {
     const dtMs = deltaSeconds * 1000;
-    if (this.jumpCooldownRemainingMs > 0) {
-      this.jumpCooldownRemainingMs = Math.max(0, this.jumpCooldownRemainingMs - dtMs);
+    if (this.jumpCooldownRemainingMsValue > 0) {
+      this.jumpCooldownRemainingMsValue = Math.max(
+        0,
+        this.jumpCooldownRemainingMsValue - dtMs,
+      );
       // Drive recharged: return to idle so a fresh jump can be armed again.
       // (Without this the ship is stuck in "cooldown" forever and can only
       // ever jump once.)
-      if (this.jumpCooldownRemainingMs === 0 && this.jumpState === "cooldown") {
+      if (
+        this.jumpCooldownRemainingMsValue === 0 &&
+        this.jumpState === "cooldown"
+      ) {
         this.jumpState = "idle";
       }
     }
@@ -600,7 +617,7 @@ export class Ship implements DamageTarget, ShipPose {
       if (this.jumpSpoolRemainingMs <= 0) {
         this.jumpSpoolRemainingMs = 0;
         this.jumpState = "cooldown";
-        this.jumpCooldownRemainingMs = GameConfig.jump.cooldownMs;
+        this.jumpCooldownRemainingMsValue = GameConfig.jump.cooldownMs;
         return true; // FIRED — caller teleports home this frame.
       }
     }

@@ -108,6 +108,8 @@ export interface SimEventMap {
   };
   /** A ship aborted its jump spool (pays the drive cooldown). */
   jumpCancelled: { ship: Ship };
+  /** A pilot tried to arm a drive that is still recharging. */
+  jumpDenied: { ship: Ship; remainingMs: number };
   /** A rock shattered into chunks. */
   asteroidShattered: { position: Vector3; radius: number };
 }

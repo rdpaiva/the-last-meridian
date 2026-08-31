@@ -1990,6 +1990,7 @@ export class NetworkGame {
         // the alive→dead patch already began the spectate — setPreferred
         // covers that window ("" = environment kill → no preference).
         if (e.ship === this.myKey) {
+          this.hud.clearJumpSpool();
           const killer = e.by !== "" ? (this.shadows.get(e.by) ?? null) : null;
           this.spectator.setPreferred(killer);
           this.myKillerKey = e.by !== "" ? e.by : null;
@@ -2174,7 +2175,15 @@ export class NetworkGame {
       case "jumpCancelled": {
         const stub = this.shadows.get(e.ship);
         if (stub) stub.spoolStartMs = null;
-        this.sound.stopJumpDrive(this.jumpKey(e.ship));
+        this.sound.cancelJumpDrive(this.jumpKey(e.ship));
+        if (e.ship === this.myKey) this.hud.cancelJumpSpool();
+        return;
+      }
+      case "jumpDenied": {
+        if (e.ship === this.myKey) {
+          this.sound.playJumpDenied();
+          this.hud.showJumpCooldown(e.remainingMs);
+        }
         return;
       }
       case "asteroidShattered": {

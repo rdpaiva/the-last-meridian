@@ -470,6 +470,11 @@ export class BattleSim {
             this.events.emit("jumpSpoolStarted", { ship });
           } else if (intent === "spool-cancelled") {
             this.events.emit("jumpCancelled", { ship });
+          } else if (intent === "cooldown-denied") {
+            this.events.emit("jumpDenied", {
+              ship,
+              remainingMs: ship.jumpCooldownRemainingMs,
+            });
           }
         }
         if (ship.tickJump(dtSeconds)) {

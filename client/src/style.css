@@ -2101,6 +2101,71 @@ body {
   text-shadow: 0 0 10px rgba(116, 199, 236, 0.8);
 }
 
+/* A cancelled drive visibly sheds its accumulated charge instead of making
+   the gauge disappear. Hud drains --spool back to zero over the same span as
+   the reversed build-up audio, while the warning palette makes the state
+   change unambiguous. */
+.jump-ring.cancelling {
+  background: conic-gradient(
+    rgba(243, 139, 168, 0.9) var(--spool, 0deg),
+    rgba(243, 139, 168, 0.12) 0
+  );
+  box-shadow: 0 0 24px 4px rgba(243, 139, 168, 0.45);
+}
+
+.jump-ring.cancelling .jump-ring-text {
+  color: #f5c2e7;
+  text-shadow: 0 0 10px rgba(243, 139, 168, 0.9);
+}
+
+.jump-ring.cancelling::after {
+  content: "ABORTING";
+  position: absolute;
+  top: calc(100% + 10px);
+  color: #f38ba8;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-shadow: 0 0 8px rgba(243, 139, 168, 0.8);
+}
+
+/* Re-arming during cooldown gets a short full-ring denial rather than
+   silently ignoring J. The two visual beats mirror SoundSystem's double beep. */
+.jump-ring.cooldown-denied {
+  background: conic-gradient(
+    rgba(243, 139, 168, 0.95) var(--spool, 360deg),
+    rgba(243, 139, 168, 0.12) 0
+  );
+  box-shadow: 0 0 28px 6px rgba(243, 139, 168, 0.55);
+  animation: jump-denied-double-pulse 0.44s ease-out;
+}
+
+.jump-ring.cooldown-denied .jump-ring-text {
+  color: #f5c2e7;
+  text-shadow: 0 0 10px rgba(243, 139, 168, 0.95);
+}
+
+.jump-ring.cooldown-denied::after {
+  content: "JUMP DRIVE RECHARGING";
+  position: absolute;
+  top: calc(100% + 10px);
+  white-space: nowrap;
+  color: #f38ba8;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-shadow: 0 0 8px rgba(243, 139, 168, 0.8);
+}
+
+@keyframes jump-denied-double-pulse {
+  0%, 42%, 78%, 100% {
+    transform: translateX(-50%) scale(1);
+  }
+  22%, 60% {
+    transform: translateX(-50%) scale(1.08);
+  }
+}
+
 .jump-ring.hidden {
   display: none;
 }

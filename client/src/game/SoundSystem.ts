@@ -66,7 +66,7 @@ class PooledSound {
     }
   }
 
-  play(): void {
+  play(delaySeconds = 0): void {
     // Drop the shot while the audio engine is still locked: Babylon reacts
     // to a play() against a suspended context by showing the unmute icon
     // and discarding the one-shot anyway. Matters on the restart path,
@@ -79,7 +79,7 @@ class PooledSound {
     // be silent while files stream in.
     if (s.isReady()) {
       s.setVolume(this.volume);
-      s.play();
+      s.play(delaySeconds);
     }
   }
 
@@ -150,7 +150,8 @@ export class SoundSystem {
   // The PLAYER's own jump drive — a single sustained ~8s clip (6s build-up =
   // the spool/audible countdown, trigger hit at 6s = the teleport, 2s tail =
   // the departure whoosh through arrival). NOT pooled: it's one continuous
-  // playback per spool, faded (not cut) on a cancel. Distinct from the RWR
+  // playback per spool, reversed from its current point on a pilot cancel.
+  // Distinct from the RWR
   // whine other ships hear when they DETECT a spool (that's MissileWarning's
   // idiom, wired in the detection slice). See docs/JUMP-DRIVE-AND-RESUPPLY.md.
   //
@@ -171,7 +172,17 @@ export class SoundSystem {
    * destroyed mid-spool (otherwise the 8s clip, trigger "boom" and all, plays
    * out for a jump that never happened). Cleared on stop/release.
    */
-  private readonly activeJumpDrives = new Map<Ship, Sound>();
+  private readonly activeJumpDrives = new Map<
+    Ship,
+    { sound: Sound; spatialPos: Vector3 | null }
+  >();
+  /** Reversed power-down clips still ringing after a cancel. Kept separately
+   *  so death can fade them too, even though the sim spool is already over. */
+  private readonly activeJumpCancels = new Map<Ship, Sound>();
+  /** Decoding is already done by Babylon; reverse each source buffer only on
+   *  its first cancel, then reuse it. No second audio asset or fetch needed. */
+  private readonly reversedJumpBuffers = new WeakMap<AudioBuffer, AudioBuffer>();
+  private jumpCancelSequence = 0;
 
   private engineCurrentIntensity = 0;
   private readonly engineMaxVolume = 0.45;
@@ -179,7 +190,10 @@ export class SoundSystem {
   private engineHumStarted = false;
   private muted = false;
 
-  constructor(scene: Scene, baseUrl = `${import.meta.env.BASE_URL}sounds`) {
+  constructor(
+    private readonly scene: Scene,
+    baseUrl = `${import.meta.env.BASE_URL}sounds`,
+  ) {
     this.playerLaser = new PooledSound(
       "sfx_player_laser",
       `${baseUrl}/player_laser.mp3`,
@@ -431,6 +445,12 @@ export class SoundSystem {
   playMissileWarning(): void {
     this.missileWarning.play();
   }
+  /** Reuse two slots from the cockpit warning pool as a short denied-command
+   *  double beep. Scheduling through Web Audio keeps the cadence exact. */
+  playJumpDenied(): void {
+    this.missileWarning.play();
+    this.missileWarning.play(0.16);
+  }
   playEnemyLaser(position: Vector3): void {
     this.enemyLaser.playAt(position);
   }
@@ -492,6 +512,11 @@ export class SoundSystem {
    * spool ends without firing (stopJumpDrive).
    */
   startJumpDrive(ship: Ship, spatialPos: Vector3 | null): void {
+    const oldCancel = this.activeJumpCancels.get(ship);
+    if (oldCancel) {
+      this.activeJumpCancels.delete(ship);
+      oldCancel.stop();
+    }
     let sound: Sound | null = null;
     if (spatialPos === null) {
       const own = this.jumpDrive[ship.faction];
@@ -504,21 +529,118 @@ export class SoundSystem {
     } else {
       sound = this.jumpDriveSpatial[ship.faction].playAt(spatialPos);
     }
-    if (sound) this.activeJumpDrives.set(ship, sound);
+    if (sound) {
+      this.activeJumpDrives.set(ship, {
+        sound,
+        spatialPos: spatialPos?.clone() ?? null,
+      });
+    }
   }
 
   /**
-   * Cut a ship's jump-drive clip when the spool ends WITHOUT firing — a pilot
-   * cancel or the ship destroyed mid-spool. A quick fade to silence (never a
-   * hard cut). No-op if this ship has no drive playing.
+   * Cancel a live spool by replaying the already-decoded build-up backward
+   * from its current point to the clip's beginning. A reversed AudioBuffer is
+   * cached per source buffer, so this uses the existing faction sound files.
+   */
+  cancelJumpDrive(ship: Ship): void {
+    const active = this.activeJumpDrives.get(ship);
+    if (!active) return;
+    this.activeJumpDrives.delete(ship);
+
+    const { sound, spatialPos } = active;
+    if (!sound.isReady()) return;
+    const sourceBuffer = sound.getAudioBuffer();
+    const elapsedSeconds = Math.min(
+      sound.currentTime,
+      GameConfig.jump.spoolMs / 1000,
+      sourceBuffer?.duration ?? 0,
+    );
+    sound.stop();
+    if (!sourceBuffer || elapsedSeconds <= 0.02) return;
+
+    const reversedBuffer = this.reverseAudioBuffer(sourceBuffer);
+    if (!reversedBuffer) return;
+
+    const cfg = GameConfig.sound;
+    const reversed = new Sound(
+      `sfx_jump_cancel_${ship.faction}_${this.jumpCancelSequence++}`,
+      reversedBuffer,
+      this.scene,
+      null,
+      {
+        volume: this.jumpDriveVolume,
+        loop: false,
+        autoplay: false,
+        ...(spatialPos && {
+          spatialSound: true,
+          distanceModel: "linear",
+          maxDistance: cfg.maxDistance,
+          refDistance: cfg.refDistance,
+          rolloffFactor: 1,
+        }),
+      },
+    );
+    if (spatialPos) reversed.setPosition(spatialPos);
+    this.activeJumpCancels.set(ship, reversed);
+    reversed.onEndedObservable.addOnce(() => {
+      if (this.activeJumpCancels.get(ship) === reversed) {
+        this.activeJumpCancels.delete(ship);
+      }
+      reversed.dispose();
+    });
+
+    // The full reversed buffer begins at the original clip's end. Offset past
+    // the unused tail so playback maps original elapsed -> original zero.
+    reversed.play(
+      0,
+      Math.max(0, reversedBuffer.duration - elapsedSeconds),
+      elapsedSeconds,
+    );
+  }
+
+  private reverseAudioBuffer(source: AudioBuffer): AudioBuffer | null {
+    const cached = this.reversedJumpBuffers.get(source);
+    if (cached) return cached;
+    const ctx = AbstractEngine.audioEngine?.audioContext;
+    if (!ctx) return null;
+
+    const reversed = ctx.createBuffer(
+      source.numberOfChannels,
+      source.length,
+      source.sampleRate,
+    );
+    for (let channel = 0; channel < source.numberOfChannels; channel++) {
+      const input = source.getChannelData(channel);
+      const output = reversed.getChannelData(channel);
+      for (let i = 0, j = input.length - 1; i < input.length; i++, j--) {
+        output[i] = input[j];
+      }
+    }
+    this.reversedJumpBuffers.set(source, reversed);
+    return reversed;
+  }
+
+  /**
+   * Fade any drive audio still associated with a ship that is destroyed. This
+   * covers both a live forward spool and a reversed cancellation power-down.
+   * No-op if this ship has no drive audio playing.
    */
   stopJumpDrive(ship: Ship, fadeSeconds = 0.35): void {
-    const sound = this.activeJumpDrives.get(ship);
-    if (!sound) return;
-    this.activeJumpDrives.delete(ship);
-    if (sound.isReady()) {
-      sound.setVolume(0, fadeSeconds);
-      sound.stop(fadeSeconds);
+    const active = this.activeJumpDrives.get(ship);
+    if (active) {
+      this.activeJumpDrives.delete(ship);
+      if (active.sound.isReady()) {
+        active.sound.setVolume(0, fadeSeconds);
+        active.sound.stop(fadeSeconds);
+      }
+    }
+    const cancelling = this.activeJumpCancels.get(ship);
+    if (cancelling) {
+      this.activeJumpCancels.delete(ship);
+      if (cancelling.isReady()) {
+        cancelling.setVolume(0, fadeSeconds);
+        cancelling.stop(fadeSeconds);
+      }
     }
   }
 

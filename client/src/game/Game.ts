@@ -1208,6 +1208,7 @@ export class Game {
       // Destroyed mid-spool: cut its jump-drive clip (no-op if it wasn't
       // spooling — a ship that already jumped was released and rings out).
       this.sound.stopJumpDrive(ship);
+      if (isPlayer) this.hud.clearJumpSpool();
       this.explosions.spawn(ship.position);
       // The ship comes apart: its own hull meshes fly off as wreckage (the
       // view root still holds the last rendered pose — views sync after the
@@ -1349,7 +1350,13 @@ export class Game {
       );
     });
     this.events.on("jumpCancelled", ({ ship }) => {
-      this.sound.stopJumpDrive(ship);
+      this.sound.cancelJumpDrive(ship);
+      if (this.isHumanSeat(ship)) this.hud.cancelJumpSpool();
+    });
+    this.events.on("jumpDenied", ({ ship, remainingMs }) => {
+      if (!this.isHumanSeat(ship)) return;
+      this.sound.playJumpDenied();
+      this.hud.showJumpCooldown(remainingMs);
     });
     this.events.on("jumpFired", ({ ship, fromX, fromZ, toX, toZ }) => {
       // BSG "FTL crack" at BOTH ends — where the ship left and where it
@@ -2103,6 +2110,11 @@ export class Game {
             this.events.emit("jumpSpoolStarted", { ship });
           } else if (ev === "spool-cancelled") {
             this.events.emit("jumpCancelled", { ship });
+          } else if (ev === "cooldown-denied") {
+            this.events.emit("jumpDenied", {
+              ship,
+              remainingMs: ship.jumpCooldownRemainingMs,
+            });
           }
         }
         if (ship.tickJump(deltaSeconds)) {

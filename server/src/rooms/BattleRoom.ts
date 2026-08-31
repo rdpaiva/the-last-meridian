@@ -607,6 +607,13 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     ev.on("jumpCancelled", ({ ship }) =>
       this.pendingEvents.push({ k: "jumpCancelled", ship: id(ship) }),
     );
+    ev.on("jumpDenied", ({ ship, remainingMs }) =>
+      this.pendingEvents.push({
+        k: "jumpDenied",
+        ship: id(ship),
+        remainingMs,
+      }),
+    );
     ev.on("jumpFired", ({ ship, fromX, fromZ, toX, toZ }) =>
       this.pendingEvents.push({
         k: "jumpFired",

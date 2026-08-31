@@ -142,9 +142,12 @@ here so the doc matches the code:
   spool**; tap again during the spool to **cancel** (incurs the drive cooldown). A hold
   would tie up a finger for ~6s and fight the movement hand — a toggle keeps you free to
   fly and fight while spooling.
-- **During cooldown the key is inert** (optionally a short "denied" blip).
+- **During cooldown a J press is denied with feedback:** the cockpit missile-warning
+  blip plays twice while a full red ring double-pulses, shows the remaining recharge
+  time, and reads **JUMP DRIVE RECHARGING**. The input still has no sim effect.
 - **Feedback removes ambiguity:** arming kicks off the `jump-drive.mp3` build-up + HUD
-  countdown ring; cancelling does the quick audio fade + clears the ring. The ~6s window
+  countdown ring; cancelling reverses the accumulated part of that same decoded clip while
+  the ring drains to zero in red (no separate cancel asset). The ~6s window
   plus an always-available cancel make accidental presses recoverable, so no heavyweight
   guard is needed (add a tiny ~0.3s hold-to-arm later *only* if playtests show
   fat-fingering).
@@ -164,9 +167,9 @@ here so the doc matches the code:
   player's audible countdown), the **trigger hit lands exactly as the ship teleports**,
   and the **2s fade tail plays through arrival as the "whoosh out" departure cue** —
   let it ring; don't cut it at the trigger.
-- **Cancel = quick fade, not a hard cut.** On a pilot abort, ramp volume to 0 over
-  ~0.3–0.5s (optionally a short "power-down" blip). Damage never interrupts, so cancel
-  and natural completion are the only stop cases.
+- **Cancel = matched power-down.** On a pilot abort, reuse the decoded drive buffer and
+  play the accumulated build-up backward to zero, matched to the red HUD unwind. Damage
+  never interrupts a live spool; death only fades any cosmetic audio already ringing.
 - **This is the jumping ship's OWN drive sound** — distinct from the RWR rising-whine
   alert that *other* ships hear when they **detect** a spool (see Detection). Two
   separate audio layers.
