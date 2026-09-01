@@ -451,7 +451,7 @@ export class Game {
     sun.diffuse = new Color3(lcfg.sunColor.r, lcfg.sunColor.g, lcfg.sunColor.b);
 
     // --- Environment (IBL) ---
-    // The GLB ships use PBR materials — the spitfire's are fully metallic — and
+    // The GLB ships use PBR materials — some are strongly metallic — and
     // a metal surface is rendered almost entirely by what it REFLECTS. With no
     // environment those metals come out flat/dark. Reuse the space backdrop as
     // the environment map so ships pick up a subtle space-colored sheen (and any

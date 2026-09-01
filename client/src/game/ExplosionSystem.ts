@@ -8,6 +8,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Constants } from "@babylonjs/core/Engines/constants";
+import { VertexBuffer } from "@babylonjs/core/Buffers/buffer";
 import "@babylonjs/core/Meshes/Builders/boxBuilder";
 // Plane builder registration — every flash renders as a billboarded flare
 // plane (soft radial sprite), not a sphere.
@@ -420,10 +421,10 @@ export class ExplosionSystem {
       .filter((p) => p.volume >= minVolume);
 
     // Union bounds of EVERY candidate part = the ship's whole envelope. A
-    // picked piece spanning most of it IS the intact ship (mono-mesh GLBs
-    // like the Wraith come through as one fused hull) — flinging its clone
-    // reads as the whole ship tumbling away, so those get shattered into
-    // fragments below instead.
+    // picked piece spanning most of it IS the intact ship (material-shell
+    // GLBs like the Spitfire and Wraith come through as a few overlapping,
+    // full-ship meshes). Flinging that clone reads as the whole ship tumbling
+    // away, so its actual triangles are divided into hull sections below.
     let unionVolume = 0;
     {
       let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -448,11 +449,10 @@ export class ExplosionSystem {
     const offsetZ = center.z - rootPos.z;
 
     const debris: Debris[] = [];
-    // Shatter budget: fragmentCount is a per-KILL total, split across every
-    // qualifying piece proportionally to volume (a mono-mesh ship qualifies
-    // with 2-3 overlapping whole-ship shells — per-piece counts would
-    // multiply its wreckage several-fold vs a part-split ship). The hull
-    // gets the lion's share; thin material shells throw a chunk or two.
+    // Fracture budget: fragmentCount is a per-KILL total, split across every
+    // qualifying material shell proportionally to volume. Each fragment is
+    // made from the source mesh's real triangles, so an outboard sector still
+    // reads as a wing instead of the old random-box fallback.
     const shattering = picked.filter(
       (p) => p.volume >= cfg.shatter.wholeShipRatio * unionVolume,
     );
@@ -463,7 +463,7 @@ export class ExplosionSystem {
           1,
           Math.round(cfg.shatter.fragmentCount * (volume / shatterVolume)),
         );
-        this.shatterPiece(
+        this.fracturePiece(
           mesh,
           center,
           offsetX,
@@ -568,14 +568,18 @@ export class ExplosionSystem {
   }
 
   /**
-   * The mono-mesh fallback (`breakup.shatter`): a picked piece that IS the
-   * whole ship is broken into random box fragments wearing the piece's own
-   * material — hull-colored chunks instead of the intact ship tumbling off.
-   * Fragments spawn scattered through the piece's world bounds and take the
-   * same fling as real pieces. `count` is this piece's share of the per-kill
-   * fragment budget (see the caller's split).
+   * The material-shell fallback (`breakup.shatter`): divide a mesh that spans
+   * the whole ship into angular sectors around its local X/Z center. Those
+   * sectors retain the source's actual vertices, UVs, normals, material, and
+   * silhouette; the port/starboard sectors therefore look like torn-off
+   * wings rather than anonymous boxes. Each section is recentered around its
+   * own geometry so it tumbles naturally.
+   *
+   * `count` is this material shell's share of the per-kill fragment budget
+   * (see the caller's split). A minimum of two sectors prevents a small shell
+   * share from degenerating back into one intact tumbling ship.
    */
-  private shatterPiece(
+  private fracturePiece(
     source: Mesh,
     center: Vector3,
     offsetX: number,
@@ -585,39 +589,81 @@ export class ExplosionSystem {
     out: Debris[],
   ): void {
     const s = GameConfig.explosion.breakup.shatter;
+    const positions = source.getVerticesData(VertexBuffer.PositionKind);
+    const sourceIndices = source.getIndices();
+    if (!positions || positions.length < 9) return;
+
+    // Babylon permits unindexed meshes; normalize both cases to triangle
+    // indices so the grouping/copy path stays identical.
+    const indices = sourceIndices
+      ? Array.from(sourceIndices, Number)
+      : Array.from({ length: positions.length / 3 }, (_, i) => i);
+    const triangleCount = Math.floor(indices.length / 3);
+    if (triangleCount === 0) return;
+
     const bb = source.getBoundingInfo().boundingBox;
-    const c = bb.centerWorld;
-    const ext = bb.extendSizeWorld;
-    const rollEdge = (extent: number) =>
-      Math.max(
-        s.minSize,
-        extent *
-          2 *
-          (s.fragMinFraction +
-            Math.random() * (s.fragMaxFraction - s.fragMinFraction)),
+    const localCenter = bb.center;
+    const localExtent = bb.extendSize;
+    const sectorCount = Math.min(
+      triangleCount,
+      s.maxFragmentsPerMesh,
+      Math.max(2, count),
+    );
+    const sectors: number[][] = Array.from({ length: sectorCount }, () => []);
+
+    // Offset sectors by half their width so +X/-X (the two wings in every
+    // ship asset's authored frame) sit at the center of a sector rather than
+    // on a split boundary. Normalize by footprint extents so a long narrow
+    // fighter does not put nearly every triangle into its nose/tail sectors.
+    for (let tri = 0; tri < triangleCount; tri++) {
+      const ia = indices[tri * 3];
+      const ib = indices[tri * 3 + 1];
+      const ic = indices[tri * 3 + 2];
+      const cx =
+        (positions[ia * 3] + positions[ib * 3] + positions[ic * 3]) / 3;
+      const cz =
+        (positions[ia * 3 + 2] +
+          positions[ib * 3 + 2] +
+          positions[ic * 3 + 2]) /
+        3;
+      const nx = (cx - localCenter.x) / Math.max(localExtent.x, 1e-5);
+      const nz = (cz - localCenter.z) / Math.max(localExtent.z, 1e-5);
+      const angle = Math.atan2(nz, nx);
+      const wrapped =
+        (angle + Math.PI / sectorCount + Math.PI * 2) % (Math.PI * 2);
+      const sector = Math.floor((wrapped / (Math.PI * 2)) * sectorCount);
+      sectors[sector].push(ia, ib, ic);
+    }
+
+    source.computeWorldMatrix(true);
+    for (let i = 0; i < sectors.length; i++) {
+      const triangleIndices = sectors[i];
+      if (triangleIndices.length / 3 < s.minFragmentTriangles) continue;
+      const fragment = this.createMeshFragment(source, triangleIndices, i);
+      if (!fragment) continue;
+      const { mesh: frag, localCenter: fragmentCenter } = fragment;
+
+      // The fragment geometry has been recentered locally. Transform that
+      // center through the source's complete glTF/model/gameplay chain to
+      // recover its exact world pose, then re-anchor it on the sim death.
+      const worldCenter = Vector3.TransformCoordinates(
+        fragmentCenter,
+        source.getWorldMatrix(),
       );
-    for (let i = 0; i < count; i++) {
-      const frag = MeshBuilder.CreateBox(
-        `breakup_frag_${source.name}_${i}`,
-        {
-          width: rollEdge(ext.x),
-          height: rollEdge(ext.y),
-          depth: rollEdge(ext.z),
-        },
-        this.scene,
-      );
-      frag.material = source.material;
-      frag.isPickable = false;
       frag.position.set(
-        c.x + (Math.random() * 2 - 1) * ext.x * s.scatterFraction + offsetX,
-        c.y + (Math.random() * 2 - 1) * ext.y * s.scatterFraction,
-        c.z + (Math.random() * 2 - 1) * ext.z * s.scatterFraction + offsetZ,
+        worldCenter.x + offsetX,
+        worldCenter.y,
+        worldCenter.z + offsetZ,
       );
-      frag.rotation.set(
-        Math.random() * Math.PI * 2,
-        Math.random() * Math.PI * 2,
-        Math.random() * Math.PI * 2,
-      );
+      source
+        .getWorldMatrix()
+        .decompose(this.scratchScale, this.scratchQuat, this.scratchPos);
+      frag.rotationQuaternion = null;
+      frag.rotation = this.scratchQuat.toEulerAngles();
+      frag.scaling.copyFrom(this.scratchScale);
+      frag.setEnabled(true);
+      frag.isPickable = false;
+
       const fling = this.rollFling(
         frag.position.x,
         frag.position.z,
@@ -628,8 +674,83 @@ export class ExplosionSystem {
         mesh: frag,
         velocity: fling.velocity,
         rotationVel: fling.rotationVel,
+        baseScaling: frag.scaling.clone(),
       });
     }
+  }
+
+  /**
+   * Copy selected source triangles into a standalone mesh while retaining all
+   * available vertex streams (UVs, colors, tangents, etc.). Positions are
+   * recentered around the section's own local bounds so subsequent rotation
+   * tumbles the wreckage around the part rather than the original ship pivot.
+   */
+  private createMeshFragment(
+    source: Mesh,
+    triangleIndices: number[],
+    fragmentIndex: number,
+  ): { mesh: Mesh; localCenter: Vector3 } | null {
+    const kinds = source.getVerticesDataKinds();
+    const streams = new Map<string, { data: ArrayLike<number>; stride: number }>();
+    for (const kind of kinds) {
+      const data = source.getVerticesData(kind);
+      const stride = source.getVertexBuffer(kind)?.getSize() ?? 0;
+      if (data && stride > 0) streams.set(kind, { data, stride });
+    }
+    if (!streams.has(VertexBuffer.PositionKind)) return null;
+
+    const copied = new Map<string, number[]>();
+    for (const kind of streams.keys()) copied.set(kind, []);
+    for (const sourceIndex of triangleIndices) {
+      for (const [kind, stream] of streams) {
+        const target = copied.get(kind)!;
+        const start = sourceIndex * stream.stride;
+        for (let c = 0; c < stream.stride; c++) {
+          target.push(stream.data[start + c]);
+        }
+      }
+    }
+
+    const fragmentPositions = copied.get(VertexBuffer.PositionKind)!;
+    let minX = Infinity;
+    let minY = Infinity;
+    let minZ = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let maxZ = -Infinity;
+    for (let i = 0; i < fragmentPositions.length; i += 3) {
+      minX = Math.min(minX, fragmentPositions[i]);
+      minY = Math.min(minY, fragmentPositions[i + 1]);
+      minZ = Math.min(minZ, fragmentPositions[i + 2]);
+      maxX = Math.max(maxX, fragmentPositions[i]);
+      maxY = Math.max(maxY, fragmentPositions[i + 1]);
+      maxZ = Math.max(maxZ, fragmentPositions[i + 2]);
+    }
+    const centerX = (minX + maxX) * 0.5;
+    const centerY = (minY + maxY) * 0.5;
+    const centerZ = (minZ + maxZ) * 0.5;
+    for (let i = 0; i < fragmentPositions.length; i += 3) {
+      fragmentPositions[i] -= centerX;
+      fragmentPositions[i + 1] -= centerY;
+      fragmentPositions[i + 2] -= centerZ;
+    }
+
+    const frag = new Mesh(
+      `breakup_hull_${source.name}_${fragmentIndex}`,
+      this.scene,
+    );
+    for (const [kind, data] of copied) {
+      frag.setVerticesData(kind, data, false, streams.get(kind)!.stride);
+    }
+    frag.setIndices(
+      Array.from({ length: triangleIndices.length }, (_, i) => i),
+    );
+    frag.material = source.material;
+    frag.refreshBoundingInfo();
+    return {
+      mesh: frag,
+      localCenter: new Vector3(centerX, centerY, centerZ),
+    };
   }
 
   update(deltaSeconds: number, deltaMs: number): void {

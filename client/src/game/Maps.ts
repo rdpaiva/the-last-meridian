@@ -19,8 +19,13 @@ import { isOverridden, hasOverrideUnder } from "./ConfigOverrides";
  *    (no override hooks — the board must match the server exactly).
  */
 
-// The catalog + types re-exported for the menus (LoadoutMenu's picker cards).
-export { MAPS, resolveMapId, isMapSelection } from "@space-duel/shared";
+// The catalog + public subset + types re-exported for menus and dev tools.
+export {
+  EXPOSED_MAP_IDS,
+  MAPS,
+  resolveMapId,
+  isMapSelection,
+} from "@space-duel/shared";
 export type { MapId, ConcreteMapId, MapConfig } from "@space-duel/shared";
 
 // ─── Persistence ─────────────────────────────────────────────────────────────

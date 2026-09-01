@@ -14,10 +14,10 @@ import {
   type PlayerLoadout,
 } from "./Loadout";
 import {
+  EXPOSED_MAP_IDS,
   MAPS,
   loadSavedMapSelection,
   saveMapSelection,
-  type ConcreteMapId,
   type MapId,
 } from "./Maps";
 import {
@@ -158,11 +158,13 @@ export const SHIP_INFO: Record<
   },
 };
 
-/** The arena-picker options: the concrete maps (catalog order) then Random. */
-const MAP_OPTIONS: MapId[] = [
-  ...(Object.keys(MAPS) as ConcreteMapId[]),
-  "random",
-];
+/** The arena-picker options: public maps (catalog order) then Random. Hidden
+ * catalog entries remain available to the local Map Editor. */
+const MAP_OPTIONS: MapId[] = [...EXPOSED_MAP_IDS, "random"];
+
+/** Observer is developer doctrine tooling, like Match Settings/Map Editor —
+ * available from the local Vite dev server, stripped from production builds. */
+const SHOW_OBSERVER = import.meta.env.DEV;
 
 /** Card title + blurb for a map option (Random is synthetic; the rest read
  *  straight from the catalog so there's no duplicated copy to drift). */
@@ -291,11 +293,9 @@ export class LoadoutMenu {
   /** The arena selection — a concrete map (pinned) or "random" (re-rolls). */
   private mapSelection: MapId;
   /**
-   * Solo deployment role: fly the lead fighter, or hand the seat to an AI
-   * and OBSERVE the whole battle from the spectator camera (an AI-vs-AI
-   * exhibition — handy for watching fleet doctrine play out). Deliberately
-   * NOT persisted: a saved "observer" would make CONTINUE/quick-play launch
-   * into a match you can't fly, so every session starts back in the cockpit.
+   * Development-only solo deployment role: hand the seat to an AI and
+   * OBSERVE the whole battle from the spectator camera. Deliberately not
+   * persisted, and forced off in production as a second line of defense.
    */
   private spectate = false;
   /** Which page of the loadout is showing. */
@@ -331,7 +331,7 @@ export class LoadoutMenu {
 
   /** Whether the pilot chose OBSERVE on the mission step (solo only). */
   get spectateSelected(): boolean {
-    return this.spectate;
+    return SHOW_OBSERVER && this.spectate;
   }
 
   /**
@@ -376,7 +376,11 @@ export class LoadoutMenu {
   private rows(): readonly Row[] {
     if (this.step === 1) return ["mode"];
     if (this.step === 2) return ["faction", "ship"];
-    if (this.mode === "solo") return ["difficulty", "map", "role"];
+    if (this.mode === "solo") {
+      return SHOW_OBSERVER
+        ? ["difficulty", "map", "role"]
+        : ["difficulty", "map"];
+    }
     return inviteRoomId() ? [] : ["difficulty", "map"];
   }
 
@@ -761,16 +765,20 @@ export class LoadoutMenu {
         ${invite ? "" : mapRow}
         <div class="mission-summary">${FACTION_THEME[this.faction].fullName} · ${info.name} ${info.role}</div>`;
     }
-    const roleCards = [
-      this.roleCard(false, "FLY", "Take the stick — lead your wing from the cockpit."),
-      this.roleCard(true, "OBSERVE", "Hand the seat to an AI and spectate the whole battle."),
-    ].join("");
+    const roleRow = SHOW_OBSERVER
+      ? `<div class="loadout-subheading">Deployment</div>
+         <div class="loadout-row${this.activeRow === "role" ? " active" : ""}" id="loadout-role">
+           ${[
+             this.roleCard(false, "FLY", "Take the stick — lead your wing from the cockpit."),
+             this.roleCard(true, "OBSERVE", "Hand the seat to an AI and spectate the whole battle."),
+           ].join("")}
+         </div>`
+      : "";
     return `
       <div class="loadout-heading">Mission setup</div>
       ${diffRow}
       ${mapRow}
-      <div class="loadout-subheading">Deployment</div>
-      <div class="loadout-row${this.activeRow === "role" ? " active" : ""}" id="loadout-role">${roleCards}</div>`;
+      ${roleRow}`;
   }
 
   /** Re-bind every handler after a render (innerHTML wipes the old ones). */

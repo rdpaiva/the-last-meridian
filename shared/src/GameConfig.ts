@@ -2405,12 +2405,14 @@ export const GameConfig = {
    * shows DEGREES; multiply by π/180 for these RADIAN fields).
    */
   shipModels: {
-    // The renamed lancer — flat gunship, already nose-along-+Z; ~8u long so
-    // scaled to ~2.3u to sit alongside the procedural fighters.
+    // Novari Wraith Mk II (Blender source: art/wraith.blend), authored
+    // nose-along-Blender--Y so +Y-up export lands nose-+Z in Babylon.
+    // Native length ~7.7u / span ~7.1u → fleet scale ~2.2u.
     "wraith.glb": { rotX: 0, rotY: 0, rotZ: 0, scale: 0.28 },
-    // Player fighter (Kenney craft_speederD). ~2.8u wide at native scale;
-    // brought down to fleet size. Authored facing the opposite way, so the
-    // glTF RHS→LHS Z-flip leaves it nose-aft — rotY = π turns it nose-forward.
+    // Commonwealth Spitfire Mk II (Blender source: art/spitfire.blend).
+    // Authored nose-along-Blender-+Y to preserve the legacy model correction:
+    // the glTF RHS→LHS Z-flip leaves it nose-aft, then rotY = π turns it
+    // nose-forward. Native length ~3.85u / span ~4.1u → fleet footprint ~3u.
     "spitfire.glb": { rotX: 0, rotY: Math.PI, rotZ: 0, scale: 0.7 },
     // Breaker heavy gunship (Blender source: art/breaker.blend). Authored
     // nose-along-Blender--Y so the +Y-up glTF export lands nose-+Z in Babylon
@@ -3217,32 +3219,26 @@ export const GameConfig = {
       /** Max tumble rate per axis (radians/sec, rolled per piece). */
       tumbleMax: 8,
       /**
-       * MONO-MESH fallback: some ship GLBs (the Wraith; the Spitfire's
-       * material shells) are one fused mesh, so the "largest pieces" scan
-       * just picks the intact ship and the breakup reads as the whole hull
-       * tumbling away, not debris. Any picked piece whose bounding volume
-       * spans at least `wholeShipRatio` of the union bounds of ALL parts is
-       * instead SHATTERED into random box fragments wearing the piece's own
-       * hull material. Properly part-split models (Reaver) never trigger it.
+       * MATERIAL-SHELL fallback: some ship GLBs (the Wraith and Spitfire)
+       * export armor/structure as overlapping full-ship meshes. Any picked
+       * piece spanning most of the union bounds is divided into spatial
+       * sections made from its ACTUAL triangles. Outboard sections retain a
+       * recognizable wing silhouette, UVs, and hull material instead of
+       * falling back to random boxes. Part-split models (Breaker/Reaver) keep
+       * throwing their authored wings/nacelles directly.
        */
       shatter: {
-        /** Piece volume ÷ whole-ship union volume at/above which it shatters. */
+        /** Piece volume ÷ whole-ship union volume at/above which it fractures. */
         wholeShipRatio: 0.45,
         /**
-         * TOTAL box fragments per KILL, split across every shattered piece
-         * proportionally to volume (mono-mesh ships shatter 2-3 whole-ship
-         * shells — a per-piece count would multiply the wreckage and make
-         * the Wraith throw 3× a Reaver's pieces).
+         * TOTAL hull sections per KILL, split across every fractured material
+         * shell proportionally to volume.
          */
         fragmentCount: 9,
-        /** Fragment edge per axis: fraction of the piece's full extent. */
-        fragMinFraction: 0.18,
-        fragMaxFraction: 0.42,
-        /** Floor on any fragment edge (world units) — flat hulls would
-         * otherwise yield paper-thin chips. */
-        minSize: 0.12,
-        /** Fragments spawn within this fraction of the piece's extents. */
-        scatterFraction: 0.65,
+        /** Avoid cutting one material shell into confetti-sized sectors. */
+        maxFragmentsPerMesh: 5,
+        /** Drop a sector with too little real geometry to read as a part. */
+        minFragmentTriangles: 4,
       },
       /** Pieces that pop a small fire-palette ember burst mid-flight. */
       emberCount: 5,

@@ -392,24 +392,31 @@ export const MAPS: Record<ConcreteMapId, MapConfig> = {
   },
 };
 
+/**
+ * Maps exposed through the player-facing mission picker and the "random"
+ * pool. The full MAPS catalog deliberately remains larger: hidden arenas can
+ * still be loaded directly by developer tools such as the local Map Editor
+ * without leaking into normal solo or online matchmaking.
+ */
+export const EXPOSED_MAP_IDS: readonly ConcreteMapId[] = (
+  Object.keys(MAPS) as ConcreteMapId[]
+).filter((id) => id !== "theCanyon");
+
 /** Resolve "random" to a concrete map id; pass concrete ids through. Map
  *  SELECTION is a pre-sim config choice (like the loadout), so it uses plain
  *  Math.random — NOT the seeded sim RNG, which must stay reserved for the sim. */
 export function resolveMapId(id: MapId): ConcreteMapId {
   if (id !== "random") return id;
-  const ids = Object.keys(MAPS) as ConcreteMapId[];
-  return ids[Math.floor(Math.random() * ids.length)];
+  return EXPOSED_MAP_IDS[Math.floor(Math.random() * EXPOSED_MAP_IDS.length)];
 }
 
-/** Whether a value is a usable map selection (a known map id or "random").
- *  Guards both the client's persisted key and the server's join options — a
- *  stale/hand-edited wire value must fall back, never crash room creation.
- *  hasOwnProperty (not `in`) so prototype keys like "toString" can't sneak in. */
+/** Whether a value is a player-facing map selection (an exposed id or
+ *  "random"). Guards both the client's persisted key and the server's join
+ *  options: hidden/stale/hand-edited values fall back rather than entering
+ *  matchmaking. Hidden catalog entries remain directly applicable in dev
+ *  tools without passing through this public-input validator. */
 export function isMapSelection(v: unknown): v is MapId {
-  return (
-    v === "random" ||
-    (typeof v === "string" && Object.prototype.hasOwnProperty.call(MAPS, v))
-  );
+  return v === "random" || EXPOSED_MAP_IDS.includes(v as ConcreteMapId);
 }
 
 /**

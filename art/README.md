@@ -116,7 +116,7 @@ in `GameConfig.stations.model`.
 ## `breaker.blend` → `public/models/breaker.glb`
 
 Low-poly Breaker heavy gunship (the human strike craft — see the story bible).
-Faceted prisms + low-seg cylinders, flat-shaded, tan/dark camo: blunt armored
+Faceted prisms + low-seg cylinders, flat-shaded, textured tan/dark camo: blunt armored
 nose with twin gun mounts, hex canopy, shoulder + wing turrets, tilted rocket
 pods, spinal four-barrel battery, twin ribbed engine nacelles. Flown via the
 `breaker` entry in `GameConfig.shipTypes`.
@@ -136,16 +136,24 @@ pods, spinal four-barrel battery, twin ribbed engine nacelles. Flown via the
   fleet clones read only the config list).
 - **Naming:** meshes prefixed `Breaker_`. No emissive parts — the engine glow
   comes from the runtime `EngineGlow` (thruster markers), like the spitfire.
+- **Texture:** `textures/breaker_armor.png` is the lossless 1024² source for
+  the shared `Breaker_ArmorSkin` material. Structural hull faces use a
+  world-scale box projection so the 33 separate breakup pieces keep consistent
+  texel density; canopy and gunmetal weapons retain their dedicated materials.
+  The exported GLB embeds the skin as JPEG, so every fighter clone shares one
+  compact GPU texture. Re-run `scripts/skin_breaker.py` inside Blender after
+  replacing the source texture or changing the projection/material settings.
 
 ### Export settings
 `File → Export → glTF 2.0 (.glb)`, format **GLB**, **+Y up**, apply
 modifiers, selection = the `Breaker` collection (keeps the preview
-camera/lights out).
+camera/lights out), embedded texture format **JPEG** at quality 84. The helper
+script applies these settings automatically.
 
 ## `reaver.blend` → `public/models/reaver.glb`
 
 Low-poly Reaver heavy gunship (the Novari strike craft — see the story
-bible). Dark gunmetal faceted hull with violet emissives: lofted
+bible). Deep-purple textured faceted hull with violet emissives: lofted
 diamond-section fuselage, glowing violet canopy lens + bright core orb,
 two crescent scythe wings raking forward, triple-barrel gun pod under each
 wing, twin long chin cannons reaching past the nose, twin aft engines with
@@ -167,39 +175,89 @@ glowing nozzle discs. Flown via the `reaver` entry in `GameConfig.shipTypes`.
   nozzle glow discs, trim slits) use modest strengths (~2.5-3) per the
   GlowLayer/ACES blow-out gotcha; engine THRUST glow still comes from the
   runtime `EngineGlow` via the thruster markers.
+- **Texture:** `textures/reaver_armor.png` is the lossless 1024² source for
+  the shared `Reaver_ArmorSkin` material: mid-value violet/amethyst
+  interlocking alien armor with indigo separators and restrained lavender
+  channels. Keep the broad plates out of near-black values: at gameplay scale
+  they otherwise disappear into the starfield. The material is intentionally
+  only 0.30 metallic / 0.55 rough so direct light carries the purple silhouette
+  instead of the hull mostly reflecting the dark environment.
+  Structural hull faces use a world-scale box projection so all 44 breakup
+  meshes retain consistent texel density. `Reaver_Glow` and
+  `Reaver_GlowCore` stay separate and emissive. The GLB embeds one JPEG shared
+  by every clone; re-run `scripts/skin_reaver.py` after changing the source.
 
 ### Export settings
 Same as the Breaker — GLB, +Y up, apply modifiers (bakes the wing
-Solidify), selection = the `Reaver` collection.
+Solidify), selection = the `Reaver` collection, embedded JPEG quality 84. The
+helper script applies these settings automatically.
+
+## `spitfire.blend` → `public/models/spitfire.glb`
+
+Low-poly Commonwealth Spitfire Mk II interceptor, rebuilt in-house to replace
+the legacy third-party speeder. Its silhouette takes the original long-nose
+space fighter idea forward with a faceted spear nose, long narrow swept wings
+with hard-clipped tips, squared twin engine nacelles, dorsal stabilizers, wing guns, and a dark
+naval-style canopy. The asset is deliberately lean (about 868 triangles) and
+consolidated into five material batches for large fighter groups.
+
+### Conventions baked into the model
+- **Axes:** unlike the newer Breaker/Reaver sources, the Spitfire is authored
+  nose along Blender **+Y**, up **+Z**, preserving the legacy runtime
+  correction. After +Y-up GLB export, `GameConfig.shipModels["spitfire.glb"]`
+  keeps `rotY: Math.PI, scale: 0.7`.
+- **Root:** all runtime objects are parented to `Spitfire_MkII` inside the
+  `Spitfire` collection. The camera and lights live in `Spitfire_Preview` and
+  do not export.
+- **Markers:** `muzzle.L/R`, `thruster.L/R`, and `rcs.nose/port/stbd` are
+  embedded for player/wingman placement. The catalog muzzle fallback remains
+  for fleet clones.
+- **Texture:** `textures/spitfire_armor.png` is the lossless 1024² source for
+  `Spitfire_ArmorSkin`: medium warm gunmetal/taupe-gray plates, graphite seams,
+  crimson recognition panels, and restrained orange safety marks. Hull pieces
+  use a consistent world-space box projection. The armor is intentionally only
+  0.14 metallic / 0.60 rough, with the same albedo feeding a subtle 0.14
+  emissive floor; this preserves the dark warm palette while keeping the
+  top-down silhouette readable against the starfield. The armor is not added
+  to the GlowLayer, so it does not bloom. Red wing/dorsal panels, canopy,
+  weapons, and engine nozzles retain small dedicated materials. The exported
+  GLB embeds the shared texture as JPEG.
+
+### Export settings
+Run `scripts/build_spitfire.py` in Blender. It rebuilds the source, saves
+`art/spitfire.blend`, exports only the `Spitfire` collection as +Y-up GLB with
+JPEG quality 84, and writes `art/pictures/spitfire_mk2_preview.png`.
 
 ## `wraith.blend` → `public/models/wraith.glb`
 
-Low-poly Wraith fighter (the Novari fighter — see the story bible). Unlike
-the other ships this model wasn't built in-house: the original GLB shipped
-with a single non-metallic material driven by a 2×2 palette texture, so it
-ignored scene lighting. This .blend was reverse-engineered from that GLB —
-faces were bucketed by which palette pixel their UVs sampled and rebuilt as
-three named PBR materials (texture dropped):
-
-| Material | From palette | Tuning |
-|---|---|---|
-| `Wraith_Hull` (530 faces) | white (245,244,244) | metallic 0.85 / rough 0.45 — same recipe as the spitfire's `metal` |
-| `Wraith_Panel` (200 faces) | dark teal (22,64,61) | metallic 0.6 / rough 0.4, base lifted off near-black so it specs |
-| `Wraith_Dark` (96 faces, canopy panes + intakes) | near-black (22,22,23) | metallic 0.7 / rough 0.35 — glossy dark glass look |
+Low-poly Wraith Mk II interceptor (the Novari knife-fighter — see the story
+bible), rebuilt in-house to replace the legacy third-party lancer. It retains
+the recognizable long central prow, split blade wings, and twin raised engine
+nacelles, but sharpens them into a sleeker dagger/crescent silhouette. The
+model is about 592 triangles consolidated into four material batches.
 
 ### Conventions baked into the model
 - **Axes (FIGHTER convention):** nose along **-Y**, up **+Z** → nose-+Z in
   Babylon; `GameConfig.shipModels["wraith.glb"]` needs no rotation
-  correction, only `scale: 0.28` (~8.2u long, 6.9u span native).
-- **Root/structure:** ONE mesh (`Wraith_Fighter`) in the `Wraith`
-  collection — no per-part objects, no root empty (legacy of the imported
-  asset). Material slots 0/1/2 = Hull/Panel/Dark.
+  correction, only `scale: 0.28` (~7.7u long / 7.1u span native).
+- **Root/structure:** runtime meshes are parented to `Wraith_MkII` in the
+  `Wraith` collection. Preview camera/lights live in `Wraith_Preview` and do
+  not export. Geometry is joined into Armor, Structure, Canopy, and CyanGlow
+  batches to keep squadron draw cost low.
 - **No marker empties** — muzzles/thrusters come from the `wraith` entry in
-  `GameConfig.shipTypes` only. If you add `muzzle.*`/`thruster.*` empties,
-  keep the config list in sync like the other fighters.
-- **No baked emissives** — engine glow is the runtime `EngineGlow`, same as
-  the spitfire/breaker. The original palette had an unused bright-teal pixel
-  (1,151,137); if you ever add glow accents, that's the canon color.
+  `GameConfig.shipTypes`; the engine plume is still the runtime `EngineGlow`.
+- **Texture:** `textures/wraith_armor.png` is the lossless 1024² source for
+  `Wraith_ArmorSkin`: medium-light pearl-gray and turquoise ceramic plates,
+  graphite seams, and sparse cyan channels. Broad near-black areas are avoided
+  deliberately so the fighter reads over the starfield. The armor is 0.16
+  metallic / 0.58 rough and feeds the same albedo into a restrained 0.10
+  emissive floor; it is not added to the GlowLayer, so it remains crisp rather
+  than blooming. World-space box projection keeps scale consistent.
+- **Emissives:** the narrow dorsal/wing channels, muzzle cells, and nozzle discs
+  use `Wraith_CyanGlow`; they provide Novari recognition while the runtime
+  engine system supplies the actual thrust plume.
 
 ### Export settings
-Same as the Breaker — GLB, +Y up, selection = the `Wraith` collection.
+Run `scripts/build_wraith.py` in Blender. It rebuilds the source, saves
+`art/wraith.blend`, exports only the `Wraith` collection as +Y-up GLB with
+JPEG quality 84, and writes `art/pictures/wraith_mk2_preview.png`.
