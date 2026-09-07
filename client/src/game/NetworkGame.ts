@@ -39,7 +39,7 @@ import {
   MSG,
 } from "@space-duel/shared";
 import { Arena } from "./Arena";
-import { Backdrop } from "./Backdrop";
+import { Backdrop, selectBackdropUrl } from "./Backdrop";
 import { PlanetTerrain } from "./PlanetTerrain";
 import { CombatNebulas } from "./CombatNebulas";
 import { StormClouds } from "./StormClouds";
@@ -605,8 +605,11 @@ export class NetworkGame {
     );
     sun.intensity = lcfg.sunIntensity;
     sun.diffuse = new Color3(lcfg.sunColor.r, lcfg.sunColor.g, lcfg.sunColor.b);
+    const backdropUrl = planetside
+      ? `${import.meta.env.BASE_URL}textures/space-backdrop.jpg`
+      : selectBackdropUrl();
     this.scene.environmentTexture = new EquiRectangularCubeTexture(
-      `${import.meta.env.BASE_URL}textures/space-backdrop.jpg`,
+      backdropUrl,
       this.scene,
       256,
     );
@@ -620,7 +623,7 @@ export class NetworkGame {
       new PlanetTerrain(this.scene);
       this.backdrop = null;
     } else {
-      this.backdrop = new Backdrop(this.scene, this.viewFlipped ? -1 : 1);
+      this.backdrop = new Backdrop(this.scene, this.viewFlipped ? -1 : 1, backdropUrl);
       new Nebulas(this.scene, this.arena.halfWidth, this.arena.halfDepth);
       new CapitalShips(this.scene, this.arena.halfWidth, this.arena.halfDepth, this.glowLayer);
     }

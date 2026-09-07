@@ -2124,6 +2124,8 @@ export const GameConfig = {
     backdrop: {
       /** Master toggle for the backdrop image. */
       enabled: true,
+      /** Set by the map at launch. All four images tile on both axes. */
+      variant: "purple" as "purple" | "teal" | "amber" | "ice",
       /**
        * Brightness multiplier (0..1) applied to the backdrop blit. Lower =
        * dimmer, so the deep-space image sits behind the gameplay rather than

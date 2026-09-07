@@ -41,7 +41,7 @@ import { LightningSystem } from "./LightningSystem";
 import { StormSystem } from "@space-duel/shared";
 import { StrategicSystem } from "@space-duel/shared";
 import { StationView } from "./view/StationView";
-import { Backdrop } from "./Backdrop";
+import { Backdrop, selectBackdropUrl } from "./Backdrop";
 import { PlanetTerrain } from "./PlanetTerrain";
 import { ExplosionSystem } from "./ExplosionSystem";
 import { JumpFlashSystem } from "./JumpFlashSystem";
@@ -457,8 +457,11 @@ export class Game {
     // the environment map so ships pick up a subtle space-colored sheen (and any
     // future PBR model benefits automatically). This sets reflections only — it
     // does NOT draw a skybox, so the visible background (Backdrop) is unchanged.
+    const backdropUrl = planetside
+      ? `${import.meta.env.BASE_URL}textures/space-backdrop.jpg`
+      : selectBackdropUrl();
     this.scene.environmentTexture = new EquiRectangularCubeTexture(
-      `${import.meta.env.BASE_URL}textures/space-backdrop.jpg`,
+      backdropUrl,
       this.scene,
       256,
     );
@@ -503,7 +506,7 @@ export class Game {
       new PlanetTerrain(this.scene);
       this.backdrop = null;
     } else {
-      this.backdrop = new Backdrop(this.scene, this.viewFlipped ? -1 : 1);
+      this.backdrop = new Backdrop(this.scene, this.viewFlipped ? -1 : 1, backdropUrl);
       new Nebulas(this.scene, this.arena.halfWidth, this.arena.halfDepth);
     }
     this.combatNebulas = new CombatNebulas(

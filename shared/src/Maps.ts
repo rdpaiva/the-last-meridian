@@ -70,6 +70,9 @@ export interface MapConfig {
    */
   environment?: "space" | "planet";
 
+  /** Space backdrop and reflection palette. Omitted drafts use the original purple. */
+  backdrop?: typeof GameConfig.scenery.backdrop.variant;
+
   /** Asteroid field for this map. `count: 0` disables the field. Omitted
    *  fields keep their GameConfig.asteroids default.
    *  - `regions`: spawn circles (a row reads as a belt; separate = clusters).
@@ -120,6 +123,7 @@ export const MAPS: Record<ConcreteMapId, MapConfig> = {
   openVoid: {
     id: "openVoid",
     name: "The Void",
+    backdrop: "ice",
     blurb: "Open space. Nowhere to hide — hold the relay line or lose it.",
     carrierZ: { player: -850, enemy: 850 },
     asteroids: { count: 0 },
@@ -135,6 +139,7 @@ export const MAPS: Record<ConcreteMapId, MapConfig> = {
   asteroidBelt: {
     id: "asteroidBelt",
     name: "The Belt",
+    backdrop: "amber",
     blurb: "A dense rock belt across the midline. Knife-fight ranges, cover everywhere.",
     carrierZ: { player: -600, enemy: 600 },
     asteroids: {
@@ -165,6 +170,7 @@ export const MAPS: Record<ConcreteMapId, MapConfig> = {
   nebulaVeil: {
     id: "nebulaVeil",
     name: "The Veil",
+    backdrop: "purple",
     blurb: "Stealth gas in every quarter. Break contact, strike from the murk.",
     carrierZ: { player: -700, enemy: 700 },
     asteroids: { count: 25 },
@@ -185,6 +191,7 @@ export const MAPS: Record<ConcreteMapId, MapConfig> = {
   theWreck: {
     id: "theWreck",
     name: "The Wreck",
+    backdrop: "amber",
     blurb: "A dead carrier adrift at the center. Fight through its shadow.",
     carrierZ: { player: -700, enemy: 700 },
     asteroids: { count: 35 },
@@ -207,6 +214,7 @@ export const MAPS: Record<ConcreteMapId, MapConfig> = {
   theTempest: {
     id: "theTempest",
     name: "The Tempest",
+    backdrop: "teal",
     blurb: "Ion storm walls carve the midfield into lanes. Fly the gaps — or burn through.",
     carrierZ: { player: -750, enemy: 750 },
     asteroids: { count: 20 },
@@ -237,6 +245,7 @@ export const MAPS: Record<ConcreteMapId, MapConfig> = {
   theEye: {
     id: "theEye",
     name: "The Eye",
+    backdrop: "teal",
     blurb: "Four storms, one calm heart. Every lane leads to the eye — so does theirs.",
     carrierZ: { player: -700, enemy: 700 },
     asteroids: {
@@ -479,6 +488,8 @@ export function applyMapConfig(
   // space map after a planet map restores the deep-space stack. View-only:
   // the server writes it too (harmlessly — nothing server-side reads it).
   GameConfig.scenery.environment = map.environment ?? "space";
+  // Always reset the palette, including older editor drafts without a backdrop.
+  GameConfig.scenery.backdrop.variant = map.backdrop ?? "purple";
 
   // Asteroid count / radius band / drift speed are ALL match-settings knobs,
   // so each writes only when the player hasn't overridden it (hand-tuning wins).

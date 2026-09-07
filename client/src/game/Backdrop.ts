@@ -7,6 +7,19 @@ import { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import { GameConfig } from "@space-duel/shared";
 import { clamp } from "@space-duel/shared";
 
+const BACKDROP_FILES = {
+  purple: "space-backdrop.jpg",
+  teal: "space-backdrop-teal.png",
+  amber: "space-backdrop-amber.png",
+  ice: "space-backdrop-ice.png",
+} as const;
+
+/** Read the map's palette; share the URL with the visible layer and reflections. */
+export function selectBackdropUrl(): string {
+  const file = BACKDROP_FILES[GameConfig.scenery.backdrop.variant];
+  return `${import.meta.env.BASE_URL}textures/${file}`;
+}
+
 /**
  * The deep-space backdrop image, rendered as a full-screen background `Layer`
  * rather than a 3D plane.
@@ -58,10 +71,10 @@ export class Backdrop {
    * camera, world +X moves the ship screen-LEFT, so the drift sign must flip
    * with it or the backdrop parallaxes the wrong way (moves WITH the ship).
    */
-  constructor(scene: Scene, viewSign: 1 | -1 = 1) {
+  constructor(scene: Scene, viewSign: 1 | -1 = 1, imageUrl = selectBackdropUrl()) {
     if (!GameConfig.scenery.backdrop.enabled) return;
 
-    const layer = new Layer("backdrop", `${import.meta.env.BASE_URL}textures/space-backdrop.jpg`, scene, true);
+    const layer = new Layer("backdrop", imageUrl, scene, true);
     // `color` tints the blit (RGBA multiply). Dim slightly so the backdrop
     // reads as deep background and the gameplay layer stays dominant.
     const t = GameConfig.scenery.backdrop.tint;
