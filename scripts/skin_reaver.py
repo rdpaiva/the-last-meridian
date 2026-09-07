@@ -4,9 +4,10 @@ Run inside Blender, either from the scripting workspace or in background mode:
 
     Blender --background art/reaver.blend --python scripts/skin_reaver.py
 
-The script keeps every mesh object, emissive material, and gameplay marker
-intact. Structural hull faces share one repeating 1024px texture; the existing
-violet glow/core materials remain separate. UVs use world-space box projection
+The script keeps every mesh object and gameplay marker intact. Structural hull
+faces share one repeating 1024px texture; the cockpit, cyan emitters, and core
+remain separate materials so the Reaver follows the Novari visual language
+without washing its purple armor in bloom. UVs use world-space box projection
 so the Reaver's many breakup pieces retain consistent texel density.
 """
 
@@ -22,6 +23,9 @@ GLB_PATH = ROOT / "client" / "public" / "models" / "reaver.glb"
 
 COLLECTION_NAME = "Reaver"
 SKIN_MATERIAL_NAME = "Reaver_ArmorSkin"
+CANOPY_MATERIAL_NAME = "Reaver_CanopyGlass"
+GLOW_MATERIAL_NAME = "Reaver_Glow"
+CORE_MATERIAL_NAME = "Reaver_GlowCore"
 SKINNED_MATERIALS = {"Reaver_Hull", "Reaver_HullDark", "Reaver_Ridge"}
 TILE_WORLD_SIZE = 6.5
 
@@ -59,15 +63,94 @@ def make_skin_material(image: bpy.types.Image) -> bpy.types.Material:
     texture.interpolation = "Linear"
     texture.extension = "REPEAT"
 
-    # The game fights over a very dark starfield. A highly metallic hull mostly
-    # reflected that darkness and lost its silhouette at gameplay scale, so the
-    # purple ceramic-metal is deliberately less metallic and more diffuse than
-    # the original pass. Existing glow geometry still supplies the hot accents.
-    bsdf.inputs["Metallic"].default_value = 0.30
-    bsdf.inputs["Roughness"].default_value = 0.55
+    # True black is now part of the livery, but only on inset panels. Keep the
+    # broad purple armor diffuse and give its own albedo a very low emissive
+    # floor so ACES/starfield grading cannot erase the silhouette. The hull
+    # meshes are not registered with the GlowLayer, so this does not add bloom.
+    bsdf.inputs["Metallic"].default_value = 0.18
+    bsdf.inputs["Roughness"].default_value = 0.58
+    emission_socket = "Emission Color" if "Emission Color" in bsdf.inputs else "Emission"
+    bsdf.inputs["Emission Strength"].default_value = 0.12
     links.new(texture.outputs["Color"], bsdf.inputs["Base Color"])
+    links.new(texture.outputs["Color"], bsdf.inputs[emission_socket])
     links.new(bsdf.outputs["BSDF"], output.inputs["Surface"])
     return material
+
+
+def configure_flat_material(
+    name: str,
+    *,
+    base: tuple[float, float, float],
+    metallic: float,
+    roughness: float,
+    emission: tuple[float, float, float],
+    emission_strength: float,
+    coat: float = 0.0,
+) -> bpy.types.Material:
+    """Create or retune one lightweight Principled material in place."""
+    material = bpy.data.materials.get(name)
+    if material is None:
+        material = bpy.data.materials.new(name)
+    material.use_nodes = True
+
+    nodes = material.node_tree.nodes
+    bsdf = nodes.get("Principled BSDF")
+    if bsdf is None:
+        nodes.clear()
+        output = nodes.new("ShaderNodeOutputMaterial")
+        output.location = (280, 0)
+        bsdf = nodes.new("ShaderNodeBsdfPrincipled")
+        material.node_tree.links.new(bsdf.outputs["BSDF"], output.inputs["Surface"])
+
+    bsdf.inputs["Base Color"].default_value = (*base, 1.0)
+    bsdf.inputs["Metallic"].default_value = metallic
+    bsdf.inputs["Roughness"].default_value = roughness
+    emission_socket = "Emission Color" if "Emission Color" in bsdf.inputs else "Emission"
+    bsdf.inputs[emission_socket].default_value = (*emission, 1.0)
+    bsdf.inputs["Emission Strength"].default_value = emission_strength
+    if "Coat Weight" in bsdf.inputs:
+        bsdf.inputs["Coat Weight"].default_value = coat
+    material.diffuse_color = (*base, 1.0)
+    return material
+
+
+def apply_novari_emissives() -> dict[str, int]:
+    """Replace the pink glow language with restrained Novari cyan/teal."""
+    canopy = configure_flat_material(
+        CANOPY_MATERIAL_NAME,
+        base=(0.012, 0.055, 0.070),
+        metallic=0.24,
+        roughness=0.24,
+        emission=(0.008, 0.080, 0.095),
+        emission_strength=0.24,
+        coat=0.18,
+    )
+    configure_flat_material(
+        GLOW_MATERIAL_NAME,
+        base=(0.0, 0.15, 0.20),
+        metallic=0.06,
+        roughness=0.34,
+        emission=(0.0, 0.85, 1.0),
+        emission_strength=1.45,
+    )
+    configure_flat_material(
+        CORE_MATERIAL_NAME,
+        base=(0.01, 0.18, 0.22),
+        metallic=0.04,
+        roughness=0.30,
+        emission=(0.16, 0.90, 1.0),
+        emission_strength=1.80,
+    )
+
+    canopy_meshes = 0
+    for obj in bpy.data.objects:
+        if obj.type != "MESH" or obj.name != "Reaver_Canopy":
+            continue
+        for index, slot in enumerate(obj.data.materials):
+            if slot and slot.name in {GLOW_MATERIAL_NAME, CANOPY_MATERIAL_NAME}:
+                obj.data.materials[index] = canopy
+                canopy_meshes += 1
+    return {"canopy_meshes": canopy_meshes}
 
 
 def project_uv(mesh_object: bpy.types.Object) -> None:
@@ -171,6 +254,7 @@ def main() -> None:
     image = load_texture()
     material = make_skin_material(image)
     changed = apply_skin(material)
+    emissives = apply_novari_emissives()
 
     # Preserve the user's existing .blend1 backup when saving the source.
     bpy.context.preferences.filepaths.save_version = 0
@@ -186,6 +270,7 @@ def main() -> None:
         "REAVER_SKIN_RESULT",
         {
             **changed,
+            **emissives,
             "selected_objects": selected,
             "markers": markers,
             "texture": str(TEXTURE_PATH),

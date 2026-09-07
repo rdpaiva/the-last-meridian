@@ -153,8 +153,8 @@ script applies these settings automatically.
 ## `reaver.blend` → `public/models/reaver.glb`
 
 Low-poly Reaver heavy gunship (the Novari strike craft — see the story
-bible). Deep-purple textured faceted hull with violet emissives: lofted
-diamond-section fuselage, glowing violet canopy lens + bright core orb,
+bible). Deep-purple textured faceted hull with Novari cyan emissives: lofted
+diamond-section fuselage, smoked teal-black canopy lens + bright cyan core orb,
 two crescent scythe wings raking forward, triple-barrel gun pod under each
 wing, twin long chin cannons reaching past the nose, twin aft engines with
 glowing nozzle discs. Flown via the `reaver` entry in `GameConfig.shipTypes`.
@@ -171,21 +171,26 @@ glowing nozzle discs. Flown via the `reaver` entry in `GameConfig.shipTypes`.
   pod tips), `thruster.L/R` (engine nozzles), `rcs.nose/port/stbd`. The
   `reaver` catalog entry's `muzzles` list mirrors these × 0.35 — keep both
   in sync (enemy fleet clones read only the config list).
-- **Naming:** meshes prefixed `Reaver_`. Emissive parts (canopy, core orb,
-  nozzle glow discs, trim slits) use modest strengths (~2.5-3) per the
-  GlowLayer/ACES blow-out gotcha; engine THRUST glow still comes from the
-  runtime `EngineGlow` via the thruster markers.
+- **Naming:** meshes prefixed `Reaver_`. The cockpit uses a dedicated
+  `Reaver_CanopyGlass` smoked teal-black material with only a 0.24 emissive
+  floor. Trim slits and nozzle discs share `Reaver_Glow` (Novari cyan,
+  strength 1.45), while the small core orb uses `Reaver_GlowCore` (strength
+  1.80). The restrained, sparse cyan matches the Wraith and Choirship without
+  washing the purple armor in GlowLayer/ACES bloom. Engine THRUST glow still
+  comes from the runtime `EngineGlow` via the thruster markers.
 - **Texture:** `textures/reaver_armor.png` is the lossless 1024² source for
-  the shared `Reaver_ArmorSkin` material: mid-value violet/amethyst
-  interlocking alien armor with indigo separators and restrained lavender
-  channels. Keep the broad plates out of near-black values: at gameplay scale
-  they otherwise disappear into the starfield. The material is intentionally
-  only 0.30 metallic / 0.55 rough so direct light carries the purple silhouette
-  instead of the hull mostly reflecting the dark environment.
+  the shared `Reaver_ArmorSkin` material: saturated royal-purple/amethyst
+  interlocking armor with true-black recessed panels and bright lavender
+  channels. Black is limited to roughly one quarter of the source and never
+  occupies the large silhouette-carrying plates. The material is intentionally
+  only 0.18 metallic / 0.58 rough, with the albedo feeding a restrained 0.12
+  emissive floor, so the purple silhouette survives the dark starfield without
+  creating a hull-wide bloom. The texture's lavender channels are non-blooming
+  armor detail; the separate cyan materials provide faction recognition.
   Structural hull faces use a world-scale box projection so all 44 breakup
-  meshes retain consistent texel density. `Reaver_Glow` and
-  `Reaver_GlowCore` stay separate and emissive. The GLB embeds one JPEG shared
-  by every clone; re-run `scripts/skin_reaver.py` after changing the source.
+  meshes retain consistent texel density. The GLB embeds one JPEG shared by
+  every clone; re-run `scripts/skin_reaver.py` after changing the source or
+  any of the cockpit/emissive palette values.
 
 ### Export settings
 Same as the Breaker — GLB, +Y up, apply modifiers (bakes the wing
