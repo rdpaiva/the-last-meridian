@@ -84,6 +84,10 @@ export class CameraRig {
   private zoom = loadSavedZoom();
   /** Interactive zoom changed since the last save — persist on key release. */
   private zoomDirty = false;
+  private launchShot: {
+    position: Vector3; target: Vector3; age: number; panDirection: number; elapsed: number | null;
+  } | null = null;
+  private readonly shotTarget = new Vector3();
 
   constructor(scene: Scene, flipped = false) {
     const cfg = GameConfig.camera;
@@ -116,15 +120,36 @@ export class CameraRig {
   }
 
   /**
-   * Directly set the zoom factor. Used by LaunchSequence to animate the
+   * Directly set the zoom factor. LaunchSequence retains a fallback to animate the
    * camera from a wide establishing shot (introZoom, above maxZoom) down to
    * normal framing during the 3-2-1 countdown. Once the sequence completes,
    * normal zoomInput from the player drives zoom again (clamped to maxZoom).
    * No upper clamp here — the launch intro intentionally zooms out further
-   * than the player can reach interactively.
+   * than the player can reach interactively. OpeningLaunchCamera overrides the
+   * pose directly instead; respawn sequences keep the pilot's current zoom.
    */
   setZoom(value: number): void {
     this.zoom = Math.max(GameConfig.camera.minZoom, value);
+  }
+
+  get showingLaunch(): boolean {
+    return this.launchShot !== null;
+  }
+
+  /** Gently orbit the bays while normal follow tracking warms up. */
+  holdLaunchView(position: Vector3, target: Vector3, panDirection = 1): void {
+    this.launchShot = { position: position.clone(), target: target.clone(), age: 0, panDirection, elapsed: null };
+    this.camera.position.copyFrom(position);
+    this.camera.setTarget(target);
+  }
+
+  /** Called once the opening roster has cleared; never changes the saved zoom. */
+  returnFromLaunch(): void {
+    if (this.launchShot && this.launchShot.elapsed === null) this.launchShot.elapsed = 0;
+  }
+
+  cancelLaunchView(): void {
+    this.launchShot = null;
   }
 
   /**
@@ -162,7 +187,7 @@ export class CameraRig {
     // (one localStorage write per adjustment, not per frame) so it survives
     // respawns and sessions. setZoom() (cinematic driver) deliberately
     // bypasses this — only interactive zoom is a preference.
-    if (zoomInput !== 0) {
+    if (zoomInput !== 0 && !this.launchShot) {
       this.zoom = clamp(
         this.zoom - zoomInput * cfg.zoomRate * deltaSeconds,
         cfg.minZoom,
@@ -235,6 +260,51 @@ export class CameraRig {
     // Target stays at the un-shaken trackedTarget so the shake introduces
     // a slight tilt — feels like a camera mount being jolted, not the
     // whole world sliding.
+    const shot = this.launchShot;
+    if (shot) {
+      shot.age += deltaSeconds;
+      const launchCfg = GameConfig.camera.launchShot;
+      const dx = shot.position.x - shot.target.x;
+      const dy = shot.position.y - shot.target.y;
+      const dz = shot.position.z - shot.target.z;
+      const pan = shot.panDirection * launchCfg.panAngle * (1 - Math.exp(-shot.age / launchCfg.panTime));
+      const fromYaw = Math.atan2(dx, dz) + pan;
+      const startHorizontal = Math.hypot(dx, dz);
+      if (shot.elapsed === null) {
+        this.camera.position.set(
+          shot.target.x + Math.sin(fromYaw) * startHorizontal + shakeX * 0.12,
+          shot.position.y + shakeY * 0.12,
+          shot.target.z + Math.cos(fromYaw) * startHorizontal + shakeZ * 0.12,
+        );
+        this.camera.setTarget(shot.target);
+        return;
+      }
+      shot.elapsed += deltaSeconds;
+      const progress = Math.min(shot.elapsed / launchCfg.returnDuration, 1);
+      if (progress < 1) {
+        const t = progress * progress * (3 - 2 * progress);
+        Vector3.LerpToRef(shot.target, this.trackedTarget, t, this.shotTarget);
+        const toYaw = Math.atan2(this.offset.x, this.offset.z);
+        const yawDelta = Math.atan2(Math.sin(toYaw - fromYaw), Math.cos(toYaw - fromYaw));
+        const yaw = fromYaw + yawDelta * t;
+        const fromPitch = Math.atan2(dy, Math.hypot(dx, dz));
+        const toPitch = Math.atan2(this.offset.y, Math.hypot(this.offset.x, this.offset.z));
+        // Lift through the turn instead of linearly crossing the carrier hull.
+        const pitch = fromPitch + (toPitch - fromPitch) * t + Math.sin(Math.PI * t) * 0.22;
+        const fromRadius = Math.hypot(dx, dy, dz);
+        const radius = fromRadius + (this.offset.length() * this.zoom - fromRadius) * t;
+        const horizontal = Math.cos(pitch) * radius;
+        const shakeScale = 0.12 + 0.88 * t;
+        this.camera.position.set(
+          this.shotTarget.x + Math.sin(yaw) * horizontal + shakeX * shakeScale,
+          this.shotTarget.y + Math.sin(pitch) * radius + shakeY * shakeScale,
+          this.shotTarget.z + Math.cos(yaw) * horizontal + shakeZ * shakeScale,
+        );
+        this.camera.setTarget(this.shotTarget);
+        return;
+      }
+      this.launchShot = null;
+    }
     this.camera.setTarget(this.trackedTarget);
   }
 }

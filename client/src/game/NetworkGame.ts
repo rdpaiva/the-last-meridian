@@ -11,6 +11,7 @@ import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 
 import {
   GameConfig,
+  NEUTRAL_INPUT,
   Mothership,
   lerp,
   wrapAngle,
@@ -51,6 +52,7 @@ import { Nebulas } from "./Nebulas";
 import { CapitalShips } from "./CapitalShips";
 import { Starfield } from "./Starfield";
 import { CameraRig } from "./CameraRig";
+import { OpeningLaunchCamera } from "./OpeningLaunchCamera";
 import { SpectatorCamera, type SpectateSubject } from "./SpectatorCamera";
 import { buildPostPipeline } from "./PostPipeline";
 import {
@@ -266,6 +268,7 @@ export class NetworkGame {
   private readonly glowLayer: GlowLayer;
   private readonly arena: Arena;
   private readonly cameraRig: CameraRig;
+  private readonly carrierLoads: Promise<void>[] = [];
   /** Null on "planet" maps — the space stack is replaced by PlanetTerrain. */
   private readonly starfield: Starfield | null;
   private readonly backdrop: Backdrop | null;
@@ -516,23 +519,11 @@ export class NetworkGame {
   private readonly lastPlayerPos = new Vector3();
   private cameraSnapped = false;
   /**
-   * Opening-launch camera (mirrors solo's cinematic LaunchSequence.desiredZoom):
-   * hold the wide introZoom establishing shot while our seat waits in the
-   * launch tube, then smoothstep down to the default framing once our catapult
-   * fires. Latched off the room phase on the first tick with state — a
-   * mid-match join starts at "playing" and never sees the wide shot — and
-   * spent after the one ease, so respawn relaunches skip it like offline.
+   * Latched off the first replicated phase. Late joins and respawns skip
+   * the opening; a fresh match watches the entire friendly launch roster.
    */
   private openingShot: boolean | null = null;
-  /** Wall-clock ms when OUR catapult fired — starts the opening-shot zoom ease. */
-  private launchZoomEaseStartMs: number | null = null;
-  /**
-   * The zoom the opening shot eases DOWN TO — the rig's zoom captured on the
-   * first opening-shot frame, i.e. the pilot's persisted preference restored
-   * by the CameraRig constructor (mirrors solo's LaunchSequence.landingZoom).
-   * Captured before setZoom(introZoom) overwrites the rig.
-   */
-  private openingLandingZoom: number | null = null;
+  private openingLaunchCamera: OpeningLaunchCamera | null = null;
   private ended = false;
   private connectionLost = false;
   /** A resume attempt is in flight (unexpected drop, grace window open). */
@@ -647,12 +638,12 @@ export class NetworkGame {
     for (const f of ["humans", "machines"] as Faction[]) {
       const file = GameConfig.mothership.model.file[f];
       if (file) {
-        void carriers[f]
+        const loaded = carriers[f]
           .applyModel(file)
-          .then(() => carriers[f].applyTurretModel())
-          // Preload the burned-out wreck GLB (hidden) so the death swap in
-          // syncWreck is an instant toggle inside the death barrage.
-          .then(() => carriers[f].prepareWreck());
+          .then(() => carriers[f].applyTurretModel());
+        this.carrierLoads.push(loaded);
+        // Wrecks are hidden and need not delay the opening shot.
+        void loaded.then(() => carriers[f].prepareWreck());
       }
     }
 
@@ -912,7 +903,7 @@ export class NetworkGame {
 
   /** Preload the ship GLBs, then start the render loop. */
   async start(): Promise<void> {
-    await this.preloadTemplates();
+    await Promise.all([this.preloadTemplates(), ...this.carrierLoads]);
     // Swap each wreck's placeholder blocks for its battle-damaged GLB (same
     // fallback contract as solo Game.start — the procedural placeholder stays
     // if the file is missing/fails).
@@ -1191,6 +1182,7 @@ export class NetworkGame {
     if (held.thrust || held.reverse || held.rotateLeft || held.rotateRight || held.fire) {
       this.sound.unlock();
     }
+    if (this.openingLaunchCamera?.active) Object.assign(this.input.state, NEUTRAL_INPUT);
     if (
       !this.ended &&
       !this.connectionLost &&
@@ -1315,42 +1307,31 @@ export class NetworkGame {
       }
       this.lastPlayerPos.copyFrom(this.camPos);
     }
-    // Opening-launch camera (mirrors solo's LaunchSequence.desiredZoom): hold
-    // the wide introZoom establishing shot while our seat waits in the launch
-    // tube, then smoothstep down to the default framing — over the same
-    // duration as solo's 3-2-1 countdown — once our catapult fires.
     if (this.openingShot === null) {
-      // Latch off the first replicated phase: a mid-match join arrives at
-      // "playing" and must never see the wide shot.
-      const p = (this.net.room.state as unknown as { phase?: string }).phase;
-      if (p !== undefined) this.openingShot = p === "launching";
+      const phase = (this.net.room.state as unknown as { phase?: string }).phase;
+      if (phase !== undefined) this.openingShot = phase === "launching";
     }
-    if (this.openingShot) {
-      const launch = GameConfig.launch;
-      // First opening-shot frame: the rig still holds the pilot's restored
-      // zoom preference — remember it as the ease's landing point before
-      // setZoom(introZoom) below overwrites it.
-      if (this.openingLandingZoom === null) {
-        this.openingLandingZoom = this.cameraRig.currentZoom;
-      }
-      if (this.launchZoomEaseStartMs === null) {
-        if (this.myLaunching) {
-          this.cameraRig.setZoom(launch.introZoom);
-        } else {
-          // Already clear of the tube (our shipLaunched FX never played, or we
-          // joined between catapult and phase flip) — just ease down from here.
-          this.launchZoomEaseStartMs = nowMs;
-        }
-      }
-      if (this.launchZoomEaseStartMs !== null) {
-        const durMs = launch.countdownStepSec * 3 * 1000;
-        const t = Math.min((nowMs - this.launchZoomEaseStartMs) / durMs, 1);
-        const eased = t * t * (3 - 2 * t); // smoothstep — same curve as solo
-        this.cameraRig.setZoom(
-          launch.introZoom + (this.openingLandingZoom - launch.introZoom) * eased,
-        );
-        if (t >= 1) this.openingShot = false; // spent — zoom keys take over
-      }
+    if (this.openingShot && havePlayer && !this.openingLaunchCamera) {
+      const home = this.carrierSims[this.playerFaction];
+      const forward = home.getLaunchForward();
+      const bays = Array.from({ length: home.getLaunchBayCount() }, (_, i) => home.getLaunchStartPosition(i));
+      const members = this.shadowStubs[this.playerFaction].filter(s => s.present).map(stub => {
+        // Queue slots differ along the tube, so infer the bay by lateral
+        // distance only. No new server field or launch timing is needed.
+        let bayIndex = 0;
+        let nearest = Infinity;
+        bays.forEach((bay, i) => {
+          const lateral = Math.abs((stub.position.x - bay.x) * forward.z - (stub.position.z - bay.z) * forward.x);
+          if (lateral < nearest) { nearest = lateral; bayIndex = i; }
+        });
+        return { bayIndex, isFinished: () => !stub.present || !stub.isAlive || !stub.launching };
+      });
+      this.openingLaunchCamera = new OpeningLaunchCamera(this.cameraRig, home, members);
+    }
+    if (this.openingLaunchCamera) {
+      if (!this.myAlive || this.ended) this.openingLaunchCamera.cancel();
+      else this.openingLaunchCamera.update();
+      if (!this.openingLaunchCamera.active) this.openingShot = false;
     }
     const zoomInput = this.input.state.zoomIn ? 1 : this.input.state.zoomOut ? -1 : 0;
     // Death spectate (offline parity — Game.updateViews's dead branch): while
@@ -1960,11 +1941,6 @@ export class NetworkGame {
       case "shipLaunched": {
         if (e.ship === this.myKey) {
           this.cameraRig.addTrauma(GameConfig.launch.launchTrauma);
-          // Our catapult fired — start easing the opening wide shot down to
-          // the default framing (consumed by the camera block in tick()).
-          if (this.openingShot && this.launchZoomEaseStartMs === null) {
-            this.launchZoomEaseStartMs = performance.now();
-          }
         } else {
           const pose = this.poseOf(e.ship);
           if (pose) {

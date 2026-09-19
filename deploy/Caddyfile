@@ -13,6 +13,13 @@
 the-last-meridian.com {
 	root * /var/www/the-last-meridian
 	encode zstd gzip
+	# HTML and public models/textures keep their URLs across releases: browsers
+	# must revalidate them instead of choosing a heuristic cache lifetime.
+	@revalidate not path /assets/* /version.json
+	header @revalidate Cache-Control "no-cache"
+	# Vite fingerprints bundled JS/CSS; their URLs change with their contents.
+	header /assets/* Cache-Control "public, max-age=31536000, immutable"
+	header /version.json Cache-Control "no-store"
 	file_server
 }
 

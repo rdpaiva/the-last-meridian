@@ -10,7 +10,7 @@ import { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
 // the PBR (metallic) GLB ships, which need an environment to reflect.
 import { EquiRectangularCubeTexture } from "@babylonjs/core/Materials/Textures/equiRectangularCubeTexture";
 
-import { GameConfig, aiCallsign, factionExhaust, resolveWingPlan, type ShipTypeId } from "@space-duel/shared";
+import { GameConfig, NEUTRAL_INPUT, aiCallsign, factionExhaust, resolveWingPlan, type ShipTypeId } from "@space-duel/shared";
 import { InputManager } from "./InputManager";
 import { Arena } from "./Arena";
 import { AssetLoader } from "./AssetLoader";
@@ -24,6 +24,7 @@ import { MissileSystemView } from "./view/MissileSystemView";
 import { SimEventBus } from "@space-duel/shared";
 import { wrapAngle } from "@space-duel/shared";
 import { CameraRig } from "./CameraRig";
+import { OpeningLaunchCamera } from "./OpeningLaunchCamera";
 import { SpectatorCamera, type SpectateSubject } from "./SpectatorCamera";
 import { buildPostPipeline } from "./PostPipeline";
 import { Hud, UPGRADE_LABELS, captureStatusFor, type CaptureStatus } from "./Hud";
@@ -302,10 +303,11 @@ export class Game {
 
   private state: GameState = "launching";
   private started = false;
+  private openingLaunchCamera: OpeningLaunchCamera | null = null;
   /**
    * The player's combatant, set once the ship loads. Its `launch` field is the
-   * cinematic launch sequence the camera zoom + 3-2-1 overlay read from (via the
-   * `playerLaunch` getter) — every other ship's launch is silent.
+   * cinematic launch sequence the 3-2-1 overlay reads from (via `playerLaunch`).
+   * OpeningLaunchCamera separately watches the whole friendly roster.
    */
   private playerCombatant: Combatant | null = null;
 
@@ -2011,6 +2013,9 @@ export class Game {
         this.input.state.rotateRight ||
         this.input.state.fire;
       if (anyInputHeld) this.sound.unlock();
+      // Keep steering/fire neutral until the camera has returned to the pilot.
+      // The catapults and the rest of the battle continue normally.
+      if (this.openingLaunchCamera?.active) Object.assign(this.input.state, NEUTRAL_INPUT);
 
       // --- Simulation (server-safe). Hitstop is a CLIENT-only freeze, so the
       // browser gates it here rather than inside advanceSim: during a freeze
@@ -2029,7 +2034,7 @@ export class Game {
       this.updateViews(deltaSeconds, deltaMs, nowMs, inHitstop, simStepRan);
 
       this.flightSchool?.update(
-        this.state === "playing" && this.playerLaunch === null,
+        this.state === "playing" && this.playerLaunch === null && !this.openingLaunchCamera?.active,
         this.playerServiceState,
       );
 
@@ -2399,6 +2404,8 @@ export class Game {
     // --- Animations that continue THROUGH hitstop ---
     const zoomInput =
       (this.input.state.zoomIn ? 1 : 0) - (this.input.state.zoomOut ? 1 : 0);
+    if (this.playerShip && !this.playerShip.isAlive) this.openingLaunchCamera?.cancel();
+    this.openingLaunchCamera?.update();
     if (this.spectateMode && this.playerShip && this.state !== "victory" && this.state !== "defeat") {
       // OBSERVE mode: the spectator owns the camera from the first frame.
       // Opens on the friendly carrier deck (the seat's launch position) for
@@ -2454,7 +2461,7 @@ export class Game {
         this.cameraRig.snapTo(this.playerShip.position);
       }
       const playerLaunch = this.playerLaunch;
-      if (playerLaunch) {
+      if (playerLaunch && !this.openingLaunchCamera?.active) {
         this.cameraRig.setZoom(playerLaunch.desiredZoom);
       }
       this.cameraRig.update(
@@ -2739,7 +2746,7 @@ export class Game {
     );
   }
 
-  /** The player's active launch sequence — what the camera zoom + overlay read. */
+  /** The player's countdown and respawn zoom; the opening camera watches the fleet. */
   private get playerLaunch(): LaunchSequence | null {
     return this.playerCombatant?.launch ?? null;
   }
@@ -2799,6 +2806,19 @@ export class Game {
     const base = LaunchSequence.cinematicHoldSec();
     this.launchFleet(friendly, this.motherships[this.playerFaction], base);
     this.launchFleet(enemy, this.motherships[this.enemyFaction], base);
+    if (!this.spectateMode) {
+      this.openingLaunchCamera = new OpeningLaunchCamera(
+        this.cameraRig,
+        this.motherships[this.playerFaction],
+        friendly.map(c => {
+          const initialLaunch = c.launch;
+          return {
+            bayIndex: c.bayIndex,
+            isFinished: () => !c.ship.isAlive || c.launch !== initialLaunch || !initialLaunch || initialLaunch.isComplete,
+          };
+        }),
+      );
+    }
   }
 
   /**
@@ -2982,6 +3002,7 @@ export class Game {
     // Kill any in-progress launch (e.g. the player's cinematic) so its overlay
     // clears and the catapult stops driving a ship under the end banner.
     for (const c of this.combatants) c.launch = null;
+    this.openingLaunchCamera?.cancel();
 
     this.events.emit("mothershipDied", { mothership: destroyed });
   }

@@ -8,6 +8,12 @@ capital-ship silhouettes.
 
 Built with **Vite + TypeScript + Babylon.js**.
 
+Each sortie opens with a gentle camera glide looking into your carrier's launch
+bays. It watches the entire friendly group clear the catapults, then sweeps up
+to the normal overhead view and restores flight controls at your saved zoom.
+Both carriers use this opening in solo and multiplayer; respawns and mid-match
+joins go straight to gameplay.
+
 New pilots can launch **Flight School** from the mode screen for five guided,
 hands-on exercises using the real flight, weapons, docking, and jump-drive
 systems. The Field Manual remains available as the deeper reference guide.

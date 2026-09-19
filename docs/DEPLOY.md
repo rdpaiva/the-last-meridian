@@ -61,11 +61,54 @@ rule is now automatic — just never hand-deploy one half alone.
 1. Push/merge to `main` (nothing auto-deploys anymore).
 2. Run **Actions → Deploy game** on that commit — it typechecks, tests,
    builds both halves, ships both, restarts the unit.
-3. Players on stale tabs get "NEW VERSION — refresh" — that's the protocol
-   check working, not a bug. A server restart drops live matches; clients
+3. Clients with the deployment watcher check `version.json` every minute and
+   when a tab becomes visible. A new build automatically refreshes an idle
+   loadout screen; matches, connections, intro playback, settings, the map
+   editor, and focused text inputs are left alone. The usual end-of-match
+   page reload loads the latest build. Protocol-incompatible joins still get
+   "NEW VERSION — refresh". A server restart drops live matches; clients
    auto-reconnect for `GameConfig.net.reconnectGraceSec` (60s), but a
    restarted server has no rooms — they'll land on the terminal overlay and
    re-enter via ENTER/refresh. Deploy between matches when you can.
+
+## Browser cache policy (one-time server update)
+
+Apply the updated `deploy/Caddyfile` on the droplet as an administrator:
+
+```sh
+sudo caddy validate --config /path/to/checkout/deploy/Caddyfile --adapter caddyfile
+sudo cp /path/to/checkout/deploy/Caddyfile /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+
+The regular deployment workflow does **not** install Caddy configuration;
+the deploy user's sudo permission only covers restarting the game server.
+After this one-time update, normal deployments need no cache purge:
+
+- HTML and fixed-name public assets (models, textures, music, video) use
+  `Cache-Control: no-cache`: browsers revalidate and reuse unchanged files.
+- Vite's hashed `/assets/` files use a one-year immutable cache.
+- `version.json` uses `no-store`. Each build emits a unique ID shared by the
+  manifest and the bundled client, including rebuilds of the same commit.
+
+The watcher uses an uncached request and adds a `release` query parameter
+when navigating, bypassing an old cached HTML response while preserving
+invite links. It never clears local storage, saved loadouts, or pilot settings.
+Offline/failed checks leave the game running and retry later.
+
+Tabs running a version from **before the watcher was added** cannot run this
+new logic until they load it once; an initial reload (hard refresh if needed)
+may still be necessary. Server cache headers likewise only take effect when
+the browser next contacts the server. This does not update an obsolete
+GitHub Pages copy or publish code that has not been deployed.
+
+Verify after installation/deployment:
+
+```sh
+curl -I https://the-last-meridian.com/
+curl -I https://the-last-meridian.com/models/reaver.glb
+curl -I https://the-last-meridian.com/version.json
+```
 
 ## Notes
 

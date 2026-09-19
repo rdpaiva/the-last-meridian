@@ -1,4 +1,5 @@
 import { Game, RESTART_FLAG } from "./game/Game";
+import { watchBuildUpdates } from "./BuildUpdates";
 import { NetworkGame } from "./game/NetworkGame";
 import { NetClient, inviteRoomId, clearInviteHash } from "./net/NetClient";
 import { IntroCinematic } from "./game/IntroCinematic";
@@ -580,3 +581,10 @@ window.addEventListener("resize", () => {
   netGame?.handleResize();
   preview?.resize();
 });
+
+if (import.meta.env.PROD) {
+  watchBuildUpdates(__BUILD_ID__, () =>
+    !game && !netGame && !connecting && state === "factionSelect" &&
+    !document.activeElement?.matches("input, textarea, select, [contenteditable]"),
+  );
+}

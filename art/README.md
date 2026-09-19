@@ -4,10 +4,10 @@ Editable source files for assets that ship as exported formats elsewhere in
 the repo. Edit the source here, re-export, and commit both.
 
 > **Carrier deck skins:** the motherships can wear a top-down painted livery
-> (`textures/<ship>_skin.png`, planar-projected onto the deck). The Bastion
-> already has one (`textures/bastion_skin.png`, MCS AEGIS). To skin the
-> Choirship the same way, follow the step-by-step in
-> `docs/RECIPES.md` → "Apply a top-down deck skin to a carrier".
+> (`textures/<ship>_skin.png`, planar-projected onto the deck). Both carriers
+> also have separate hull/hangar atlases for their sides and undersides.
+> See their sections below for the re-export helpers, and
+> `docs/RECIPES.md` → "Apply a top-down deck skin to a carrier" for deck mapping.
 
 ## `bastion_carrier.blend` → `public/models/bastion_carrier.glb`
 
@@ -34,12 +34,30 @@ Loaded at runtime by `src/game/Mothership.applyModel()`.
 - **Detail emissives follow the taper:** the hull (×0.42) and pods (×0.82)
   narrow toward the bow, so portholes/running lights are seated against the
   actual flank at each Y, not a fixed X — otherwise they float off the surface.
+- **Sides, underside, and launch tunnels:** `textures/bastion_hull_atlas.png`
+  supplements the original deck skin. Its four horizontal strips (top to
+  bottom) contain exterior armor, underside service panels, hangar walls/ceiling,
+  and launch flooring. Explicit UVs keep panel proportions on vertical faces;
+  floor chevrons point forward along +Y in both bays. `Bastion_HullWrap` and
+  `Bastion_HangarSkin` share the atlas, embedded as JPEG in the GLB. The hangar
+  has a restrained albedo-colored emission floor so its interior remains
+  readable, while the existing ceiling strips supply the stronger light.
+  Floor/back-wall surfaces are no longer solid emissive panels. The original
+  deck artwork, exterior emitters, geometry, and `launch.0/1` remain unchanged.
 
 ### Export settings
-`File → Export → glTF 2.0 (.glb)`, format **GLB**, **+Y up**, apply modifiers,
-selection = the `Bastion_Carrier` collection (so the Camera/Light stay out).
+Run `scripts/skin_bastion.py` with `art/bastion_carrier.blend` open in Blender
+to reapply the atlas mapping, save the editable source with packed textures,
+and export **GLB**, **+Y up**, apply modifiers, JPEG quality 90. It exports
+the visible `Bastion_Carrier` objects only and checks that geometry, launch
+markers, and exterior deck UVs are preserved. After editing the PNG externally,
+reload that image in Blender before rerunning the helper.
+The current asset has 1,468 triangles, two embedded images, and is about 1 MB.
 The model needs `GameConfig.mothership.model.rotY = Math.PI` so the bay mouths
 face the launch axis — set empirically in-game, not derived.
+Studio previews are in `pictures/bastion_textured_overview.png`,
+`pictures/bastion_textured_underside.png`, and
+`pictures/bastion_textured_launch_bay.png`.
 
 ## `choirship.blend` → `public/models/choirship.glb`
 
@@ -67,8 +85,25 @@ stern with four cyan exhausts.
   `SpineCell`/`CheekCell` ON PURPOSE — they face the top-down camera, so
   they're emissive-only (GlowLayer bloom straight at the lens would wash out).
   `Bay*` parts are likewise emissive-only.
-- **Export:** same as the Bastion — GLB, +Y up, apply modifiers, selection =
-  the `Choirship` collection.
+- **Sides, underside, and launch tunnels:** `textures/choirship_hull_atlas.png`
+  complements the original Novari deck skin with petrol-teal armor, cyan
+  details, service panels, mechanical hangar walls/ceilings, and marked launch
+  flooring. Its four horizontal strips have the same layout as the Bastion
+  atlas. `Choir_HullWrap` and `Choir_HangarSkin` share one embedded JPEG;
+  the hangar uses a restrained albedo-colored emission floor for readability.
+  Only inward wall faces and the roof underside receive the interior finish.
+  Both floor chevrons point +Y, and the existing cyan rims/guide rails, red
+  nacelle accents, and exterior deck artwork are preserved. Nacelle side
+  facets use a continuous cylindrical unwrap below the original top skin.
+- **Export:** run `scripts/skin_choirship.py` with `art/choirship.blend` open.
+  It saves the source with packed textures, verifies geometry and exterior
+  deck UVs are unchanged, then exports visible `Choirship` objects as GLB,
+  +Y up, apply modifiers, JPEG quality 90. Reload the atlas in Blender after
+  changing its external PNG. The asset has 1,524 triangles, two embedded
+  images, and is about 0.9 MB. The launch markers remain at (±3.9, 2.2, 0).
+  Studio previews are `pictures/choirship_textured_overview.png`,
+  `pictures/choirship_textured_underside.png`, and
+  `pictures/choirship_textured_launch_bay.png`.
 
 ## `station.blend` → `public/models/station.glb`
 

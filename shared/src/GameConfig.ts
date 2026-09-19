@@ -1859,6 +1859,20 @@ export const GameConfig = {
   },
 
   camera: {
+    /** Opening view into the carrier bays; offsets use the carrier's facing. */
+    launchShot: {
+      outboard: 24,
+      height: 12,
+      forward: 86,
+      targetForward: 5,
+      /** Include the mouth ahead of each staging marker and its surrounding frame. */
+      bayMouthForward: 32,
+      bayFrameMargin: 16,
+      /** Gentle orbit during the hold, continuing into the overhead return. */
+      panAngle: 0.12,
+      panTime: 12,
+      returnDuration: 2.6,
+    },
     /**
      * Vertical field of view (radians). LOWER = more telephoto = flatter
      * perspective, so ships stay a consistent size regardless of where they are
