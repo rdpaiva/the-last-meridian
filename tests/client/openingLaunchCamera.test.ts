@@ -97,6 +97,21 @@ describe("opening launch camera", () => {
     }
   });
 
+  it.each(["humans", "machines"] as Faction[])("shows %s launches from a three-quarter angle", faction => {
+    const rig = rigFor(faction === "machines");
+    const home = new Mothership(Vector3.Zero(), faction === "machines" ? Math.PI : 0, faction);
+    new OpeningLaunchCamera(rig, home, [{ bayIndex: 0, isFinished: () => false }]);
+
+    const view = rig.camera.getTarget().subtract(rig.camera.position).normalize();
+    const forward = home.getLaunchForward();
+    const launch = new Vector3(forward.x, 0, forward.z).normalize();
+    const angleFromLaunchAxis = Math.acos(Math.min(1, Math.abs(Vector3.Dot(view, launch))));
+
+    // A near-axis view makes the fuselage disappear behind the wings and reads
+    // as a squashed model. Keep at least 30 degrees of visible ship length.
+    expect(angleFromLaunchAxis).toBeGreaterThan(Math.PI / 6);
+  });
+
   it("preserves saved zoom, and completed members cannot extend the shot by respawning", () => {
     const setItem = vi.fn();
     vi.stubGlobal("localStorage", { getItem: () => "1.7", setItem });

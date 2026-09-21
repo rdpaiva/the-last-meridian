@@ -1715,13 +1715,12 @@ export const GameConfig = {
     /**
      * Warm amber porthole glow. Faction-NEUTRAL on purpose — windows read as
      * "crew aboard" the same way on both carriers; faction color stays on the
-     * hull and the running lights. Emissive (>1 components push into bloom),
-     * disableLighting. NOTE: the dense window rows are deliberately NOT added to
-     * the GlowLayer — a full row of glowing portholes blows out to white (see
-     * the emissive/glow gotchas). Only the bridge viewport band glows.
+     * hull and the running lights. Emissive, disableLighting. Carrier emitters
+     * deliberately stay out of the GlowLayer so the hull depth-tests and
+     * occludes them instead of letting far-side lights bleed through.
      */
     windowColor: { r: 1.3, g: 0.85, b: 0.4 },
-    /** Brighter warm amber for the command-bridge viewport glass (this one glows). */
+    /** Brighter warm amber for the command-bridge viewport glass. */
     viewportColor: { r: 1.6, g: 1.05, b: 0.55 },
   },
 
@@ -1861,8 +1860,10 @@ export const GameConfig = {
   camera: {
     /** Opening view into the carrier bays; offsets use the carrier's facing. */
     launchShot: {
-      outboard: 24,
-      height: 12,
+      /** Strong three-quarter angle: enough lateral separation that fighters
+       * read at their real length instead of being foreshortened nose-on. */
+      outboard: 64,
+      height: 15,
       forward: 86,
       targetForward: 5,
       /** Include the mouth ahead of each staging marker and its surrounding frame. */

@@ -80,6 +80,10 @@ stern with four cyan exhausts.
   clear of geometry all the way past the bow: the bridge cheeks stop at
   |x| 2.6 and the prow tapers inward, so don't widen anything past |x| 3.4
   forward of Y 4.
+- **Bay shell seams:** `scripts/skin_choirship.py` normalizes the roof, floor,
+  back, and mouth-rim dimensions before export. The pieces retain small hidden
+  overlaps to seal the tunnel, but no visible faces share an exact depth plane;
+  this prevents launch-camera z-fighting along the side panels.
 - **Naming/glow:** meshes prefixed `Choir_`; only `Engine` / `Viewport` /
   `RunLight` names reach the GlowLayer. The spine/cheek cells are named
   `SpineCell`/`CheekCell` ON PURPOSE — they face the top-down camera, so

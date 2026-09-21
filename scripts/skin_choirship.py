@@ -1,4 +1,4 @@
-"""Texture the Choirship's hull and launch tunnels without moving geometry.
+"""Texture the Choirship's hull and launch tunnels and normalize bay seams.
 
     Blender --background art/choirship.blend --python scripts/skin_choirship.py
 
@@ -20,6 +20,44 @@ EXPORT = ROOT / "client/public/models/choirship.glb"
 STRUCTURAL = {"Choir_Hull", "Choir_HullLight", "Choir_Accent", "Choir_HullWrap", "Choir_HangarSkin"}
 STRIPS = {"side": (0.756, 0.994), "belly": (0.506, 0.744),
           "wall": (0.256, 0.494), "floor": (0.006, 0.244)}
+
+
+def fix_bay_zfight():
+    """Keep intersecting bay boxes from exporting exactly coplanar faces.
+
+    The roof/floor originally spanned the full outer wall width, so each long
+    side face occupied the same depth plane as a wall face. The mouth rims and
+    back wall repeated the pattern. At the launch camera's shallow angle those
+    equal-depth fragments flickered. Small, hidden overlaps preserve a sealed
+    shell while ensuring every face has an unambiguous depth.
+    """
+    for side, center_x in (("Port", -3.9), ("Stbd", 3.9)):
+        roof = bpy.data.objects[f"Choir_BayRoof_{side}"]
+        # Assign the vector atomically: setting x and then y separately makes
+        # Blender recompute scale from stale evaluated dimensions and can undo x.
+        roof.dimensions = (2.12, 4.12, roof.dimensions.z)
+        roof.location.y = 2.07
+
+        floor = bpy.data.objects[f"Choir_BayFloor_{side}"]
+        floor.dimensions.x = 2.12
+
+        for wall_name in ("WallIn", "WallOut"):
+            wall = bpy.data.objects[f"Choir_Bay{wall_name}_{side}"]
+            wall.dimensions = (wall.dimensions.x, 4.18, wall.dimensions.z)
+            wall.location.y = 2.11
+
+        back = bpy.data.objects[f"Choir_BayBack_{side}"]
+        back.dimensions.x = 1.08
+
+        inner = bpy.data.objects[f"Choir_BayRim_In_{side}"]
+        outer = bpy.data.objects[f"Choir_BayRim_Out_{side}"]
+        inner.location.x = center_x + (-0.45 if center_x > 0 else 0.45)
+        outer.location.x = center_x + (0.45 if center_x > 0 else -0.45)
+
+        top = bpy.data.objects[f"Choir_BayRim_Top_{side}"]
+        top.dimensions.x = 0.90
+
+    bpy.context.view_layer.update()
 
 
 def bounds(points):
@@ -139,6 +177,7 @@ def main():
     if bpy.context.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
     objects = list(bpy.data.collections["Choirship"].all_objects)
+    fix_bay_zfight()
     before_geometry = geometry_snapshot(objects)
     before_deck = deck_snapshot(objects)
     markers = {o.name: tuple(o.matrix_world.translation) for o in objects if o.name.startswith("launch.")}

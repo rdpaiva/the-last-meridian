@@ -121,11 +121,11 @@ export class MothershipView {
     const windowMat = this.makeWindowMat(scene);
     const viewportMat = this.makeViewportMat(scene);
 
-    this.buildCentralHull(scene, hullMat, engineMat, windowMat, glowLayer);
+    this.buildCentralHull(scene, hullMat, engineMat, windowMat);
     this.buildDecks(scene, accentMat, windowMat);
-    this.buildBridge(scene, accentMat, viewportMat, windowMat, glowLayer);
-    this.buildPod(scene, hullMat, accentMat, lightMat, windowMat, glowLayer, +Mothership.STARBOARD_X, "sb");
-    this.buildPod(scene, hullMat, accentMat, lightMat, windowMat, glowLayer, -Mothership.STARBOARD_X, "pt");
+    this.buildBridge(scene, accentMat, viewportMat, windowMat);
+    this.buildPod(scene, hullMat, accentMat, lightMat, windowMat, +Mothership.STARBOARD_X, "sb");
+    this.buildPod(scene, hullMat, accentMat, lightMat, windowMat, -Mothership.STARBOARD_X, "pt");
     this.buildNecks(scene, accentMat);
 
     // Snapshot the procedural meshes so applyModel() can dispose them after the
@@ -403,9 +403,10 @@ export class MothershipView {
    * `filename` (GameConfig.mothership.model). Imports the model under a
    * correction node (orientation + scale from config), reads the `launch.*`
    * empties for the bays + the forward extent for the exit distance and feeds
-   * both back to the sim, registers the emissive parts with the glow layer,
-   * then disposes the procedural meshes. Returns false — and KEEPS the
-   * procedural carrier — if the model is disabled in config or fails to load.
+   * both back to the sim, then disposes the procedural meshes. Emissive model
+   * parts stay out of the GlowLayer so the hull can occlude them normally.
+   * Returns false — and KEEPS the procedural carrier — if the model is disabled
+   * in config or fails to load.
    * Always resolves; never rejects. Call once, after construction (Game.start).
    */
   async applyModel(filename: string): Promise<boolean> {
@@ -456,8 +457,6 @@ export class MothershipView {
           this.turretViews[i].setMount(m.x, m.y, m.z);
         }
       }
-      this.registerModelGlow(result.meshes);
-
       // The procedural carrier is now redundant — dispose its meshes. The GLB is
       // a sibling under `root`, so it (and the launch markers we just read) stay.
       for (const m of this.proceduralMeshes) m.dispose(false, true);
@@ -547,27 +546,6 @@ export class MothershipView {
     return Number.isFinite(maxZ) ? maxZ + 25 : null;
   }
 
-  /**
-   * Adds only the EXTERIOR emissive parts to the GlowLayer — engines, the bridge
-   * viewport, and the pod running lights — so they bloom like the procedural build.
-   *
-   * The recessed LAUNCH-BAY emitters (deck / back wall / ceiling strips) are
-   * deliberately NOT registered: the GlowLayer composites emissive over opaque
-   * geometry with NO depth test (see EngineGlow.hide()), so a bright glow buried
-   * inside a pod bleeds straight through the hull and shows as a phantom bay on
-   * the far side. Left off the glow layer they stay normal depth-tested emissive
-   * surfaces — visible (lit) only through the actual bay opening, no bleed. Same
-   * reasoning the dense window rows use (they'd blow out to white).
-   */
-  private registerModelGlow(meshes: AbstractMesh[]): void {
-    const GLOW = ["engine", "viewport", "runlight"]; // exterior emitters only
-    for (const m of meshes) {
-      const nm = m.name.toLowerCase();
-      if (nm.includes("bay")) continue; // recessed → emissive only, never glow
-      if (GLOW.some((g) => nm.includes(g))) includeInGlow(this.glowLayer, m as Mesh);
-    }
-  }
-
   // ─── Central hull ─────────────────────────────────────────────────────────
 
   private buildCentralHull(
@@ -575,7 +553,6 @@ export class MothershipView {
     hullMat: StandardMaterial,
     engineMat: StandardMaterial,
     windowMat: StandardMaterial,
-    glowLayer: GlowLayer,
   ): void {
     const L = GameConfig.mothership.hullLength; // 280
     const HD = Mothership.HULL_HALF_DEPTH;      // 140
@@ -612,7 +589,6 @@ export class MothershipView {
       ex.parent = r;
       ex.material = engineMat;
       ex.isPickable = false;
-      includeInGlow(glowLayer, ex);
     }
 
     // Portholes down both flanks of the hull (mid-height), bow-to-stern.
@@ -668,7 +644,6 @@ export class MothershipView {
     accentMat: StandardMaterial,
     viewportMat: StandardMaterial,
     windowMat: StandardMaterial,
-    glowLayer: GlowLayer,
   ): void {
     const HD = Mothership.HULL_HALF_DEPTH; // 140
     const r = this.root;
@@ -690,14 +665,13 @@ export class MothershipView {
     mid.material = accentMat;
     mid.isPickable = false;
 
-    // Forward viewport band — raked glass slab on the +Z face, glows.
+    // Forward viewport band — raked emissive glass slab on the +Z face.
     const viewport = MeshBuilder.CreateBox("ms_bridge_viewport", { width: 12, height: 3.2, depth: 1.2 }, scene);
     viewport.position.set(0, 16.5, towerZ + 11);
     viewport.rotation.x = -0.35; // rake the glass to look down at the battlefield
     viewport.parent = r;
     viewport.material = viewportMat;
     viewport.isPickable = false;
-    includeInGlow(glowLayer, viewport);
 
     // Small cap + a pair of sensor masts on top.
     const cap = MeshBuilder.CreateBox("ms_bridge_cap", { width: 8, height: 2.5, depth: 10 }, scene);
@@ -760,7 +734,6 @@ export class MothershipView {
     accentMat: StandardMaterial,
     lightMat: StandardMaterial,
     windowMat: StandardMaterial,
-    glowLayer: GlowLayer,
     centerX: number,
     tag: string,
   ): void {
@@ -804,7 +777,6 @@ export class MothershipView {
       light.parent = r;
       light.material = lightMat;
       light.isPickable = false;
-      includeInGlow(glowLayer, light);
     }
 
     // Warm portholes along the pod's OUTER flank (the inner edge carries the
@@ -892,7 +864,7 @@ export class MothershipView {
     return mat;
   }
 
-  /** Brighter warm amber for the command-bridge viewport glass (this one glows). */
+  /** Brighter warm amber for the depth-tested command-bridge viewport glass. */
   private makeViewportMat(scene: Scene): StandardMaterial {
     const mat = new StandardMaterial("ms_viewport_mat", scene);
     const c = GameConfig.mothership.viewportColor;
