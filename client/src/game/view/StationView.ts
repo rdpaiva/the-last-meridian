@@ -153,7 +153,7 @@ export class StationView {
     const cfg = GameConfig.stations.model;
     if (!cfg.file) return;
     try {
-      const result = await SceneLoader.ImportMeshAsync("", "/models/", cfg.file, this.scene);
+      const result = await SceneLoader.ImportMeshAsync("", `${import.meta.env.BASE_URL}models/`, cfg.file, this.scene);
       const glbRoot = result.meshes[0];
       glbRoot.parent = this.bodyRoot;
       glbRoot.rotation.set(cfg.rotX, cfg.rotY, cfg.rotZ);

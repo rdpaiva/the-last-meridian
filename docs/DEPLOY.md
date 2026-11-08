@@ -1,18 +1,28 @@
 # Deploying the game (client + server, one droplet)
 
-The live topology (since 2026-07-06; single DigitalOcean droplet):
+The live topology (since 2026-11-08; single DigitalOcean droplet). The domain
+root is now the franchise homepage; the game lives under `/play/`:
 
 ```
-https://the-last-meridian.com          wss://play.the-last-meridian.com
+https://the-last-meridian.com/play/         wss://play.the-last-meridian.com
         │                                       │
         ▼                                       ▼
    Caddy (auto-TLS for both sites, WebSocket upgrade on play.)
         │                                       │
-        │ file_server                           │ localhost:2567
+        │ handle_path /play/* → file_server     │ localhost:2567
         ▼                                       ▼
-/var/www/the-last-meridian          systemd unit `space-duel`
-  (static Vite bundle)                → node /opt/space-duel/server.mjs
+/var/www/meridian-play              systemd unit `space-duel`
+  (static Vite bundle, base /play/)   → node /opt/space-duel/server.mjs
 ```
+
+The apex `/` (homepage, `/var/www/meridian-site`) and `/api/*` (signup API,
+`meridian-api` unit on :2568) belong to the franchise site in
+"The Last Meridian/06_website" and deploy separately. The game workflow never
+touches them. Old invite links (`https://the-last-meridian.com/#join=…`) are
+forwarded to `/play/#join=…` by the homepage.
+
+**Every runtime asset URL must go through `import.meta.env.BASE_URL`** — a
+hardcoded `/models/…` works in `npm run dev` only by luck and 404s in production.
 
 The client was originally on GitHub Pages; it moved to the droplet
 2026-07-06 (nicer URL, one host, and it let the client + server deploys
@@ -30,9 +40,9 @@ rule is now automatic — just never hand-deploy one half alone.
 | Artifact | Purpose |
 |---|---|
 | `npm run build -w @space-duel/server` | esbuild bundle → `server/dist/server.mjs` (self-contained ESM, ~3.8 MB; only `ws`'s optional native peers are external — they're optional, plain Node 20+ runs it) |
-| `npm run build -w @space-duel/client` | Vite bundle → `client/dist/` (~34 MB with assets; `VITE_SERVER_URL` env bakes the socket URL, base is `/`) |
+| `npm run build -w @space-duel/client` | Vite bundle → `client/dist/` (~34 MB with assets; `VITE_SERVER_URL` env bakes the socket URL, base is `/play/`) |
 | `deploy/space-duel.service` | systemd unit (localhost:2567, hardened, auto-restart) — install notes in the file header |
-| `deploy/Caddyfile` | Caddy config REFERENCE — the live `/etc/caddy/Caddyfile` on the droplet serves both sites (apex file_server + play. reverse_proxy) |
+| `deploy/Caddyfile` | Caddy config REFERENCE — mirror of the live `/etc/caddy/Caddyfile` (homepage, /api, /play/ game client, play. reverse_proxy) |
 | `deploy/nginx-play.conf` | nginx alternative for the proxy half (unused; kept for reference) |
 | `.github/workflows/deploy-server.yml` | **"Deploy game"** — manual dispatch: typecheck + test, build client AND server, scp both, atomic swaps, unit restart |
 
@@ -44,9 +54,9 @@ rule is now automatic — just never hand-deploy one half alone.
   and `the-last-meridian.com` (client).
 - **Server**: unit `space-duel` runs `/opt/space-duel/server.mjs` as system
   user `spaceduel` on :2567.
-- **Client**: static bundle at `/var/www/the-last-meridian`, served by
-  Caddy `file_server` (zstd/gzip). Deploys swap
-  `the-last-meridian.new` → live → `.old` atomically.
+- **Client**: static bundle at `/var/www/meridian-play` (was
+  `/var/www/the-last-meridian` until 2026-11-08), served by Caddy under `/play/`
+  (zstd/gzip). Deploys swap `meridian-play.new` → live → `.old` atomically.
 - **Deploy user**: `spaceduel-deploy` — key-only SSH (public half of the
   `DEPLOY_SSH_KEY` repo secret), write access to `/opt/space-duel` (via
   `spaceduel` group) and `/var/www`, and exactly one sudo right:
@@ -105,9 +115,9 @@ GitHub Pages copy or publish code that has not been deployed.
 Verify after installation/deployment:
 
 ```sh
-curl -I https://the-last-meridian.com/
-curl -I https://the-last-meridian.com/models/reaver.glb
-curl -I https://the-last-meridian.com/version.json
+curl -I https://the-last-meridian.com/play/
+curl -I https://the-last-meridian.com/play/models/reaver.glb
+curl -I https://the-last-meridian.com/play/version.json
 ```
 
 ## Notes

@@ -10,7 +10,7 @@ export function watchBuildUpdates(buildId: string, canReload: () => boolean): ()
     try {
       // The query also bypasses older intermediary caches before the new
       // no-store server policy has been installed.
-      const response = await fetch(`/version.json?check=${Date.now()}`, {
+      const response = await fetch(`${import.meta.env.BASE_URL}version.json?check=${Date.now()}`, {
         cache: "no-store",
         signal: AbortSignal.timeout(10_000),
       });

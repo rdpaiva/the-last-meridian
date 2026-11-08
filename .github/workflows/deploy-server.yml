@@ -6,8 +6,10 @@ name: Deploy game
 # automatic. A push trigger could also surprise-restart live matches.
 #
 # Topology (docs/DEPLOY.md): client = static bundle served by Caddy at
-# https://the-last-meridian.com (/var/www/the-last-meridian); server =
+# https://the-last-meridian.com/play/ (/var/www/meridian-play); server =
 # systemd unit `space-duel` behind wss://play.the-last-meridian.com.
+# The domain root is the franchise homepage, deployed separately; this
+# workflow never touches it.
 #
 # Required repo secrets (Settings → Secrets and variables → Actions):
 #   DEPLOY_SSH_KEY  private key whose public half is in the VM user's
@@ -52,12 +54,13 @@ jobs:
           # half-written bundle must never be what systemd boots or what
           # Caddy serves mid-request.
           scp -i ~/.ssh/deploy_key server/dist/server.mjs "$HOST:/opt/space-duel/server.mjs.new"
-          scp -r -i ~/.ssh/deploy_key client/dist "$HOST:/var/www/the-last-meridian.new"
+          ssh -i ~/.ssh/deploy_key "$HOST" 'rm -rf /var/www/meridian-play.new'
+          scp -r -i ~/.ssh/deploy_key client/dist "$HOST:/var/www/meridian-play.new"
           ssh -i ~/.ssh/deploy_key "$HOST" '
             set -e
-            rm -rf /var/www/the-last-meridian.old
-            mv /var/www/the-last-meridian /var/www/the-last-meridian.old
-            mv /var/www/the-last-meridian.new /var/www/the-last-meridian
+            rm -rf /var/www/meridian-play.old
+            if [ -d /var/www/meridian-play ]; then mv /var/www/meridian-play /var/www/meridian-play.old; fi
+            mv /var/www/meridian-play.new /var/www/meridian-play
             mv /opt/space-duel/server.mjs.new /opt/space-duel/server.mjs
             sudo systemctl restart space-duel
           '

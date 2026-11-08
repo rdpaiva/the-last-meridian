@@ -1,26 +1,44 @@
-# Caddy config for the whole game — MIRROR of the live /etc/caddy/Caddyfile
-# on the droplet (docs/DEPLOY.md). Two sites, both auto-TLS:
-#   apex  = the static client bundle (deployed by the "Deploy game" workflow)
-#   play. = the Colyseus server (WebSocket upgrade proxied out of the box)
-# The client is HTTPS, so the socket MUST be wss:// — the play. site
-# terminates TLS and forwards to the systemd unit on localhost:2567.
+# Caddy config for the-last-meridian.com — MIRROR of the live /etc/caddy/Caddyfile
+# on the droplet (docs/DEPLOY.md). The same file lives in the franchise project at
+# "The Last Meridian/06_website/deploy/Caddyfile"; keep the two identical.
 #
-# After editing here, apply on the droplet:
-#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
+#   /         franchise homepage   /var/www/meridian-site   (06_website/site, deployed by 06_website/deploy/deploy.sh)
+#   /api/*    signup API           localhost:2568           (systemd unit meridian-api)
+#   /play/*   the game client      /var/www/meridian-play   ("Deploy game" workflow in this repo)
+#   play.     the game server      localhost:2567           (systemd unit space-duel, WebSocket)
+#
+# After editing, apply on the droplet:
+#   sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile && sudo systemctl reload caddy
 
-# Game client — static Vite bundle deployed by the "Deploy game" workflow
-# (swapped atomically into this root).
 the-last-meridian.com {
-	root * /var/www/the-last-meridian
 	encode zstd gzip
-	# HTML and public models/textures keep their URLs across releases: browsers
-	# must revalidate them instead of choosing a heuristic cache lifetime.
-	@revalidate not path /assets/* /version.json
-	header @revalidate Cache-Control "no-cache"
-	# Vite fingerprints bundled JS/CSS; their URLs change with their contents.
-	header /assets/* Cache-Control "public, max-age=31536000, immutable"
-	header /version.json Cache-Control "no-store"
-	file_server
+
+	handle /api/* {
+		reverse_proxy localhost:2568
+	}
+
+	redir /play /play/ 308
+
+	# Game client: Vite build with base "/play/". handle_path strips /play, so the
+	# matchers below see the bundle's own paths.
+	handle_path /play/* {
+		root * /var/www/meridian-play
+		# HTML and public models/textures keep their URLs across releases: browsers
+		# must revalidate them instead of choosing a heuristic cache lifetime.
+		@revalidate not path /assets/* /version.json
+		header @revalidate Cache-Control "no-cache"
+		# Vite fingerprints bundled JS/CSS; their URLs change with their contents.
+		header /assets/* Cache-Control "public, max-age=31536000, immutable"
+		header /version.json Cache-Control "no-store"
+		file_server
+	}
+
+	# Franchise homepage.
+	handle {
+		root * /var/www/meridian-site
+		header Cache-Control "no-cache"
+		file_server
+	}
 }
 
 # Game server — Colyseus behind TLS (WebSocket upgrade handled by Caddy).
