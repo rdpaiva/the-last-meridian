@@ -16,7 +16,47 @@ editing instead of searching.
 
 ---
 
-**State (2026-08-31)**: SCOREBOARD BUG FIXED — pilot-owned score rows.
+**State (2026-11-10)**: KEEP-WARM, branch `spitfire-v26` at `96328db`, 4 commits
+ahead of `main` (the www redirect, the rebuilt ship models + tooling, the path
+and canon-pointer update, a test type fix; NOT merged — the owner decides).
+The repo now lives at `The Last Meridian/Game` (moved 2026-11-10 from
+`ai/games/space-duel`; the project's other folders are siblings: `../Canon`,
+`../Video Series`, `../Website`). No gameplay or protocol change since the
+2026-08-31 batch below; PROTOCOL_VERSION is **33** in `shared/src/protocol.ts`.
+What landed since, oldest first:
+- **Visual batch, 2026-09-01 → 09-21** (`e7efb5c`, `4e54609`, `3a75ef0`,
+  `140492e`, `2d57f4b`, all on `main`): fighter art + export pipelines
+  (`scripts/build_spitfire.py`, `build_wraith.py`, `skin_*.py`), destroyed
+  ships fracture into hull sections (`ExplosionSystem.ts`), Canyon/Observer
+  hidden from the public mission picker, Reaver materials, seamless space
+  backdrops assigned per map (`docs/SPACE_BACKDROPS.md`, `Backdrop.ts`,
+  `Maps.ts`), carrier textures, the opening launch camera
+  (`OpeningLaunchCamera.ts`) and the build-update check (`BuildUpdates.ts`).
+- **Game served under `/play/`, 2026-11-08** (`d362546`, on `main`): Vite base
+  `/play/`, every runtime asset URL through `import.meta.env.BASE_URL`, the
+  deploy workflow ships the client to `/var/www/meridian-play`; the domain root
+  is the franchise homepage (`../Website`). Topology: `docs/DEPLOY.md`.
+- **www → apex redirect, 2026-11-10** (`bb8181f`, branch only): `deploy/Caddyfile`.
+  It must stay identical to `../Website/deploy/Caddyfile`, which already has
+  the redirect, so `main`'s copy differs until this branch is merged.
+- **Ship models rebuilt from the film models, 2026-11-10** (`2d8cb11`, branch
+  only): the four ship GLBs regenerated from the series' Blender models,
+  muzzles + colliders in `GameConfig.ts` re-fitted, wrecks got their own
+  collider boxes (`shared/src/sim/Hulk.ts`, `HulkView.ts`), and the new
+  tooling `scripts/game-models/` (`make-game-model.mjs` + README; it reads
+  `../Video Series/Episode 01/Blender`, so that path must not move).
+  NOT YET PLAYTESTED by the owner.
+- **Paths + canon pointer, 2026-11-10** (`a4e9c73`, branch only):
+  `docs/The-Last-Meridian-Story-Bible.md` is now a pointer; canon lives ONLY in
+  `../Canon/Story_Bible_v0.4.md` and its supplements. Code comments citing
+  "story bible §2 / §8" use the old v0.1 numbering.
+- **Test type fix, 2026-11-10** (`96328db`, branch only):
+  `tests/client/openingLaunchCamera.test.ts`.
+Typecheck green at `96328db`; **81/81 tests** passed at `2d8cb11` and the one
+file touched since passes. Nothing in this list has been deployed by this
+file's author: deploys are the owner's, via the "Deploy game" workflow.
+
+Prior batch: **State (2026-08-31)**: SCOREBOARD BUG FIXED — pilot-owned score rows.
 PROTOCOL_VERSION 31→**32** (`ScoreSchema` gained fields = both-sides deploy).
 THE DEFECT: `state.scores` held exactly one row per SEAT, minted in
 `buildFleet`, and occupancy swaps merely RENAMED it (`syncScoreIdentity`) — so
