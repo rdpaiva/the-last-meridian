@@ -104,7 +104,7 @@ describe("opening launch camera", () => {
 
     // Read the view from the camera's orientation (getTarget() stays stale until a
     // render on the NullEngine, so it reported the carrier origin, not the shot target).
-    rig.camera.computeWorldMatrix(true);
+    rig.camera.computeWorldMatrix();
     const view = rig.camera.getDirection(new Vector3(0, 0, 1)).normalize();
     const forward = home.getLaunchForward();
     const launch = new Vector3(forward.x, 0, forward.z).normalize();
