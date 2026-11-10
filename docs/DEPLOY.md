@@ -17,7 +17,7 @@ https://the-last-meridian.com/play/         wss://play.the-last-meridian.com
 
 The apex `/` (homepage, `/var/www/meridian-site`) and `/api/*` (signup API,
 `meridian-api` unit on :2568) belong to the franchise site in
-"The Last Meridian/06_website" and deploy separately. The game workflow never
+"The Last Meridian/Website" and deploy separately. The game workflow never
 touches them. Old invite links (`https://the-last-meridian.com/#join=…`) are
 forwarded to `/play/#join=…` by the homepage.
 

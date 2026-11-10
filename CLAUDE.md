@@ -540,3 +540,4 @@ AGENT_KICKOFF (queued) or the ROADMAP backlog (someday) — nowhere else.
 - `docs/DEPLOY.md` — live hosting topology + provisioned state (droplet,
   Caddy, "Deploy game" workflow).
 - `public/sounds/SOURCES.md` — CC0 sound asset attribution.
+- `../Canon/Story_Bible_v0.4.md` (and its supplements in `../Canon/supplements/`) — story canon; the only source of truth, `docs/The-Last-Meridian-Story-Bible.md` just points there.

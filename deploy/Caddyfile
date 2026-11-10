@@ -1,8 +1,8 @@
 # Caddy config for the-last-meridian.com — MIRROR of the live /etc/caddy/Caddyfile
 # on the droplet (docs/DEPLOY.md). The same file lives in the franchise project at
-# "The Last Meridian/06_website/deploy/Caddyfile"; keep the two identical.
+# "The Last Meridian/Website/deploy/Caddyfile"; keep the two identical.
 #
-#   /         franchise homepage   /var/www/meridian-site   (06_website/site, deployed by 06_website/deploy/deploy.sh)
+#   /         franchise homepage   /var/www/meridian-site   (Website/site, deployed by Website/deploy/deploy.sh)
 #   /api/*    signup API           localhost:2568           (systemd unit meridian-api)
 #   /play/*   the game client      /var/www/meridian-play   ("Deploy game" workflow in this repo)
 #   play.     the game server      localhost:2567           (systemd unit space-duel, WebSocket)
