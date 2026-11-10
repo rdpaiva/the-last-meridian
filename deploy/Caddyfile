@@ -6,6 +6,7 @@
 #   /api/*    signup API           localhost:2568           (systemd unit meridian-api)
 #   /play/*   the game client      /var/www/meridian-play   ("Deploy game" workflow in this repo)
 #   play.     the game server      localhost:2567           (systemd unit space-duel, WebSocket)
+#   www.      301 → the-last-meridian.com (path kept)
 #
 # After editing, apply on the droplet:
 #   sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile && sudo systemctl reload caddy
@@ -39,6 +40,10 @@ the-last-meridian.com {
 		header Cache-Control "no-cache"
 		file_server
 	}
+}
+
+www.the-last-meridian.com {
+	redir https://the-last-meridian.com{uri} permanent
 }
 
 # Game server — Colyseus behind TLS (WebSocket upgrade handled by Caddy).
