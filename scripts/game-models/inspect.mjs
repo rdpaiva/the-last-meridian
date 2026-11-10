@@ -1,0 +1,10 @@
+import { NodeIO } from '@gltf-transform/core';
+import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
+import { getBounds } from '@gltf-transform/functions';
+const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
+const doc = await io.read(process.argv[2]);
+const scene = doc.getRoot().getDefaultScene() || doc.getRoot().listScenes()[0];
+const b = getBounds(scene); const r=v=>v.map(x=>+x.toFixed(2));
+console.log('bounds min', r(b.min), 'max', r(b.max), 'size', r(b.max.map((m,i)=>m-b.min[i])));
+const pat = new RegExp(process.argv[3] || '^(thruster|muzzle|rcs|launch|turret)', 'i');
+for (const n of doc.getRoot().listNodes()) if (pat.test(n.getName())) console.log(' ', n.getName(), r(n.getWorldTranslation()), n.getMesh() ? '(mesh)' : '(empty)');

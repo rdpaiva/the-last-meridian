@@ -51,10 +51,10 @@ const shipTypes = {
     rotationSpeed: 4.5,
     /** Minimum time between consecutive laser shots. */
     fireCooldownMs: 120,
-    /** Dual wing blasters (fallback — the GLB's muzzle.* markers override). */
+    /** Twin nose guns (fallback — the GLB's muzzle.* markers override). */
     muzzles: [
-      { x: -0.85, y: 0, z: 0.1 },
-      { x: 0.85, y: 0, z: 0.1 },
+      { x: -0.23, y: 0, z: 0.57 },
+      { x: 0.23, y: 0, z: 0.57 },
     ],
     /**
      * "alternate" — round-robin one muzzle per shot (same DPS as a single
@@ -211,15 +211,16 @@ const shipTypes = {
     /** Slow cycle — 190 DPS, below the Breaker; each bolt hits hardest. */
     fireCooldownMs: 200,
     /**
-     * Mirrors the GLB's muzzle.NL/NR (chin cannon tips) + muzzle.WL/WR (wing
-     * gun pod tips) empties at shipModels scale 0.35 — used by fleet clones,
-     * which don't read GLB markers. Keep in sync with art/reaver.blend.
+     * Mirrors the GLB's muzzle.N* (chin cannon tips) + muzzle.W* (wing gun
+     * pod tips) empties at shipModels scale 0.35 — used by fleet clones,
+     * which don't read GLB markers. The GLB is generated from the film model
+     * (Reaver_v13) by scripts/make-game-model.mjs; keep in sync with it.
      */
     muzzles: [
-      { x: -0.15, y: 0, z: 1.58 },
-      { x: 0.15, y: 0, z: 1.58 },
-      { x: -0.86, y: 0, z: 0.81 },
-      { x: 0.86, y: 0, z: 0.81 },
+      { x: -0.09, y: 0, z: 1.59 },
+      { x: 0.09, y: 0, z: 1.59 },
+      { x: -0.51, y: 0, z: 0.34 },
+      { x: 0.51, y: 0, z: 0.34 },
     ],
     fireMode: "alternate",
     /** The toughest fighter-class hull in the game. */
@@ -770,6 +771,79 @@ export const GameConfig = {
     },
     emberTags: ["ember", "breach", "glow", "fire", "molten", "core"] as string[],
     /**
+     * Wreck collision boxes, PER SOURCE carrier. The wreck GLBs above are still
+     * built from the OLD Bastion/Choirship designs, so they keep the collider fit
+     * those models had (the live carriers moved to the film Aegis/Choirship and
+     * have their own `mothership.colliders`). Empty/missing → falls back to
+     * `mothership.colliders`. Drop this once the wrecks are rebuilt from the new hulls.
+     */
+    colliders: {
+      // Bastion: 18 structural boxes read from bastion_carrier.blend
+      // (hulk_colliders.py). Cosmetic detail (windows, lights, masts, turret
+      // barrels, engine disks) is intentionally excluded; launch bays are pod
+      // recesses already covered by the pod boxes.
+      humans: [
+        { cx: 0, cy: 0, cz: 12.7, hx: 17, hy: 11.7, hz: 127.2 },     // hull (central body)
+        { cx: 0, cy: -12.2, cz: 7.4, hx: 12.7, hy: 4.8, hz: 95.4 },  // keel
+        { cx: 0, cy: 13.2, cz: 2.1, hx: 5.3, hy: 2.6, hz: 106 },     // dorsal spine
+        { cx: 0, cy: 19.1, cz: 5.8, hx: 11.7, hy: 5.3, hz: 67.3 },   // deck (low)
+        { cx: 0, cy: 27, cz: 2.1, hx: 7.4, hy: 4.2, hz: 37.1 },      // deck (upper)
+        { cx: -38.2, cy: 0, cz: 12.7, hx: 12.7, hy: 7.4, hz: 106 },  // port pod
+        { cx: 38.2, cy: 0, cz: 12.7, hx: 12.7, hy: 7.4, hz: 106 },   // stbd pod
+        { cx: -38.2, cy: -9.5, cz: 7.4, hx: 8.5, hy: 2.6, hz: 74.2 },// port pod keel
+        { cx: 38.2, cy: -9.5, cz: 7.4, hx: 8.5, hy: 2.6, hz: 74.2 }, // stbd pod keel
+        { cx: -38.2, cy: 9.5, cz: -9.5, hx: 7.4, hy: 2.6, hz: 75.3 },// port pod ridge
+        { cx: 38.2, cy: 9.5, cz: -9.5, hx: 7.4, hy: 2.6, hz: 75.3 }, // stbd pod ridge
+        { cx: -22.3, cy: 0, cz: 12.7, hx: 10.6, hy: 3.7, hz: 80.6 }, // port neck (wing)
+        { cx: 22.3, cy: 0, cz: 12.7, hx: 10.6, hy: 3.7, hz: 80.6 },  // stbd neck (wing)
+        { cx: 0, cy: 0, cz: -118.7, hx: 15.9, hy: 13.8, hz: 13.8 },  // stern block
+        { cx: 0, cy: 0, cz: -124, hx: 14.8, hy: 11.7, hz: 6.9 },     // engine mount
+        { cx: 0, cy: 20.7, cz: 91.2, hx: 12.7, hy: 7.4, hz: 15.9 },  // bridge base
+        { cx: 0, cy: 30.2, cz: 93.3, hx: 9, hy: 5.8, hz: 11.7 },     // bridge mid
+        { cx: 0, cy: 37.6, cz: 91.2, hx: 5.3, hy: 2.1, hz: 7.9 },    // bridge cap
+      ],
+      // Choirship: 31 structural boxes read from choirship.blend (hulk_colliders
+      // .py). Cosmetic detail (spine/cheek cells, lamps, run lights, viewports,
+      // engine disks, thin trim) excluded; the side launch-bay housings are each
+      // merged from their floor/roof/walls/back into one solid box.
+      machines: [
+        { cx: 0, cy: 0, cz: -5.3, hx: 25.4, hy: 11.1, hz: 68.9 },      // hull (central body)
+        { cx: 0, cy: -12.7, cz: -10.6, hx: 14.8, hy: 4.2, hz: 58.3 },  // keel
+        { cx: 0, cy: 11.1, cz: -10.6, hx: 10.6, hy: 1.9, hz: 55.6 },   // dorsal spine frame
+        { cx: 0, cy: 0, cz: -90.1, hx: 40.3, hy: 10.1, hz: 31.8 },     // stern main block
+        { cx: 0, cy: 10.6, cz: -95.4, hx: 23.3, hy: 2.4, hz: 26.5 },   // stern deck
+        { cx: 0, cy: 0, cz: -129.3, hx: 40.3, hy: 9, hz: 9.5 },        // stern cap
+        { cx: -32.3, cy: 0, cz: -128.3, hx: 15.4, hy: 7.9, hz: 14.3 }, // stern corner port
+        { cx: 32.3, cy: 0, cz: -128.3, hx: 15.4, hy: 7.9, hz: 14.3 },  // stern corner stbd
+        { cx: 0, cy: 0, cz: -139.9, hx: 24.4, hy: 6.9, hz: 4.8 },      // stern engine block
+        { cx: 0, cy: 15.4, cz: -98.6, hx: 10.6, hy: 3.7, hz: 13.8 },   // aft module base
+        { cx: 0, cy: 20.7, cz: -95.4, hx: 5.3, hy: 2.9, hz: 8.5 },     // aft module head
+        { cx: -41.3, cy: 0, cz: -37.1, hx: 11.7, hy: 7.9, hz: 37.1 },  // port sponson
+        { cx: 41.3, cy: 0, cz: -37.1, hx: 11.7, hy: 7.9, hz: 37.1 },   // stbd sponson
+        { cx: -42.4, cy: 9, cz: -47.7, hx: 9, hy: 2.4, hz: 17 },       // port sponson step
+        { cx: 42.4, cy: 9, cz: -47.7, hx: 9, hy: 2.4, hz: 17 },        // stbd sponson step
+        { cx: -43.4, cy: 9.5, cz: -19.1, hx: 7.9, hy: 2.1, hz: 10.6 }, // port sponson step2
+        { cx: 43.4, cy: 9.5, cz: -19.1, hx: 7.9, hy: 2.1, hz: 10.6 },  // stbd sponson step2
+        { cx: -24.9, cy: 6.4, cz: -26.5, hx: 6.9, hy: 6.9, hz: 39.8 }, // port nacelle
+        { cx: 24.9, cy: 6.4, cz: -26.5, hx: 6.9, hy: 6.9, hz: 39.8 },  // stbd nacelle
+        { cx: -24.9, cy: 6.4, cz: 20.7, hx: 6.9, hy: 6.9, hz: 7.4 },   // port nacelle nose
+        { cx: 24.9, cy: 6.4, cz: 20.7, hx: 6.9, hy: 6.9, hz: 7.4 },    // stbd nacelle nose
+        { cx: 0, cy: 0, cz: 59.4, hx: 24.4, hy: 11.7, hz: 17 },        // bridge base
+        { cx: -20.7, cy: 9.5, cz: 57.2, hx: 6.9, hy: 4.8, hz: 13.8 },  // port cheek
+        { cx: 20.7, cy: 9.5, cz: 57.2, hx: 6.9, hy: 4.8, hz: 13.8 },   // stbd cheek
+        { cx: 0, cy: 14.3, cz: 60.4, hx: 8.5, hy: 4.2, hz: 11.7 },     // head base
+        { cx: 0, cy: 20.7, cz: 63.6, hx: 5.8, hy: 2.9, hz: 7.4 },      // head cap
+        { cx: 0, cy: 0, cz: 94.3, hx: 18, hy: 10.1, hz: 22.3 },        // prow body
+        { cx: 0, cy: 10.1, cz: 94.3, hx: 10.6, hy: 2.7, hz: 20.1 },    // prow plate
+        { cx: 0, cy: 0, cz: 129.8, hx: 11.7, hy: 7.9, hz: 16.4 },      // prow tip
+        { cx: -41.3, cy: 0, cz: 24.9, hx: 11.7, hy: 8.4, hz: 26 },     // port launch bay (housing)
+        { cx: 41.3, cy: 0, cz: 24.9, hx: 11.7, hy: 8.4, hz: 26 },      // stbd launch bay (housing)
+      ],
+    } as Record<
+      Faction,
+      ReadonlyArray<{ cx: number; cy: number; cz: number; hx: number; hy: number; hz: number }>
+    >,
+    /**
      * Hull vertical HALF-height, in the same (carrier-world) units as
      * `mothership.hullRects` (scaled by the hulk's own `scale`). The wreck's
      * collision boxes (sim/HulkSection) use it as their Y half-extent, so a
@@ -1203,17 +1277,17 @@ export const GameConfig = {
     measuredLaunch: {
       humans: {
         bays: [
-          { x: -38.2, z: 86.9 },
-          { x: 38.2, z: 86.9 },
+          { x: -38.2, z: 119.2 },
+          { x: 38.2, z: 119.2 },
         ],
-        exitDistance: 164.9,
+        exitDistance: 161.7,
       },
       machines: {
         bays: [
-          { x: -41.3, z: 23.3 },
-          { x: 41.3, z: 23.3 },
+          { x: -50, z: 9 },
+          { x: 50, z: 9 },
         ],
-        exitDistance: 171.3,
+        exitDistance: 171.9,
       },
     } as Record<
       "humans" | "machines",
@@ -1291,19 +1365,25 @@ export const GameConfig = {
      * partly intangible, which is acceptable for a missing-model fallback.
      */
     hullRects: {
+      // Aegis (film v15) — fitted by scripts/game-models (footprint → fitboxes → rects).
       humans: [
-        { z0: -134, z1: -100, halfWidth: 17 }, // stern spine
-        { z0: -100, z1: 120, halfWidth: 51 },  // main body (pods)
-        { z0: 120, z1: 130, halfWidth: 44 },   // bow taper
-        { z0: 130, z1: 140, halfWidth: 17 },   // bow tip
+        { z0: -131, z1: -129, halfWidth: 13 },
+        { z0: -129, z1: 105, halfWidth: 50 },
+        { z0: 105, z1: 123, halfWidth: 47 },
+        { z0: 123, z1: 132, halfWidth: 12 },
       ],
+      // Choirship (film v08).
       machines: [
-        { z0: -148, z1: -110, halfWidth: 48 }, // stern block
-        { z0: -110, z1: -80, halfWidth: 40 },  // waist
-        { z0: -80, z1: 60, halfWidth: 53 },    // main body
-        { z0: 60, z1: 80, halfWidth: 28 },     // bow taper
-        { z0: 80, z1: 120, halfWidth: 18 },    // bow spike
-        { z0: 120, z1: 147, halfWidth: 12 },   // spike tip
+        { z0: -141, z1: -136, halfWidth: 44 },
+        { z0: -136, z1: -124, halfWidth: 47 },
+        { z0: -124, z1: 16, halfWidth: 58 },
+        { z0: 16, z1: 35, halfWidth: 33 },
+        { z0: 35, z1: 56, halfWidth: 29 },
+        { z0: 56, z1: 74, halfWidth: 25 },
+        { z0: 74, z1: 98, halfWidth: 20 },
+        { z0: 98, z1: 116, halfWidth: 16 },
+        { z0: 116, z1: 133, halfWidth: 12 },
+        { z0: 133, z1: 141, halfWidth: 9 },
       ],
     } as Record<
       import("./Faction").Faction,
@@ -1331,66 +1411,38 @@ export const GameConfig = {
      * the green overlay (`hulk.debugColliders` / `window.__showHulkColliders`).
      */
     colliders: {
-      // Bastion: 18 structural boxes read from bastion_carrier.blend
-      // (hulk_colliders.py). Cosmetic detail (windows, lights, masts, turret
-      // barrels, engine disks) is intentionally excluded; launch bays are pod
-      // recesses already covered by the pod boxes.
+      // Aegis (film v15 → bastion_carrier.glb): auto-fitted by scripts/game-models/fitboxes.mjs from the
+      // top-down footprint. The narrow slots between the three hulls are filled (closing r=6) so fighters
+      // can't wedge into them, as the old fit's neck boxes did. Main box = the three hulls + crossbeams.
       humans: [
-        { cx: 0, cy: 0, cz: 12.7, hx: 17, hy: 11.7, hz: 127.2 },     // hull (central body)
-        { cx: 0, cy: -12.2, cz: 7.4, hx: 12.7, hy: 4.8, hz: 95.4 },  // keel
-        { cx: 0, cy: 13.2, cz: 2.1, hx: 5.3, hy: 2.6, hz: 106 },     // dorsal spine
-        { cx: 0, cy: 19.1, cz: 5.8, hx: 11.7, hy: 5.3, hz: 67.3 },   // deck (low)
-        { cx: 0, cy: 27, cz: 2.1, hx: 7.4, hy: 4.2, hz: 37.1 },      // deck (upper)
-        { cx: -38.2, cy: 0, cz: 12.7, hx: 12.7, hy: 7.4, hz: 106 },  // port pod
-        { cx: 38.2, cy: 0, cz: 12.7, hx: 12.7, hy: 7.4, hz: 106 },   // stbd pod
-        { cx: -38.2, cy: -9.5, cz: 7.4, hx: 8.5, hy: 2.6, hz: 74.2 },// port pod keel
-        { cx: 38.2, cy: -9.5, cz: 7.4, hx: 8.5, hy: 2.6, hz: 74.2 }, // stbd pod keel
-        { cx: -38.2, cy: 9.5, cz: -9.5, hx: 7.4, hy: 2.6, hz: 75.3 },// port pod ridge
-        { cx: 38.2, cy: 9.5, cz: -9.5, hx: 7.4, hy: 2.6, hz: 75.3 }, // stbd pod ridge
-        { cx: -22.3, cy: 0, cz: 12.7, hx: 10.6, hy: 3.7, hz: 80.6 }, // port neck (wing)
-        { cx: 22.3, cy: 0, cz: 12.7, hx: 10.6, hy: 3.7, hz: 80.6 },  // stbd neck (wing)
-        { cx: 0, cy: 0, cz: -118.7, hx: 15.9, hy: 13.8, hz: 13.8 },  // stern block
-        { cx: 0, cy: 0, cz: -124, hx: 14.8, hy: 11.7, hz: 6.9 },     // engine mount
-        { cx: 0, cy: 20.7, cz: 91.2, hx: 12.7, hy: 7.4, hz: 15.9 },  // bridge base
-        { cx: 0, cy: 30.2, cz: 93.3, hx: 9, hy: 5.8, hz: 11.7 },     // bridge mid
-        { cx: 0, cy: 37.6, cz: 91.2, hx: 5.3, hy: 2.1, hz: 7.9 },    // bridge cap
+        { cx: 0, cy: 17.3, cz: -7, hx: 50, hy: 28.4, hz: 112 },
+        { cx: 0, cy: -0.8, cz: 117, hx: 12, hy: 10.1, hz: 12 },
+        { cx: 0, cy: 3.5, cz: -125, hx: 13, hy: 14.1, hz: 6 },
+        { cx: -38.5, cy: -0.6, cz: 114, hx: 8.5, hy: 7.6, hz: 9 },
+        { cx: 38.5, cy: -0.6, cz: 114, hx: 8.5, hy: 7.6, hz: 9 },
+        { cx: -38.5, cy: -0.3, cz: -124, hx: 9.5, hy: 7.7, hz: 5 },
+        { cx: 38.5, cy: -0.3, cz: -124, hx: 9.5, hy: 7.7, hz: 5 },
+        { cx: 0, cy: -1.2, cz: 130.5, hx: 10, hy: 8.8, hz: 1.5 },
+        { cx: -28, cy: 0, cz: 109.5, hx: 2, hy: 7, hz: 4.5 },
+        { cx: 28, cy: -0.3, cz: 109.5, hx: 2, hy: 7.3, hz: 4.5 },
       ],
-      // Choirship: 31 structural boxes read from choirship.blend (hulk_colliders
-      // .py). Cosmetic detail (spine/cheek cells, lamps, run lights, viewports,
-      // engine disks, thin trim) excluded; the side launch-bay housings are each
-      // merged from their floor/roof/walls/back into one solid box.
+      // Choirship (film v08 → choirship.glb): same fitter; the tapered bow is a staircase of thin boxes.
       machines: [
-        { cx: 0, cy: 0, cz: -5.3, hx: 25.4, hy: 11.1, hz: 68.9 },      // hull (central body)
-        { cx: 0, cy: -12.7, cz: -10.6, hx: 14.8, hy: 4.2, hz: 58.3 },  // keel
-        { cx: 0, cy: 11.1, cz: -10.6, hx: 10.6, hy: 1.9, hz: 55.6 },   // dorsal spine frame
-        { cx: 0, cy: 0, cz: -90.1, hx: 40.3, hy: 10.1, hz: 31.8 },     // stern main block
-        { cx: 0, cy: 10.6, cz: -95.4, hx: 23.3, hy: 2.4, hz: 26.5 },   // stern deck
-        { cx: 0, cy: 0, cz: -129.3, hx: 40.3, hy: 9, hz: 9.5 },        // stern cap
-        { cx: -32.3, cy: 0, cz: -128.3, hx: 15.4, hy: 7.9, hz: 14.3 }, // stern corner port
-        { cx: 32.3, cy: 0, cz: -128.3, hx: 15.4, hy: 7.9, hz: 14.3 },  // stern corner stbd
-        { cx: 0, cy: 0, cz: -139.9, hx: 24.4, hy: 6.9, hz: 4.8 },      // stern engine block
-        { cx: 0, cy: 15.4, cz: -98.6, hx: 10.6, hy: 3.7, hz: 13.8 },   // aft module base
-        { cx: 0, cy: 20.7, cz: -95.4, hx: 5.3, hy: 2.9, hz: 8.5 },     // aft module head
-        { cx: -41.3, cy: 0, cz: -37.1, hx: 11.7, hy: 7.9, hz: 37.1 },  // port sponson
-        { cx: 41.3, cy: 0, cz: -37.1, hx: 11.7, hy: 7.9, hz: 37.1 },   // stbd sponson
-        { cx: -42.4, cy: 9, cz: -47.7, hx: 9, hy: 2.4, hz: 17 },       // port sponson step
-        { cx: 42.4, cy: 9, cz: -47.7, hx: 9, hy: 2.4, hz: 17 },        // stbd sponson step
-        { cx: -43.4, cy: 9.5, cz: -19.1, hx: 7.9, hy: 2.1, hz: 10.6 }, // port sponson step2
-        { cx: 43.4, cy: 9.5, cz: -19.1, hx: 7.9, hy: 2.1, hz: 10.6 },  // stbd sponson step2
-        { cx: -24.9, cy: 6.4, cz: -26.5, hx: 6.9, hy: 6.9, hz: 39.8 }, // port nacelle
-        { cx: 24.9, cy: 6.4, cz: -26.5, hx: 6.9, hy: 6.9, hz: 39.8 },  // stbd nacelle
-        { cx: -24.9, cy: 6.4, cz: 20.7, hx: 6.9, hy: 6.9, hz: 7.4 },   // port nacelle nose
-        { cx: 24.9, cy: 6.4, cz: 20.7, hx: 6.9, hy: 6.9, hz: 7.4 },    // stbd nacelle nose
-        { cx: 0, cy: 0, cz: 59.4, hx: 24.4, hy: 11.7, hz: 17 },        // bridge base
-        { cx: -20.7, cy: 9.5, cz: 57.2, hx: 6.9, hy: 4.8, hz: 13.8 },  // port cheek
-        { cx: 20.7, cy: 9.5, cz: 57.2, hx: 6.9, hy: 4.8, hz: 13.8 },   // stbd cheek
-        { cx: 0, cy: 14.3, cz: 60.4, hx: 8.5, hy: 4.2, hz: 11.7 },     // head base
-        { cx: 0, cy: 20.7, cz: 63.6, hx: 5.8, hy: 2.9, hz: 7.4 },      // head cap
-        { cx: 0, cy: 0, cz: 94.3, hx: 18, hy: 10.1, hz: 22.3 },        // prow body
-        { cx: 0, cy: 10.1, cz: 94.3, hx: 10.6, hy: 2.7, hz: 20.1 },    // prow plate
-        { cx: 0, cy: 0, cz: 129.8, hx: 11.7, hy: 7.9, hz: 16.4 },      // prow tip
-        { cx: -41.3, cy: 0, cz: 24.9, hx: 11.7, hy: 8.4, hz: 26 },     // port launch bay (housing)
-        { cx: 41.3, cy: 0, cz: 24.9, hx: 11.7, hy: 8.4, hz: 26 },      // stbd launch bay (housing)
+        { cx: 0, cy: 2.8, cz: -54, hx: 58, hy: 27, hz: 70 },
+        { cx: 0, cy: 0.9, cz: 57, hx: 20, hy: 14.4, hz: 41 },
+        { cx: 0, cy: 1.3, cz: -132.5, hx: 44, hy: 25.5, hz: 8.5 },
+        { cx: 0, cy: 0.1, cz: 115.5, hx: 12, hy: 12.2, hz: 17.5 },
+        { cx: -24.5, cy: 0.2, cz: 36, hx: 4.5, hy: 12.8, hz: 20 },
+        { cx: 24.5, cy: 0.1, cz: 36, hx: 4.5, hy: 12.7, hz: 20 },
+        { cx: 0, cy: 0.9, cz: 137, hx: 9, hy: 11.4, hz: 4 },
+        { cx: -22.5, cy: 0.1, cz: 65, hx: 2.5, hy: 12.2, hz: 9 },
+        { cx: 22.5, cy: 0.1, cz: 65, hx: 2.5, hy: 12.2, hz: 9 },
+        { cx: -31, cy: 0.1, cz: 25.5, hx: 2, hy: 12.2, hz: 9.5 },
+        { cx: 31, cy: 0.1, cz: 25.5, hx: 2, hy: 12.2, hz: 9.5 },
+        { cx: -14, cy: 0.1, cz: 107, hx: 2, hy: 12.2, hz: 9 },
+        { cx: 14, cy: 0.1, cz: 107, hx: 2, hy: 12.2, hz: 9 },
+        { cx: -45.5, cy: 9.2, cz: -130, hx: 1.5, hy: 17.7, hz: 6 },
+        { cx: 45.5, cy: 9.2, cz: -130, hx: 1.5, hy: 17.7, hz: 6 },
       ],
     } as Record<
       import("./Faction").Faction,
@@ -1435,8 +1487,8 @@ export const GameConfig = {
        * touched: bolts die on the hull boundary first (this bit once: the
        * mounts moved inboard to the GLB pod-ridge/sponson positions while r
        * stayed 8, making every turret IMMUNE — owner-reported 2026-07-18).
-       * Current mounts: humans |x|=38 vs pod-box edge 50.9 → needs r > 12.9;
-       * machines |x|=42 vs sponson edge 53 → needs r > 11. 15 pokes both.
+       * Current mounts: humans |x|=43 vs hull-box edge 50 → needs r > 7;
+       * machines |x|=54 vs sponson edge 58 → needs r > 4. 15 pokes both.
        * Re-check this bound whenever mounts or hull colliders move.
        */
       hitRadius: 15,
@@ -1558,33 +1610,26 @@ export const GameConfig = {
       // and a strafing run can shoot it off. Inboard mounts sit behind the hull
       // silhouette and can't be hit cleanly — keep these near the edges.
       mounts: {
-        // Bastion Carrier: two per flight pod (fore + aft), on the outer edge
-        // (pod outer edge ≈ ±50.9; x=±47 + r8 reaches ±55, ~4 past the hull).
-        // Bastion turrets sit on the POD RIDGE (the topmost pod deck): pods
-        // centered at x = ±38, ridge top at y ≈ 12.2 (carrier-LOCAL; world ≈ 9),
-        // one forward (z = +48) and one aft (z = −45) per pod. The aft pair is
-        // pulled forward of the pod's stern EAGLE EMBLEM (which sits ~z −63…−80)
-        // so the guns don't cover it. Matches the `turret.*` empties baked into
-        // bastion_carrier.glb (re-fit both from
-        // `node scripts/measure-carrier-footprint.mjs` if the model changes).
+        // Aegis (film v15): two per OUTER flight pod (fore + aft), on the pod's
+        // top deck (y ≈ 6.6 carrier-LOCAL) and pushed outboard of the pod centre
+        // (±38) to ±43 so each hit circle pokes past the hull edge (±50).
+        // Matches the `turret.*` empties baked into bastion_carrier.glb by
+        // scripts/game-models/make-game-model.mjs (re-fit both together).
         humans: [
-          { x: -38, y: 12.2, z: -45 }, // port pod, aft
-          { x: -38, y: 12.2, z: 48 },  // port pod, fore
-          { x: 38, y: 12.2, z: -45 },  // starboard pod, aft
-          { x: 38, y: 12.2, z: 48 },   // starboard pod, fore
+          { x: -43, y: 6.6, z: -45 }, // port pod, aft
+          { x: -43, y: 6.6, z: 50 },  // port pod, fore
+          { x: 43, y: 6.6, z: -45 },  // starboard pod, aft
+          { x: 43, y: 6.6, z: 50 },   // starboard pod, fore
         ],
-        // Choirship turrets sit on the SPONSON STEP (the topmost sponson deck):
-        // sponsons centered at x = ±42, step top at y ≈ 11.5 (carrier-LOCAL;
-        // world ≈ 8.5), one forward (z = −20) and one aft (z = −50) per sponson.
-        // Both are kept aft of the sponson's forward Novari KNOT emblem (which
-        // sits ~z 0…+27) so the guns don't cover it. Matches the `turret.*`
-        // empties baked into choirship.glb (re-fit both from
-        // `node scripts/measure-carrier-footprint.mjs` if the model changes).
+        // Choirship (film v08): two per side sponson (fore z −20, aft z −95) on
+        // its top deck (y ≈ 12.9), kept aft of the hangar mouths at the sponson
+        // fronts (z ≈ 9). Sponson edge ±58 → hit circles reach ±69. Matches the
+        // `turret.*` empties baked into choirship.glb (scripts/game-models).
         machines: [
-          { x: -42, y: 11.5, z: -50 }, // port sponson, aft
-          { x: -42, y: 11.5, z: -20 }, // port sponson, fore
-          { x: 42, y: 11.5, z: -50 },  // starboard sponson, aft
-          { x: 42, y: 11.5, z: -20 },  // starboard sponson, fore
+          { x: -54, y: 12.9, z: -95 }, // port sponson, aft
+          { x: -54, y: 12.9, z: -20 }, // port sponson, fore
+          { x: 54, y: 12.9, z: -95 },  // starboard sponson, aft
+          { x: 54, y: 12.9, z: -20 },  // starboard sponson, fore
         ],
       } as Record<
         import("./Faction").Faction,
@@ -2436,10 +2481,10 @@ export const GameConfig = {
     // — no rotation correction. ~9.3u long native → ~3.3u at fleet scale,
     // deliberately twice the Spitfire's footprint.
     "breaker.glb": { rotX: 0, rotY: 0, rotZ: 0, scale: 0.35 },
-    // Reaver heavy gunship (Blender source: art/reaver.blend). Same fighter
-    // convention as the breaker (nose-along-Blender--Y, +Y-up export) so no
-    // rotation correction. ~9.1u long / 12.1u blade span native → ~3.2u long
-    // at fleet scale, the widest fighter silhouette in the game.
+    // Reaver heavy gunship, generated from the film model (Reaver_v13) by
+    // scripts/make-game-model.mjs, which bakes it nose-+Z so no rotation
+    // correction. ~9.1u long / 10.6u blade span native → ~3.2u long at fleet
+    // scale, the widest fighter silhouette in the game.
     "reaver.glb": { rotX: 0, rotY: 0, rotZ: 0, scale: 0.35 },
   } as Record<string, { rotX: number; rotY: number; rotZ: number; scale: number }>,
 

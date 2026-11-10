@@ -46,6 +46,17 @@ export function hullColliderBoxes(source: HulkHazard["source"]): HulkBox[] {
 }
 
 /**
+ * The WRECK's collision boxes: `GameConfig.hulk.colliders` when the wreck model
+ * still differs from the live carrier (it does: the wrecks are the old hull
+ * designs), else the live carrier's own `hullColliderBoxes`.
+ */
+export function wreckColliderBoxes(source: HulkHazard["source"]): HulkBox[] {
+  const own = GameConfig.hulk.colliders?.[source];
+  if (own && own.length > 0) return own.map((b) => ({ ...b }));
+  return hullColliderBoxes(source);
+}
+
+/**
  * Hulk SIM — a derelict capital-ship wreck as gameplay truth, with NO Babylon
  * scene objects (its depiction is a client-side HulkView). A placed map hazard
  * (docs/ARENA-MAPS.md slice 5): INDESTRUCTIBLE static cover that blocks weapons
@@ -102,7 +113,7 @@ export class Hulk {
     // hulk's own scale. hy makes the box thin to a slab when rolled edge-on
     // rather than staying a full-width wall.
     const s = this.scale;
-    this.sections = hullColliderBoxes(this.source).map(
+    this.sections = wreckColliderBoxes(this.source).map(
       (b) =>
         new HulkSection(this, b.hx * s, b.hy * s, b.hz * s, b.cx * s, b.cy * s, b.cz * s),
     );

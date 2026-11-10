@@ -102,7 +102,10 @@ describe("opening launch camera", () => {
     const home = new Mothership(Vector3.Zero(), faction === "machines" ? Math.PI : 0, faction);
     new OpeningLaunchCamera(rig, home, [{ bayIndex: 0, isFinished: () => false }]);
 
-    const view = rig.camera.getTarget().subtract(rig.camera.position).normalize();
+    // Read the view from the camera's orientation (getTarget() stays stale until a
+    // render on the NullEngine, so it reported the carrier origin, not the shot target).
+    rig.camera.computeWorldMatrix(true);
+    const view = rig.camera.getDirection(new Vector3(0, 0, 1)).normalize();
     const forward = home.getLaunchForward();
     const launch = new Vector3(forward.x, 0, forward.z).normalize();
     const angleFromLaunchAxis = Math.acos(Math.min(1, Math.abs(Vector3.Dot(view, launch))));

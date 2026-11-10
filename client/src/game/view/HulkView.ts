@@ -13,7 +13,7 @@ import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
 import "@babylonjs/loaders/glTF";
 
 import { GameConfig } from "@space-duel/shared";
-import { hullColliderBoxes, type Hulk } from "@space-duel/shared";
+import { wreckColliderBoxes, type Hulk } from "@space-duel/shared";
 import { includeInGlow } from "../GlowInclude";
 
 /**
@@ -165,7 +165,7 @@ export class HulkView {
       mat.disableLighting = true;
       mat.wireframe = true;
       // Same UNSCALED boxes the sim collides with (root applies the wreck scale).
-      const boxes = hullColliderBoxes(this.source);
+      const boxes = wreckColliderBoxes(this.source);
       for (let i = 0; i < boxes.length; i++) {
         const b = boxes[i];
         const box = MeshBuilder.CreateBox(
