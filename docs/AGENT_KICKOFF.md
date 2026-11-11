@@ -257,89 +257,11 @@ recur):
 
 **Work order**:
 
-- ~~**BUG: the scoreboard credits a human pilot's kills to a BOT.**~~ FIXED
-  2026-08-31 (see the State line above). Semantics were the owner's call, taken
-  this session: pilot rows key by SANITIZED NAME (a reload resumes the tally in
-  any seat; same-name pilots deliberately share a row), and a seat's bot ledger
-  is hidden from the board while frozen-and-untouched. Left as a known,
-  accepted seam: two pilots typing the same callsign share one row (documented
-  at `BattleRoom.pilotRowKey`).
-
-- **Owner playtest: The Canyon on real walls, planetside**. Expected
-  sights: a dusk desert landscape scrolling far below with real parallax
-  (no stars/space backdrop/capital ships on this map), canyon ridges
-  rising OUT of the terrain (ground swells to the wall feet — no floating
-  ribbon), BOTH CARRIERS inside widened trench chambers (walls continue to
-  z=±1200 behind them, so normal play never exposes a canyon mouth), readable
-  wall faces (the new self-light), AI threading the
-  bends and breaking around the bend rocks, bolts/missiles dying on
-  walls, wall polylines on the radar, scrape damage + trauma cue on a
-  graze. TEXTURES (owner-owned art): SEAMLESS tileable images at
-  `client/public/textures/planet-surface.jpg` (ground — owner has it, looks
-  good) and `client/public/textures/canyon-wall.jpg` (wall rock faces) — they
-  apply automatically;
-  until a file lands that surface renders in its plain fallback color
-  (deliberate, never black). Wall-texture dials: `walls.texture.tileSize`
-  (kept at the planet tile's 260-unit world scale) and `walls.texture.tint`
-  (brightness). Wall-vs-ground integration is structural: mesa walls are
-  ASYMMETRIC CUT BANKS — a trench-facing rock ribbon joins a rim cap that
-  uses the planet tile, its world-planar UVs, and PlanetTerrain's exact FBM
-  height sample. The symmetric stacked slabs remain only as the non-mesa /
-  free-standing fallback. `planet.hemiSky` (warm dusty override
-  of the blue space fill) remains the master warm/cool knob for the
-  near-vertical faces. Iterate LIVE in a solo match via the dev-console
-  hook `__tuneWalls({ texture: {...} })` (rebuilds views in place; shallow
-  merge — pass nested objects complete), then commit the dialed values into
-  GameConfig. Planet dials:
-  `GameConfig.planet` —
-  `texture.tint` for ground brightness/warmth (DARKEN if bolts/trails wash
-  out — never touch FX), `texture.tileSize` for ground busy-ness,
-  `baseY`/`amplitude` for depth feel, `wallBlend` for how wide the ground
-  shoulders the walls, `clearColor`/`hemiGround` for the scene tint
-  (`texture.file: ""` = the old faceted procedural look). Wall dials if
-  the feel is off:
-  `GameConfig.walls.chunkLength` DOWN if AI balks at bends (steering
-  circles hug tighter), lane width via the `theCanyon` polylines
-  (`shared/src/Maps.ts` — comments carry the offset math),
-  `walls.height`/`belowDepth`/`ringSpacing` for the look,
-  `walls.diffuse`/`walls.emissive` for face brightness (the emissive floor
-  keeps the steep faces readable under the top-down lights — raise it if
-  they still read too dark, but keep it well below diffuse or the facets
-  flatten), `walls.collisionDamage` for scrape sting. Anchors:
-  `shared/src/sim/Wall.ts`, `client/src/game/view/WallView.ts`,
-  `resolveWallCollisions` in `Game.ts`/`BattleSim.ts`,
-  `tests/sim/wallKeepOut.test.ts` (the canyon-battle invariant).
-
-- **Owner playtest: fleet doctrine + OBSERVE mode** (this commit — the
-  best lens is OBSERVE itself: solo MISSION step → Deployment → OBSERVE;
-  rotate keys / fire cycle ships, HUD tracks the watched pilot). Expected
-  sights: patrol/pool pilots turning in on contacts out to ~140u instead
-  of drifting past; defend gunships flying a clean counter-clockwise
-  racetrack at ~180u (no hull-hugging squiggle); on the leader's death the
-  wing packing up behind a spearhead escort and prosecuting (not
-  scattering to wander); escorts scrambling home when the carrier takes
-  fire, releasing ~8s after it stops; damaged pilots tagging `· RTB` on
-  the cmd row, docking at a bay mouth (`dock` row `servicing` → `docked`),
-  then returning to the front — NO ship parked motionless against a hull.
-  Dials if the feel is off: `ai.engagementRange` (per-difficulty
-  100/140/180 in `client/src/game/Difficulty.ts` — the GameConfig default
-  only bites when no preset applies), `ai.defendOrbitRadius`/
-  `defendOrbitBand` (CAP ring), `commander.defendCount`/`defendHoldThinks`
-  (scramble size/stickiness), `ai.coverBreakRange` 45 (raise toward
-  70–90 for more aggressive escorts — deliberately left tight),
-  `fleets.*.strikeCount` vs the defense knobs if matches run long.
-  Anchors: `shared/src/WingCommander.ts` (whole doctrine),
-  `shared/src/AIController.ts` (the `defend` case = CAP orbit;
-  `retreatMovement` dock branch + `dockingHome`/`dockPoint`;
-  `scanForThreat`'s carrierFaction skip; the cover dead-leader fallback),
-  `shared/src/FleetCommander.ts` (leader failover), `Game.ts`
-  (`isHumanSeat`, the spectate camera + HUD blocks in `updateViews`),
-  `client/src/game/LoadoutMenu.ts` (the role row),
-  `Hud.setCommand`/`setObserving`.
-
-Otherwise nothing queued. New items come from the deploy + friends
-playtest, or whatever the owner asks for next. File them here with
-anchors as they surface.
+Nothing queued. The owner cleared the queue on 2026-11-10: he will start from
+a fresh review of the game. The items that were here (the scoreboard fix
+record, the Canyon playtest and the fleet doctrine + OBSERVE playtest, with
+their dials and anchors) are in this file's git history before that date.
+File new items here with anchors as they surface.
 
 **Rules of the road** (already true in code — don't relearn them):
 
