@@ -16,9 +16,10 @@ editing instead of searching.
 
 ---
 
-**State (2026-11-10)**: KEEP-WARM, branch `spitfire-v26` at `96328db`, 4 commits
-ahead of `main` (the www redirect, the rebuilt ship models + tooling, the path
-and canon-pointer update, a test type fix; NOT merged — the owner decides).
+**State (2026-11-10)**: KEEP-WARM, code at `96328db`. Branch `spitfire-v26` was
+fast-forwarded into `main` on 2026-11-10 (the owner's call), so `main` now has
+the www redirect, the rebuilt ship models + tooling, the path and
+canon-pointer update and a test type fix. Merged, NOT deployed.
 The repo now lives at `The Last Meridian/Game` (moved 2026-11-10 from
 `ai/games/space-duel`; the project's other folders are siblings: `../Canon`,
 `../Video Series`, `../Website`). No gameplay or protocol change since the
